@@ -14,6 +14,7 @@ import { SERVER_CONFIG } from "./config/config.js";
 import { getEmbedConfig, getEmbedConfigByReportId } from "./config/powerbi.js";
 import { verifyJWT } from "./middleware/auth.js";
 import { defaultDeny, requireAdmin, requireSelfOrAdmin } from "./middleware/authorize.js";
+import * as rateLimit from "./services/rateLimiter.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -112,6 +113,17 @@ app.post("/api/register", async (req, res) => {
 // LOGIN
 app.post("/api/login", (req, res) => {
   const { username, password } = req.body;
+
+  // Limited per username rather than per IP: an office shares one public IP, so
+  // an IP-based limit would lock out a whole floor because one person mistyped.
+  const limit = rateLimit.hit(`login:${username}`, 10, 300);
+  if (!limit.allowed) {
+    res.set("Retry-After", String(limit.retryAfterSeconds));
+    return res.status(429).json({
+      message: `Terlalu banyak percobaan login. Coba lagi dalam ${limit.retryAfterSeconds} detik.`,
+    });
+  }
+
   const query = "SELECT * FROM users WHERE username = ?";
 
   db.query(query, [username], async (err, results) => {
