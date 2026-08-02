@@ -5,6 +5,7 @@ import fs          from "fs";
 import jwt         from "jsonwebtoken";
 import { fileURLToPath } from "url";
 import { PortalLinkModel } from "../models/portalLinkModel.js";
+import { requireAdmin } from "../middleware/authorize.js";
 
 const router    = express.Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,17 +32,6 @@ const upload = multer({
 });
 
 // ── Admin-only middleware ─────────────────────────────────────────────────────
-function requireAdmin(req, res, next) {
-  const token = req.headers.authorization?.split(" ")[1];
-  if (!token) return res.status(401).json({ message: "Token missing" });
-  jwt.verify(token, process.env.JWT_SECRET || "jwt_secret_key", (err, decoded) => {
-    if (err) return res.status(401).json({ message: "Invalid or expired token" });
-    if (decoded.username !== "digital.transformation")
-      return res.status(403).json({ message: "Admin access required" });
-    req.user = decoded;
-    next();
-  });
-}
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 

@@ -88,5 +88,5 @@ export async function clearUniversalKey() {
  * sees the admin controls is the one the server accepts.
  */
 export function isAdminUser(user) {
-  return user?.username === "digital.transformation" || user?.nama === "Digital Transformer";
+  return user?.role === "admin";
 }

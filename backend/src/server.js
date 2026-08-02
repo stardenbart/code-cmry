@@ -137,7 +137,7 @@ app.get("/api/check-token", (req, res) => {
 });
 
 // GET ALL USERS
-app.get("/api/users", (req, res) => {
+app.get("/api/users", requireAdmin, (req, res) => {
   const q = "SELECT id, nama, departemen, tipe_akses, nik, email, username, approved FROM users";
   db.query(q, (err, results) => {
     if (err) return res.status(500).json({ message: "Database error", error: err });
@@ -146,7 +146,7 @@ app.get("/api/users", (req, res) => {
 });
 
 // CHANGE PASSWORD
-app.put("/api/users/:id/password", async (req, res) => {
+app.put("/api/users/:id/password", requireSelfOrAdmin("id"), async (req, res) => {
   const { id } = req.params;
   const { newPassword } = req.body;
 
@@ -177,8 +177,16 @@ app.put("/api/users/:id/password", async (req, res) => {
 });
 
 // ADD USER
-app.post("/api/add-user", async (req, res) => {
+app.post("/api/add-user", requireAdmin, async (req, res) => {
   const { nama, departemen, tipe_akses, nik, email, username, password } = req.body;
+
+  // bcrypt.hash(undefined) throws, and an unhandled rejection inside an async
+  // Express handler kills the process — Express does not catch it. A request
+  // with no body used to take the whole backend down.
+  if (!username?.trim() || !password?.trim() || !nama?.trim()) {
+    return res.status(400).json({ message: "Nama, username, dan password wajib diisi" });
+  }
+
   const hashedPassword = await bcrypt.hash(password, 10);
   const q = `
     INSERT INTO users (nama, departemen, tipe_akses, nik, email, username, password, approved)
@@ -191,7 +199,7 @@ app.post("/api/add-user", async (req, res) => {
 });
 
 // UPDATE USER
-app.put("/api/update-user/:id", async (req, res) => {
+app.put("/api/update-user/:id", requireAdmin, async (req, res) => {
   const { id } = req.params;
   const { nama, departemen, tipe_akses, nik, email, username, password } = req.body;
 
@@ -225,7 +233,7 @@ app.put("/api/update-user/:id", async (req, res) => {
 });
 
 // APPROVE / DECLINE USER
-app.put("/api/approve-user/:id", (req, res) => {
+app.put("/api/approve-user/:id", requireAdmin, (req, res) => {
   const { id } = req.params;
   
   // Get user info first for notification
@@ -243,7 +251,7 @@ app.put("/api/approve-user/:id", (req, res) => {
   });
 });
 
-app.put("/api/decline-user/:id", (req, res) => {
+app.put("/api/decline-user/:id", requireAdmin, (req, res) => {
   const { id } = req.params;
   db.query("DELETE FROM users WHERE id = ?", [id], (err) => {
     if (err) return res.status(500).json({ message: "Database error", error: err });
@@ -298,7 +306,7 @@ app.post("/api/request-access", (req, res) => {
   });
 });
 
-app.get("/api/dashboard-access-status/:userId", (req, res) => {
+app.get("/api/dashboard-access-status/:userId", requireSelfOrAdmin("userId"), (req, res) => {
   const { userId } = req.params;
 
   const q = `
@@ -336,7 +344,7 @@ app.get("/api/dashboard-access-status/:userId", (req, res) => {
 });
 
 // GRANT DASHBOARD ACCESS
-app.get("/api/users/:userId/dashboard-access", (req, res) => {
+app.get("/api/users/:userId/dashboard-access", requireSelfOrAdmin("userId"), (req, res) => {
   const { userId } = req.params;
 
   const sql = `
@@ -366,7 +374,7 @@ app.get("/api/users/:userId/dashboard-access", (req, res) => {
 });
 
 // HARD REVOKE DASHBOARD ACCESS
-app.post("/api/users/:userId/dashboard-access", (req, res) => {
+app.post("/api/users/:userId/dashboard-access", requireAdmin, (req, res) => {
   const { userId } = req.params;
   const { dashboardId, checked } = req.body;
 
@@ -410,7 +418,7 @@ app.post("/api/users/:userId/dashboard-access", (req, res) => {
 });
 
 // ACCESS REQUEST LOG
-app.get("/api/access-requests-log/:userId", (req, res) => {
+app.get("/api/access-requests-log/:userId", requireSelfOrAdmin("userId"), (req, res) => {
   const { userId } = req.params;
 
   const query = `
@@ -436,7 +444,7 @@ app.get("/api/access-requests-log/:userId", (req, res) => {
 });
 
 // ACCESS STATUS LOG
-app.get("/api/access/:userId", (req, res) => {
+app.get("/api/access/:userId", requireSelfOrAdmin("userId"), (req, res) => {
   const { userId } = req.params;
 
   const query = `
@@ -461,7 +469,7 @@ app.get("/api/access/:userId", (req, res) => {
 });
 
 // GET ACCESS REQUESTS
-app.get("/api/requests", (req, res) => {
+app.get("/api/requests", requireAdmin, (req, res) => {
   const qUsers = "SELECT * FROM users WHERE approved = 0";
   const qAccess = `
     SELECT ar.id, u.nama, u.departemen, ar.dashboard_title, ar.dashboard_department,
@@ -509,7 +517,7 @@ app.post("/api/cancel-request", (req, res) => {
 });
 
 // APPROVE REQUEST
-app.put("/api/approve-request/:id", (req, res) => {
+app.put("/api/approve-request/:id", requireAdmin, (req, res) => {
   const { id } = req.params;
 
   const q = `
@@ -543,7 +551,7 @@ app.put("/api/approve-request/:id", (req, res) => {
 });
 
 // DECLINE REQUEST
-app.put("/api/decline-request/:id", (req, res) => {
+app.put("/api/decline-request/:id", requireAdmin, (req, res) => {
   const { id } = req.params;
   db.query("UPDATE access_requests SET status = 'DECLINED' WHERE id = ?", [id], (err) => {
     if (err) {
@@ -555,7 +563,7 @@ app.put("/api/decline-request/:id", (req, res) => {
 });
 
 // DELETE USER
-app.delete("/api/delete-user/:id", (req, res) => {
+app.delete("/api/delete-user/:id", requireAdmin, (req, res) => {
   const { id } = req.params;
   db.query("DELETE FROM users WHERE id = ?", [id], (err) => {
     if (err) return res.status(500).json({ message: "Database error", error: err });
@@ -564,7 +572,7 @@ app.delete("/api/delete-user/:id", (req, res) => {
 });
 
 // USERS NOTIFICATION
-app.get("/api/notifications/count/:userId", (req, res) => {
+app.get("/api/notifications/count/:userId", requireSelfOrAdmin("userId"), (req, res) => {
   const { userId } = req.params;
 
   db.query(
@@ -583,7 +591,7 @@ app.get("/api/notifications/count/:userId", (req, res) => {
 });
 
 // UPDATE COUNT NOTIFICATION
-app.put("/api/notifications/mark-read/:userId", (req, res) => {
+app.put("/api/notifications/mark-read/:userId", requireSelfOrAdmin("userId"), (req, res) => {
   const { userId } = req.params;
 
   db.query(

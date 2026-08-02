@@ -1,6 +1,7 @@
 import express from "express";
 import { AiController } from "../controllers/aiController.js";
 import { verifyJWT } from "../middleware/auth.js";
+import { requireAdmin } from "../middleware/authorize.js";
 
 const router = express.Router();
 
@@ -13,8 +14,8 @@ router.put("/key", AiController.saveKey);
 router.delete("/key", AiController.deleteKey);
 
 // Universal (shared) key — Digital Transformer only, enforced in the controller
-router.put("/universal-key", AiController.saveUniversalKey);
-router.delete("/universal-key", AiController.deleteUniversalKey);
+router.put("/universal-key", requireAdmin, AiController.saveUniversalKey);
+router.delete("/universal-key", requireAdmin, AiController.deleteUniversalKey);
 router.put("/model", AiController.saveModel);
 
 router.post("/ask", AiController.ask);
