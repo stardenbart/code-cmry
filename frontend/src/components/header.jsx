@@ -18,9 +18,9 @@ export default function Header({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
-  const isAdmin =
-    user.nama === "Digital Transformer" ||
-    user.username === "digital.transformation";
+  // The server enforces this independently; here it only decides what to render.
+  // Matching on nama/username was cosmetic — anyone could rename themselves.
+  const isAdmin = user?.role === "admin";
 
   // Close dropdown when clicking outside
   useEffect(() => {

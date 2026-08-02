@@ -11,7 +11,7 @@ export default function NotificationPage({ user }) {
     try {
       setLoading(true);
 
-      if (user?.nama === "Digital Transformer") {
+      if (user?.role === "admin") {
         const res = await API.get("/api/requests");
         setRequests({
           userRequests: res.data.userRequests || [],
@@ -66,7 +66,7 @@ export default function NotificationPage({ user }) {
     <div className="p-8 bg-gray-50 min-h-screen space-y-10 rounded-2xl">
       <h1 className="text-3xl font-bold text-cimoryBlue mb-6">Here's New!</h1>
 
-      {user?.nama === "Digital Transformer" ? (
+      {user?.role === "admin" ? (
         <>
           <section>
             <h2 className="text-xl font-semibold text-cimoryRed mb-4">User Registration Requests</h2>

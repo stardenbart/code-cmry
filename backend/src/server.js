@@ -136,7 +136,10 @@ app.post("/api/login", (req, res) => {
     if (!user.approved) return res.status(403).json({ message: "Account pending approval" });
 
     const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET || "jwt_secret_key", { expiresIn: "8h" });
-    res.status(200).json({ token, user });
+    // The browser stores this in localStorage; the bcrypt hash has no business
+    // being there. `role` stays — the UI needs it to decide what to render.
+    const { password: _omit, ...safeUser } = user;
+    res.status(200).json({ token, user: safeUser });
   });
 });
 

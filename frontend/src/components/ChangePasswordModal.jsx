@@ -3,8 +3,10 @@ import { EyeIcon, EyeOffIcon } from "lucide-react";
 import API from "../api/api";
 
 export default function ChangePasswordModal({ onClose }) {
+  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -24,6 +26,11 @@ export default function ChangePasswordModal({ onClose }) {
       return;
     }
 
+    if (!currentPassword) {
+      alert("Masukkan password saat ini");
+      return;
+    }
+
     if (newPassword.length < 6) {
       alert("Password must be at least 6 characters long");
       return;
@@ -36,20 +43,24 @@ export default function ChangePasswordModal({ onClose }) {
 
     try {
       await API.put(`/api/users/${loggedInUser.id}/password`, {
+        currentPassword,
         newPassword,
       });
 
       alert("Password updated successfully!");
 
-      const updatedUser = { ...loggedInUser, password: newPassword };
-      localStorage.setItem("user", JSON.stringify(updatedUser));
+      // Deliberately NOT writing the password back into localStorage — it used
+      // to be stored there in plain text, readable by any script on the page.
 
+      setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
       onClose();
     } catch (err) {
       console.error("Error updating password:", err);
-      alert("Failed to update password");
+      // The server distinguishes "wrong current password" from other failures;
+      // showing a generic message would leave the user guessing.
+      alert(err?.response?.data?.message || "Failed to update password");
     }
   };
 
@@ -63,7 +74,26 @@ export default function ChangePasswordModal({ onClose }) {
         <div className="space-y-3">
           <div className="relative">
             <input
+              type={showCurrent ? "text" : "password"}
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="Password saat ini"
+              autoComplete="current-password"
+              className="w-full border p-2 rounded focus:outline-none focus:ring focus:ring-yellow-300 pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowCurrent(!showCurrent)}
+              className="absolute right-3 top-2.5 text-gray-500 hover:text-gray-700"
+            >
+              {showCurrent ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
+            </button>
+          </div>
+
+          <div className="relative">
+            <input
               type={showNew ? "text" : "password"}
+              autoComplete="new-password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="New Password"

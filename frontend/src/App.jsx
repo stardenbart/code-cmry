@@ -704,7 +704,19 @@ export default function App() {
     const token      = localStorage.getItem("token");
 
     if (storedUser && token) {
-      setUser(JSON.parse(storedUser));
+      const parsed = JSON.parse(storedUser);
+
+      // Sessions created before roles existed have no `role` — the admin menus
+      // would silently vanish with no explanation. They also still carry the
+      // bcrypt hash the old login used to send. Drop them and ask for a login.
+      if (!parsed?.role) {
+        localStorage.removeItem("user");
+        localStorage.removeItem("token");
+        setLoadingUser(false);
+        return;
+      }
+
+      setUser(parsed);
       API.get("/api/check-token", { headers: { Authorization: `Bearer ${token}` } })
         .then((res)  => console.log("Token valid:", res.data))
         .catch((err) => console.warn("Token invalid atau expired:", err?.response?.data?.message))
@@ -730,8 +742,7 @@ export default function App() {
     setUser(null);
   };
 
-  const isAdmin = (u) =>
-    u?.nama === "Digital Transformer" || u?.username === "digital.transformation";
+  const isAdmin = (u) => u?.role === "admin";
 
   return (
     <Routes>
