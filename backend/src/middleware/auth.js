@@ -1,4 +1,7 @@
 import jwt from "jsonwebtoken";
+import db from "../config/db.js";
+
+const sql = db.promise();
 
 // Verifies the Bearer JWT and attaches { id, username } to req.user
 export function verifyJWT(req, res, next) {
@@ -10,4 +13,30 @@ export function verifyJWT(req, res, next) {
     req.user = decoded;
     next();
   });
+}
+
+/**
+ * Single source of truth for admin rights.
+ *
+ * Reads the `role` column rather than comparing usernames: the old check was
+ * duplicated across five files, broke if the account was renamed, and could
+ * never support a second admin.
+ */
+export function isAdmin(user) {
+  return user?.role === "admin";
+}
+
+/**
+ * Loads a user fresh from the database.
+ *
+ * Authorization deliberately does NOT trust the role inside the JWT — a token
+ * issued before an admin was demoted would keep working until it expired.
+ */
+export async function loadUser(userId) {
+  if (userId === undefined || userId === null) return null;
+  const [rows] = await sql.query(
+    "SELECT id, nama, username, departemen, tipe_akses, role, approved FROM users WHERE id = ?",
+    [userId]
+  );
+  return rows[0] || null;
 }
