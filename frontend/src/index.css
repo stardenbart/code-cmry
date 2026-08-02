@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+
+@layer components {
+  .input {
+    @apply w-full p-2 border rounded-xl focus:ring-2 focus:ring-cimoryBlue;
+  }
+}
+
+h1, h2 {
+  font-family: 'Poppins', sans-serif;
+}

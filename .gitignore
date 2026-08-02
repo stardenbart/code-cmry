@@ -1,0 +1,72 @@
+# ── Dependencies ─────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Secrets ──────────────────────────────────────────────────────────────────
+# .env holds the MySQL password, Power BI service-principal secret, master
+# account password, Gmail app password, and JWT_SECRET. Never commit it.
+.env
+.env.*
+!.env.example
+
+# ── Build output ─────────────────────────────────────────────────────────────
+frontend/dist/
+build/
+
+# ── Data containing real people ──────────────────────────────────────────────
+# Any database dump carries employee names, emails, NIK and bcrypt password
+# hashes. Only the structure is committed — see cod_db.schema.sql.
+#
+# Matched anywhere in the tree, not just under migrations/: an export dropped in
+# the project root (cod_db_export_20260731_1636.sql, 67 addresses) slipped past
+# a migrations-only pattern during setup.
+cod_db.sql
+cod_db_export*.sql
+*_export_*.sql
+*.dump.sql
+*-data.sql
+# Explicit allow for the structure-only file
+!backend/migrations/cod_db.schema.sql
+
+# ── Internal plant knowledge ─────────────────────────────────────────────────
+# Azure tenant GUID, named suppliers, product QC spec bands and the semantic
+# model inventory of CMD Plant Sentul. Deploy it with the app, don't publish it.
+# See README → "Domain knowledge pack".
+backend/knowledge/
+
+# ── Archives ─────────────────────────────────────────────────────────────────
+# A project tarball defeats every rule above by carrying the excluded files
+# inside it. cod-project-clean.tar.gz (6.9 MB) was found to contain
+# backend/.env — the live database password, Power BI client secret, master
+# account password, Gmail app password and JWT_SECRET.
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.rar
+*.7z
+*.bak
+
+# ── User uploads (keep the placeholder) ──────────────────────────────────────
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# ── Logs & runtime ───────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.pid
+
+# ── Editors & OS ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Scratch / temporary ──────────────────────────────────────────────────────
+tmp/
+temp/
+.cache/
+coverage/
