@@ -13,6 +13,7 @@ import aiRoutes from "./routes/aiRoutes.js";
 import { SERVER_CONFIG } from "./config/config.js";
 import { getEmbedConfig, getEmbedConfigByReportId } from "./config/powerbi.js";
 import { verifyJWT } from "./middleware/auth.js";
+import { defaultDeny, requireAdmin, requireSelfOrAdmin } from "./middleware/authorize.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -36,6 +37,10 @@ const PORT = SERVER_CONFIG.port;
 // Limit is generous because /api/ai/ask carries a Power BI data snapshot
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "10mb" }));
 app.use(cors());
+
+// Default-deny: everything under /api needs a token unless explicitly public.
+// Must sit before every router so no route can be registered behind its back.
+app.use(defaultDeny);
 
 // Serve uploaded portal images statically
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
