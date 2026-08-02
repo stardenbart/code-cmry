@@ -146,32 +146,43 @@ app.get("/api/users", requireAdmin, (req, res) => {
 });
 
 // CHANGE PASSWORD
+// Self-service requires the current password: without it, anyone who finds an
+// unattended logged-in browser could lock the owner out permanently. An admin
+// resetting someone else's password is exempt — that is the point of a reset.
 app.put("/api/users/:id/password", requireSelfOrAdmin("id"), async (req, res) => {
   const { id } = req.params;
-  const { newPassword } = req.body;
+  const { currentPassword, newPassword } = req.body;
 
-  if (!newPassword || newPassword.trim() === "") {
-    return res.status(400).json({ message: "Password is required" });
+  if (!newPassword || newPassword.trim().length < 8) {
+    return res.status(400).json({ message: "Password baru minimal 8 karakter" });
   }
 
+  const isSelf = Number(id) === Number(req.dbUser.id);
+
   try {
+    if (isSelf) {
+      if (!currentPassword) {
+        return res.status(400).json({ message: "Password saat ini wajib diisi" });
+      }
+
+      const [rows] = await db.promise().query("SELECT password FROM users WHERE id = ?", [id]);
+      if (!rows.length) return res.status(404).json({ message: "User tidak ditemukan" });
+
+      const valid = await bcrypt.compare(currentPassword, rows[0].password);
+      if (!valid) return res.status(400).json({ message: "Password saat ini salah" });
+    }
+
     const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const [result] = await db
+      .promise()
+      .query("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, id]);
 
-    const sql = "UPDATE users SET password = ? WHERE id = ?";
-    db.query(sql, [hashedPassword, id], (err, result) => {
-      if (err) {
-        console.error("DB Error updating password:", err);
-        return res.status(500).json({ message: "Database error", error: err });
-      }
-
-      if (result.affectedRows === 0) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      res.json({ message: "Password updated successfully" });
-    });
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "User tidak ditemukan" });
+    }
+    res.json({ message: "Password berhasil diperbarui" });
   } catch (error) {
-    console.error("Error hashing password:", error);
+    console.error("Error updating password:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
