@@ -51,7 +51,11 @@ app.use("/api/ai", aiRoutes);
 
 // REGISTER
 app.post("/api/register", async (req, res) => {
-  const { nama, departemen, tipe_akses, nik, email, username, password } = req.body;
+  const { nama, departemen, nik, email, username, password } = req.body;
+  // Self-registration cannot grant itself All Access. Upgrades go through an
+  // admin, who can see what they are approving — the approve-by-email button
+  // does not show the requested access level.
+  const tipe_akses = "Department Access Only";
 
   try {
     const checkQuery = `SELECT id FROM users WHERE username = ?`;
@@ -272,7 +276,10 @@ app.put("/api/decline-user/:id", requireAdmin, (req, res) => {
 
 // REQUEST ACCESS
 app.post("/api/request-access", (req, res) => {
-  const { user_id, dashboard_title, dashboard_department, department_requested } = req.body;
+  // Identity comes from the token, never from the payload: a valid token with a
+  // forged user_id would otherwise let anyone act on someone else's behalf.
+  const user_id = req.user.id;
+  const { dashboard_title, dashboard_department, department_requested } = req.body;
   if (!user_id || !dashboard_title || !dashboard_department || !department_requested)
     return res.status(400).json({ message: "Datas are not completed" });
 
@@ -502,7 +509,8 @@ app.get("/api/requests", requireAdmin, (req, res) => {
 
 // CANCEL REQUEST
 app.post("/api/cancel-request", (req, res) => {
-  const { user_id, dashboard_title } = req.body;
+  const user_id = req.user.id;
+  const { dashboard_title } = req.body;
 
   if (!user_id || !dashboard_title) {
     return res.status(400).json({ message: "Datas are not completed" });
