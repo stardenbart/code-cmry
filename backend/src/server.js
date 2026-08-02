@@ -5,7 +5,7 @@ import cors from "cors";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import db from "./config/db.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import portalLinkRoutes from "./routes/portalLinkRoutes.js";
@@ -795,4 +795,15 @@ app.post("/api/refresh-token", verifyJWT, async (req, res) => {
 });
 
 // START SERVER
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+// Only listen when run directly. Importing this module — a test that inspects
+// the route table does exactly that — must not bind the port a second time.
+// pathToFileURL handles Windows drive letters and backslashes correctly, which
+// a hand-rolled string comparison does not.
+const isDirectRun =
+  Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectRun) {
+  app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+}
+
+export { app };
