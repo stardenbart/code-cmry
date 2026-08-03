@@ -30,6 +30,9 @@ const DataRoomDashboard   = lazy(() => import("./components/DataRoomDashboard.js
 const AskAIPanel          = lazy(() => import("./components/AskAIPanel"));
 const AISettingsModal     = lazy(() => import("./components/AISettingsModal"));
 const CodeAINavigator     = lazy(() => import("./components/CodeAINavigator"));
+// Membawa DOMPurify (~30 KB). Hanya deskripsi dashboard yang perlu disanitasi,
+// dan itu tidak pernah tampil di halaman login.
+const SafeHtml            = lazy(() => import("./components/SafeHtml"));
 
 /**
  * Satu kartu dashboard di halaman departemen.
@@ -120,10 +123,12 @@ function DashboardCard({
 
         {!allowed && dash.description && (
           <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100 transition-all duration-300 ease-out pointer-events-none">
-            <div
-              className="bg-white/20 backdrop-blur-lg text-cimoryBlue border border-white/30 px-6 py-4 rounded-2xl shadow-xl max-w-sm lg:max-w-xl text-center text-sm animate-fade-in"
-              dangerouslySetInnerHTML={{ __html: dash.description }}
-            />
+            <LazyBoundary>
+              <SafeHtml
+                html={dash.description}
+                className="bg-white/20 backdrop-blur-lg text-cimoryBlue border border-white/30 px-6 py-4 rounded-2xl shadow-xl max-w-sm lg:max-w-xl text-center text-sm animate-fade-in"
+              />
+            </LazyBoundary>
           </div>
         )}
 
@@ -289,10 +294,12 @@ function FullscreenDash({ dash, accessStatus, user, onClose, onRequestAccess, on
         {!allowed && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
             {dash.description && (
-              <div
-                className="bg-white/20 backdrop-blur-lg text-white border border-white/30 px-6 py-4 rounded-2xl shadow-xl max-w-lg text-center text-sm"
-                dangerouslySetInnerHTML={{ __html: dash.description }}
-              />
+              <LazyBoundary>
+                <SafeHtml
+                  html={dash.description}
+                  className="bg-white/20 backdrop-blur-lg text-white border border-white/30 px-6 py-4 rounded-2xl shadow-xl max-w-lg text-center text-sm"
+                />
+              </LazyBoundary>
             )}
             {declined && (
               <span className="px-5 py-2.5 rounded-xl font-semibold bg-red-600 text-white shadow-lg animate-pulse">

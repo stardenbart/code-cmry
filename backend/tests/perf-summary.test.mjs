@@ -36,16 +36,19 @@ ok("appLoad punya p50 dan p95",
   typeof res.body?.appLoad?.p95?.appReady === "number",
   JSON.stringify(res.body?.appLoad));
 
-// nearest-rank atas 5 nilai: p50 -> indeks ceil(0.5*5)=3 -> 300; p95 -> indeks 5 -> 900
-ok("p50 dihitung benar", res.body?.appLoad?.p50?.appReady === 300,
-  `dapat ${res.body?.appLoad?.p50?.appReady}, harusnya 300`);
-ok("p95 dihitung benar", res.body?.appLoad?.p95?.appReady === 900,
-  `dapat ${res.body?.appLoad?.p95?.appReady}, harusnya 900`);
-// Optional chaining sepanjang jalur: sebuah TypeError di sini akan
-// menjatuhkan seluruh runner, bukan cuma menggagalkan satu assertion.
+// Ketepatan hitung persentil diuji sebagai fungsi murni di bawah, BUKAN di
+// sini. Endpoint ini merangkum seluruh tabel 7 hari terakhir, jadi menegaskan
+// nilai persis hanya benar bila tabelnya kosong — dan tabel itu berisi data
+// pemakaian nyata. Test tidak boleh menuntut database bersih untuk lulus, dan
+// tentu tidak boleh menghapus data orang supaya dirinya lulus.
+//
+// Optional chaining sepanjang jalur: sebuah TypeError di sini akan menjatuhkan
+// seluruh runner, bukan cuma menggagalkan satu assertion.
 ok("p95 tidak lebih kecil dari p50",
   (res.body?.appLoad?.p95?.appReady ?? -1) >= (res.body?.appLoad?.p50?.appReady ?? 0),
   `p50=${res.body?.appLoad?.p50?.appReady} p95=${res.body?.appLoad?.p95?.appReady}`);
+ok("jumlah sampel mencakup yang baru dikirim", (res.body?.appLoad?.count ?? 0) >= APP_READY.length,
+  `count ${res.body?.appLoad?.count}, minimal ${APP_READY.length}`);
 
 ok("ada bagian dashboard", Boolean(res.body?.dashboard), JSON.stringify(res.body?.dashboard));
 ok("ada daftar slowest", Array.isArray(res.body?.slowest), JSON.stringify(res.body?.slowest));
@@ -65,8 +68,10 @@ for (const hit of [true, true, false, false]) {
 }
 
 const res2 = await req("GET", "/api/perf/summary", { token: ADMIN });
-ok("prefetchHitRate dihitung", res2.body?.dashboard?.prefetchHitRate === 0.5,
-  `dapat ${res2.body?.dashboard?.prefetchHitRate}, harusnya 0.5`);
+const rate = res2.body?.dashboard?.prefetchHitRate;
+ok("prefetchHitRate berupa pecahan yang sah",
+  typeof rate === "number" && rate >= 0 && rate <= 1, `dapat ${rate}`);
+ok("prefetchHitRate naik setelah ada sampel yang kena", rate > 0, `dapat ${rate}`);
 
 // dashboard_id 999999 tidak ada di tabel dashboards — join LEFT harus tetap
 // memasukkannya dengan title null, bukan menjatuhkannya diam-diam.

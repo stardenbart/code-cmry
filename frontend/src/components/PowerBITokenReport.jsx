@@ -102,8 +102,24 @@ export default function PowerBITokenReport({ reportId, dashboardId, onReportRend
         settings:    EMBED_SETTINGS,
       }}
       eventHandlers={new Map([
-        ["tokenExpired", fetchConfig],
-        ["error", (e) => console.error("Power BI error:", e.detail)],
+        // "tokenExpired" TIDAK dipakai: nama itu tidak ada di allowedEvents
+        // powerbi-client, jadi pendaftarannya ditolak dan handler-nya tak pernah
+        // menyala — dulu hanya menghasilkan "Following events are invalid" di
+        // konsol. Pembaruan token dijalankan setTimeout berbasis tokenExpiry;
+        // handler error di bawah menangkap kasus timer telat, misalnya laptop
+        // ditutup lalu dibuka lagi.
+        ["error", (e) => {
+          const detail = e?.detail || {};
+          const tokenBasi = /token.*expir|expir.*token/i.test(
+            `${detail.message || ""} ${detail.detailedMessage || ""} ${detail.errorCode || ""}`
+          );
+          if (tokenBasi) {
+            console.warn("Power BI: token kedaluwarsa, mengambil yang baru");
+            fetchConfig();
+            return;
+          }
+          console.error("Power BI error:", detail);
+        }],
         // "rendered" menyala pada cat pertama dan pada setiap perubahan
         // filter/slicer — panel AI memakainya untuk tahu data sudah berubah.
         ["rendered", () => {

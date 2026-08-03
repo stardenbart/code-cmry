@@ -41,6 +41,17 @@ export function defaultDeny(req, res, next) {
 }
 
 /**
+ * Balasan untuk token yang sah tapi akunnya sudah dihapus atau dicabut
+ * persetujuannya.
+ *
+ * `code` ada supaya frontend bisa membedakan ini dari penolakan otorisasi biasa
+ * ("butuh hak admin") tanpa mencocokkan teks pesan. Perbedaannya penting: yang
+ * ini artinya sesi sudah tidak berlaku dan user harus dikeluarkan, sedangkan
+ * yang lain hanya berarti akun aktif menyentuh sesuatu yang bukan haknya.
+ */
+const ACCOUNT_INACTIVE = { message: "Akun tidak aktif", code: "ACCOUNT_INACTIVE" };
+
+/**
  * Admin-only. The role is read from the database, not from the token, so
  * revoking admin rights takes effect immediately instead of when the token
  * happens to expire.
@@ -49,7 +60,7 @@ export async function requireAdmin(req, res, next) {
   try {
     const user = await loadUser(req.user?.id);
     if (!user || !user.approved) {
-      return res.status(403).json({ message: "Akun tidak aktif" });
+      return res.status(403).json(ACCOUNT_INACTIVE);
     }
     if (!isAdmin(user)) {
       return res.status(403).json({ message: "Butuh hak admin" });
@@ -74,7 +85,7 @@ export function requireSelfOrAdmin(paramName) {
     try {
       const user = await loadUser(req.user?.id);
       if (!user || !user.approved) {
-        return res.status(403).json({ message: "Akun tidak aktif" });
+        return res.status(403).json(ACCOUNT_INACTIVE);
       }
 
       const target = Number(req.params[paramName]);

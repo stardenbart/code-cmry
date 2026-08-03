@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Cpu, ChevronLeft, ChevronRight } from "lucide-react";
-import logoCimory from "/images/Logo_Cimory.png";
-// Path absolut dari public/, sama seperti logoCimory di atas. Impor gaya Vite
-// ("../../images/...") menunjuk ke frontend/images/ — salinan kedua dari
-// public/images/ yang membuat setiap gambar tersimpan dua kali di repo.
+// Gambar dirujuk lewat path runtime dari public/, bukan diimpor sebagai modul.
+//
+// Impor `from "/images/..."` diselesaikan Vite dari root proyek, yaitu
+// frontend/images/ — bukan public/. Logo yang sama dipakai header.jsx lewat
+// path runtime, jadi berkas itu terunduh DUA KALI dengan URL berbeda: satu
+// versi ber-hash dari bundler, satu lagi dari public/.
 
 const departments = [
   "Plant", "Dairy Service", "Engineering", "PPIC", "Production",
@@ -84,7 +86,7 @@ export default function LandingPage() {
             transition={{ duration: 0.85 }}
           >
             <img
-              src={logoCimory}
+              src="/images/Logo_Cimory.png"
               alt="Cimory Logo"
               className="w-28 sm:w-40 lg:w-48 mb-3 drop-shadow-xl"
             />

@@ -28,10 +28,29 @@ const processQueue = (error, token = null) => {
   failedQueue = [];
 };
 
+/** Keluarkan user dan bawa ke halaman awal. */
+function forceLogout() {
+  localStorage.clear();
+  window.location.href = "/";
+}
+
 API.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+
+    // Token masih sah tapi akunnya sudah dihapus atau dicabut. Server sudah
+    // benar menolak; tanpa ini frontend hanya mencatat error dan membiarkan
+    // user di halaman yang rusak sampai tokennya habis (8 jam) — pencabutan
+    // akses jadi tidak terlihat oleh yang bersangkutan.
+    //
+    // Dibedakan lewat `code`, bukan status: 403 juga dipakai untuk penolakan
+    // biasa ("butuh hak admin") pada akun yang masih aktif, dan mengeluarkan
+    // user karena itu akan salah.
+    if (error.response?.status === 403 && error.response?.data?.code === "ACCOUNT_INACTIVE") {
+      forceLogout();
+      return Promise.reject(error);
+    }
 
     // Kalau 401 dan bukan dari endpoint refresh/login itu sendiri
     if (
@@ -75,8 +94,7 @@ API.interceptors.response.use(
       } catch (refreshError) {
         processQueue(refreshError, null);
         // Refresh gagal — token benar-benar expired, force logout
-        localStorage.clear();
-        window.location.href = "/";
+        forceLogout();
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

@@ -75,7 +75,7 @@ router.post("/", (req, res) => {
  * user — satu muat 9 detik terasa jauh lebih buruk daripada sepuluh muat
  * 1 detik terasa baik.
  */
-function percentile(sorted, p) {
+export function percentile(sorted, p) {
   if (!sorted.length) return null;
   const rank = Math.ceil((p / 100) * sorted.length);
   return sorted[Math.min(rank, sorted.length) - 1];

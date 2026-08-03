@@ -70,3 +70,12 @@ tmp/
 temp/
 .cache/
 coverage/
+
+# ── Artefak otomasi browser ──────────────────────────────────────────────────
+# Snapshot halaman dan log konsol dari Playwright MCP. Bukan cuma sampah:
+# isinya memuat URL embed Power BI beserta token dan JWT dari sesi uji.
+.playwright-mcp/
+*.playwright-trace.zip
+
+# Probe sementara yang sempat disajikan dari public/ saat menguji sanitasi
+frontend/public/__*.html
