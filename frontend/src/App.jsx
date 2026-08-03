@@ -18,6 +18,7 @@ import AISettingsModal from "./components/AISettingsModal";
 import CodeAINavigator from "./components/CodeAINavigator";
 import { extractReportGuid } from "./utils/powerbiData";
 import { markAppReady, flushAppLoad, startDashboardTimer } from "./utils/perf";
+import { useInViewport } from "./hooks/useInViewport";
 import API from "./api/api.js";
 import { PowerBIEmbed } from "powerbi-client-react";
 import { models } from "powerbi-client";
@@ -147,6 +148,113 @@ function PowerBITokenEmbed({ reportId, dashboardId, onReportRendered }) {
       getEmbeddedComponent={(r) => { reportRef.current = r; }}
       cssClassName="w-full h-full border-0"
     />
+  );
+}
+
+/**
+ * Satu kartu dashboard di halaman departemen.
+ *
+ * Diangkat menjadi komponen tersendiri karena butuh useInViewport, dan hook
+ * tidak boleh dipanggil di dalam .map() — jumlahnya akan berubah mengikuti
+ * panjang daftar.
+ *
+ * Iframe-nya baru dipasang setelah kartu mendekati layar. Sebelumnya sebuah
+ * halaman departemen memasang delapan iframe Power BI sekaligus; terukur
+ * 7,3 detik p50 karena semuanya berebut bandwidth, padahal user cuma melihat
+ * satu atau dua di layar.
+ */
+function DashboardCard({
+  index, dash, department, allowed, requested, accessStatus,
+  onAskAI, onFullscreen, onRequestAccess, onCancelRequest,
+}) {
+  const [cardRef, visible] = useInViewport();
+
+  return (
+    <div key={index} id={`dash-${index}`} ref={cardRef}>
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-base lg:text-lg font-semibold text-cimoryRed">{dash.title}</h2>
+        <div className="flex items-center gap-1">
+          {allowed && extractReportGuid(dash.report_id) && (
+            <button
+              onClick={() => onAskAI({ ...dash, department })}
+              className="flex items-center gap-1.5 text-xs text-cimoryBlue hover:text-cimoryRed transition px-2 py-1 rounded-lg hover:bg-cimoryBlue/10"
+              title="Tanya CODE AI tentang dashboard ini"
+            >
+              <Sparkles size={14} /> CODE AI
+            </button>
+          )}
+          <button
+            onClick={() => onFullscreen({ ...dash, department })}
+            className="flex items-center gap-1.5 text-xs text-cimoryBlue hover:text-cimoryRed transition px-2 py-1 rounded-lg hover:bg-cimoryBlue/10"
+            title="Fullscreen"
+          >
+            <Maximize2 size={14} /> Fullscreen
+          </button>
+        </div>
+      </div>
+
+      <div className="relative w-full h-[60vh] lg:h-[85vh] rounded-xl overflow-hidden shadow border border-gray-300 group">
+        {!allowed && (
+          <img
+            src="../images/home_banner_1.jpeg"
+            alt="Placeholder"
+            className="absolute inset-0 w-full h-full object-cover opacity-70 blur-md"
+          />
+        )}
+
+        <div className={`w-full h-full transition-all duration-300 ${!allowed ? "blur-md pointer-events-none" : ""}`}>
+          {allowed && visible && (
+            <PowerBIReportEmbed
+              key={dash.url}
+              url={dash.url}
+              reportId={extractReportGuid(dash.report_id)}
+              dashboardId={dash.id}
+              exportMode={false}
+            />
+          )}
+          {allowed && !visible && (
+            <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">
+              Dashboard dimuat saat digulir ke sini
+            </div>
+          )}
+        </div>
+
+        {!allowed && dash.description && (
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100 transition-all duration-300 ease-out pointer-events-none">
+            <div
+              className="bg-white/20 backdrop-blur-lg text-cimoryBlue border border-white/30 px-6 py-4 rounded-2xl shadow-xl max-w-sm lg:max-w-xl text-center text-sm animate-fade-in"
+              dangerouslySetInnerHTML={{ __html: dash.description }}
+            />
+          </div>
+        )}
+
+        {!allowed && (
+          <div className="absolute bottom-4 right-4 flex gap-3">
+            {accessStatus[dash.title] === "DECLINED" && (
+              <span className="px-4 py-2 rounded-xl font-semibold bg-red-600 text-white shadow-lg animate-pulse">
+                Declined
+              </span>
+            )}
+            {!requested && accessStatus[dash.title] !== "DECLINED" && (
+              <button
+                onClick={() => onRequestAccess(department, dash.title)}
+                className="px-4 lg:px-5 py-2 lg:py-2.5 rounded-xl font-semibold bg-blue-600 text-white shadow-md hover:shadow-xl transition-all duration-200 hover:bg-blue-700 active:scale-95 hover:-translate-y-1 text-sm"
+              >
+                Request Access
+              </button>
+            )}
+            {requested && accessStatus[dash.title] !== "DECLINED" && (
+              <button
+                onClick={() => onCancelRequest(department, dash.title)}
+                className="px-4 lg:px-5 py-2 lg:py-2.5 rounded-xl font-semibold bg-gray-600 text-white shadow-md hover:shadow-xl transition-all duration-200 hover:bg-gray-700 active:scale-95 hover:-translate-y-1 text-sm"
+              >
+                Cancel Request
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -492,93 +600,21 @@ function Dashboard({ user, onLogout }) {
 
           {/* Dashboard cards */}
           <div className="space-y-8 lg:space-y-10">
-            {dashboards[activeMenu]?.map((dash, i) => {
-              const allowed   = canView(activeMenu, dash.title);
-              const requested = hasRequested(dash.title);
-
-              return (
-                <div key={i} id={`dash-${i}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-base lg:text-lg font-semibold text-cimoryRed">{dash.title}</h2>
-                    <div className="flex items-center gap-1">
-                      {allowed && extractReportGuid(dash.report_id) && (
-                        <button
-                          onClick={() => handleAskAI({ ...dash, department: activeMenu })}
-                          className="flex items-center gap-1.5 text-xs text-cimoryBlue hover:text-cimoryRed transition px-2 py-1 rounded-lg hover:bg-cimoryBlue/10"
-                          title="Tanya CODE AI tentang dashboard ini"
-                        >
-                          <Sparkles size={14} /> CODE AI
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleDashboardSelect({ ...dash, department: activeMenu })}
-                        className="flex items-center gap-1.5 text-xs text-cimoryBlue hover:text-cimoryRed transition px-2 py-1 rounded-lg hover:bg-cimoryBlue/10"
-                        title="Fullscreen"
-                      >
-                        <Maximize2 size={14} /> Fullscreen
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="relative w-full h-[60vh] lg:h-[85vh] rounded-xl overflow-hidden shadow border border-gray-300 group">
-                    {!allowed && (
-                      <img
-                        src="../images/home_banner_1.jpeg"
-                        alt="Placeholder"
-                        className="absolute inset-0 w-full h-full object-cover opacity-70 blur-md"
-                      />
-                    )}
-
-                    <div className={`w-full h-full transition-all duration-300 ${!allowed ? "blur-md pointer-events-none" : ""}`}>
-                      {allowed && (
-                       <PowerBIReportEmbed
-                        key={dash.url}
-                        url={dash.url}
-                        reportId={extractReportGuid(dash.report_id)}
-                        dashboardId={dash.id}
-                        exportMode={false}
-                       />
-                      )}
-                    </div>
-
-                    {!allowed && dash.description && (
-                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100 transition-all duration-300 ease-out pointer-events-none">
-                        <div
-                          className="bg-white/20 backdrop-blur-lg text-cimoryBlue border border-white/30 px-6 py-4 rounded-2xl shadow-xl max-w-sm lg:max-w-xl text-center text-sm animate-fade-in"
-                          dangerouslySetInnerHTML={{ __html: dash.description }}
-                        />
-                      </div>
-                    )}
-
-                    {!allowed && (
-                      <div className="absolute bottom-4 right-4 flex gap-3">
-                        {accessStatus[dash.title] === "DECLINED" && (
-                          <span className="px-4 py-2 rounded-xl font-semibold bg-red-600 text-white shadow-lg animate-pulse">
-                            Declined
-                          </span>
-                        )}
-                        {!requested && accessStatus[dash.title] !== "DECLINED" && (
-                          <button
-                            onClick={() => handleRequestAccess(activeMenu, dash.title)}
-                            className="px-4 lg:px-5 py-2 lg:py-2.5 rounded-xl font-semibold bg-blue-600 text-white shadow-md hover:shadow-xl transition-all duration-200 hover:bg-blue-700 active:scale-95 hover:-translate-y-1 text-sm"
-                          >
-                            Request Access
-                          </button>
-                        )}
-                        {requested && accessStatus[dash.title] !== "DECLINED" && (
-                          <button
-                            onClick={() => handleCancelRequest(activeMenu, dash.title)}
-                            className="px-4 lg:px-5 py-2 lg:py-2.5 rounded-xl font-semibold bg-gray-600 text-white shadow-md hover:shadow-xl transition-all duration-200 hover:bg-gray-700 active:scale-95 hover:-translate-y-1 text-sm"
-                          >
-                            Cancel Request
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {dashboards[activeMenu]?.map((dash, i) => (
+              <DashboardCard
+                key={i}
+                index={i}
+                dash={dash}
+                department={activeMenu}
+                allowed={canView(activeMenu, dash.title)}
+                requested={hasRequested(dash.title)}
+                accessStatus={accessStatus}
+                onAskAI={handleAskAI}
+                onFullscreen={handleDashboardSelect}
+                onRequestAccess={handleRequestAccess}
+                onCancelRequest={handleCancelRequest}
+              />
+            ))}
           </div>
         </main>
       </div>
