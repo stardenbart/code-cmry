@@ -2,6 +2,8 @@ import React, { useEffect, useState, useRef } from "react";
 import { ArrowLeft, PlusCircle, Save, XCircle, Edit3, Trash2, X, Mail } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/api";
+import { useConfirm } from "./ConfirmProvider";
+import { useToast } from "./ToastProvider";
 
 // ── Tag-input for PIC emails ──────────────────────────────────────────────────
 function EmailTagInput({ emails, onChange }) {
@@ -100,6 +102,8 @@ const inputCls = "border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-
 
 // ── Main component ────────────────────────────────────────────────────────────
 const DashboardManager = () => {
+  const confirm = useConfirm();
+  const toast = useToast();
   const [dashboards, setDashboards]               = useState([]);
   const [newDashboard, setNewDashboard]           = useState({ title: "", url: "", report_id: "", department: "", description: "", pic_emails: "" });
   const [newEmails, setNewEmails]                 = useState([]);
@@ -117,12 +121,24 @@ const DashboardManager = () => {
       .catch((err) => console.error("Error fetching dashboards:", err));
   }, []);
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Delete this dashboard?")) return;
+  const handleDelete = async (id, judul) => {
+    const setuju = await confirm({
+      judul: "Hapus dashboard",
+      pesan: `"${judul}" akan dihapus dari daftar. Laporan Power BI aslinya tidak terpengaruh.`,
+      labelKonfirmasi: "Hapus",
+      destruktif: true,
+    });
+    if (!setuju) return;
     try {
       await API.delete(`/api/dashboards/${id}`);
       setDashboards((prev) => prev.filter((d) => d.id !== id));
-    } catch (err) { console.error("Error deleting:", err); }
+      toast.success(`Dashboard "${judul}" dihapus`);
+    } catch (err) {
+      // Dulu hanya console.error, sehingga hapus yang gagal tidak menampilkan
+      // apa pun dan user mengira berhasil.
+      console.error("Error deleting:", err);
+      toast.error(err?.response?.data?.message || "Gagal menghapus dashboard");
+    }
   };
 
   const handleAdd = async (e) => {
@@ -341,7 +357,7 @@ const DashboardManager = () => {
                             className="text-sky-600 hover:text-sky-800 flex items-center gap-1 text-xs sm:text-sm whitespace-nowrap">
                             <Edit3 className="w-3.5 h-3.5" /> Edit
                           </button>
-                          <button onClick={() => handleDelete(d.id)}
+                          <button onClick={() => handleDelete(d.id, d.title)}
                             className="text-red-600 hover:text-red-800 flex items-center gap-1 text-xs sm:text-sm whitespace-nowrap">
                             <Trash2 className="w-3.5 h-3.5" /> Delete
                           </button>

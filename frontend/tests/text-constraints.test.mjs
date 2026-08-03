@@ -21,7 +21,7 @@ const SISA_PELANGGARAN = {
   emojiUi: 8,
   emDashUi: 21,
   alert: 0,
-  confirm: 6,
+  confirm: 0,
 };
 
 // Rentang emoji yang lazim dipakai orang sebagai ikon.

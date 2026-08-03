@@ -3,8 +3,10 @@
   import { Trash2, RefreshCw, Edit, Search, ChevronDown } from "lucide-react";
 import PerfSummary from "./PerfSummary";
 import { useToast } from "./ToastProvider";
+import { useConfirm } from "./ConfirmProvider";
 
   export default function ManageUsers({ onClose }) {
+    const confirm = useConfirm();
     const toast = useToast();
     const [dashboardAccess, setDashboardAccess] = useState([]);
     const [dashboardChecked, setDashboardChecked] = useState({});
@@ -48,10 +50,17 @@ import { useToast } from "./ToastProvider";
       }
     };
 
-    const deleteUser = async (id) => {
-      if (!window.confirm("Are you sure to remove this user?")) Return;
+    const deleteUser = async (id, nama) => {
+      const setuju = await confirm({
+        judul: "Hapus user",
+        pesan: `Akun "${nama}" akan dihapus permanen beserta riwayat aksesnya.`,
+        labelKonfirmasi: "Hapus",
+        destruktif: true,
+      });
+      if (!setuju) return;
       try {
         await API.delete(`/api/delete-user/${id}`);
+        toast.success(`Akun "${nama}" dihapus`);
         fetchUsers();
       } catch (err) {
         console.error("Error deleting user:", err);
@@ -207,7 +216,7 @@ import { useToast } from "./ToastProvider";
                         <Edit size={18} />
                       </button>
                       <button
-                        onClick={() => deleteUser(u.id)}
+                        onClick={() => deleteUser(u.id, u.nama)}
                         className="text-red-500 hover:text-red-700"
                       >
                         <Trash2 size={18} />

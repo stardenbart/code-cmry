@@ -6,6 +6,7 @@ import {
 import API from "../api/api";
 import { captureReportSnapshot, summarizeSnapshot, listReportPages } from "../utils/powerbiData";
 import { CopyButton } from "./CodeAINavigator";
+import { useConfirm } from "./ConfirmProvider";
 
 // ── Tiny markdown renderer (bold, bullets, numbered lists, headings) ─────────
 function renderInline(text, keyPrefix) {
@@ -153,6 +154,9 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
   onClose,
   onOpenSettings,
 }, ref) {
+  // Hook dipanggil di dalam badan komponen seperti biasa, meski komponennya
+  // dibungkus forwardRef.
+  const confirm = useConfirm();
   const [messages, setMessages]   = useState([]);   // [{ role, text, meta?, error? }]
   const [question, setQuestion]   = useState("");
   const [asking, setAsking]       = useState(false);
@@ -373,7 +377,13 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
   };
 
   const clearChat = async () => {
-    if (!window.confirm("Hapus riwayat chat CODE AI untuk dashboard ini?")) return;
+    const setuju = await confirm({
+      judul: "Hapus riwayat chat",
+      pesan: "Seluruh percakapan CODE AI untuk dashboard ini akan dihapus.",
+      labelKonfirmasi: "Hapus",
+      destruktif: true,
+    });
+    if (!setuju) return;
     try {
       await API.delete(`/api/ai/history/${dashboard.id}`);
     } catch { /* non-fatal */ }

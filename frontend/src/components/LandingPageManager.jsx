@@ -6,6 +6,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import API from "../api/api";
 import { useToast } from "./ToastProvider";
+import { useConfirm } from "./ConfirmProvider";
 
 const EMPTY_FORM = { title: "", url: "", sort_order: 0, active: true };
 
@@ -73,6 +74,7 @@ function ImageUpload({ currentUrl, onFileChange, onUrlChange }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function LandingPageManager() {
+  const confirm = useConfirm();
   const toast = useToast();
   const [links, setLinks]               = useState([]);
   const [form, setForm]                 = useState(EMPTY_FORM);
@@ -150,11 +152,18 @@ export default function LandingPageManager() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Delete this portal link?")) return;
+  const handleDelete = async (id, judul) => {
+    const setuju = await confirm({
+      judul: "Hapus tautan portal",
+      pesan: `"${judul}" akan hilang dari halaman portal.`,
+      labelKonfirmasi: "Hapus",
+      destruktif: true,
+    });
+    if (!setuju) return;
     try {
       await API.delete(`/api/portal-links/${id}`, authHeader());
       setLinks(prev => prev.filter(l => l.id !== id));
+      toast.success(`Tautan "${judul}" dihapus`);
     } catch (err) {
       toast.error(err.response?.data?.message || "Gagal menghapus");
     }
@@ -360,7 +369,7 @@ export default function LandingPageManager() {
                           <Edit3 size={13} /> Edit
                         </button>
                         <button
-                          onClick={() => handleDelete(link.id)}
+                          onClick={() => handleDelete(link.id, link.title)}
                           className="text-red-500 hover:text-red-700 flex items-center gap-1 text-xs"
                         >
                           <Trash2 size={13} /> Delete

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Loader, EyeIcon, EyeOffIcon } from "lucide-react";
 import API from "../api/api";
+import { useConfirm } from "./ConfirmProvider";
 
 // Users choose behaviour, not vendor model ids. The system routes each question
 // to a tier automatically; this only sets the ceiling for the deepest tier.
@@ -14,6 +15,7 @@ const MODEL_LABELS = {
 };
 
 export default function AISettingsModal({ onClose }) {
+  const confirm = useConfirm();
   const [status, setStatus]   = useState(null);
   const [apiKey, setApiKey]   = useState("");
   const [showKey, setShowKey] = useState(false);
@@ -66,7 +68,13 @@ export default function AISettingsModal({ onClose }) {
   };
 
   const removeKey = async () => {
-    if (!window.confirm("Hapus kunci pribadi? CODE AI akan memakai kunci universal.")) return;
+    const setuju = await confirm({
+      judul: "Hapus kunci pribadi",
+      pesan: "Setelah dihapus, CODE AI akan memakai kunci universal yang kuotanya dibagi dengan semua user.",
+      labelKonfirmasi: "Hapus",
+      destruktif: true,
+    });
+    if (!setuju) return;
     setLoading(true);
     try {
       await API.delete("/api/ai/key");
@@ -96,7 +104,13 @@ export default function AISettingsModal({ onClose }) {
   };
 
   const removeUniversal = async () => {
-    if (!window.confirm("Hapus kunci universal? User tanpa kunci pribadi tidak bisa memakai CODE AI.")) return;
+    const setuju = await confirm({
+      judul: "Hapus kunci universal",
+      pesan: "User yang tidak punya kunci pribadi tidak akan bisa memakai CODE AI setelah ini.",
+      labelKonfirmasi: "Hapus",
+      destruktif: true,
+    });
+    if (!setuju) return;
     setUniLoading(true);
     try {
       const { data } = await API.delete("/api/ai/universal-key");
