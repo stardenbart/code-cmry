@@ -97,4 +97,5 @@ export const ROUTE_CLASSIFICATION = new Map([
   ["DELETE /api/portal-links/:id", "adminOnly"],
   ["PUT /api/ai/universal-key", "adminOnly"],
   ["DELETE /api/ai/universal-key", "adminOnly"],
+  ["GET /api/perf/summary", "adminOnly"],
 ]);
