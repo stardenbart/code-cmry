@@ -2,7 +2,9 @@ import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Cpu, ChevronLeft, ChevronRight } from "lucide-react";
 import logoCimory from "/images/Logo_Cimory.png";
-import heroImage   from "../../images/home_banner_1.jpeg";
+// Path absolut dari public/, sama seperti logoCimory di atas. Impor gaya Vite
+// ("../../images/...") menunjuk ke frontend/images/ — salinan kedua dari
+// public/images/ yang membuat setiap gambar tersimpan dua kali di repo.
 
 const departments = [
   "Plant", "Dairy Service", "Engineering", "PPIC", "Production",
@@ -46,10 +48,23 @@ export default function LandingPage() {
   return (
     <>
       {/* ── Hero ── */}
-      <div
-        className="relative min-h-screen overflow-hidden"
-        style={{ backgroundImage: `url(${heroImage})`, backgroundSize: "cover", backgroundPosition: "center" }}
-      >
+      <div className="relative min-h-screen overflow-hidden">
+        {/* Dulu ini backgroundImage CSS. Diganti <picture> supaya browser bisa
+            memilih WebP; latar CSS tidak punya mekanisme negosiasi format.
+            object-cover/center menggantikan backgroundSize/Position. */}
+        <picture>
+          <source srcSet="/images/home_banner_1.webp" type="image/webp" />
+          <img
+            src="/images/home_banner_1.jpg"
+            alt=""
+            width={1920}
+            height={844}
+            /* React 18 belum mengenali camelCase fetchPriority — huruf kecil */
+            fetchpriority="high"
+            className="absolute inset-0 w-full h-full object-cover object-center -z-10"
+          />
+        </picture>
+
         {/* Radial vignette */}
         <div
           className="absolute inset-0 z-0 pointer-events-none"

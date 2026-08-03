@@ -74,11 +74,17 @@ function DashboardCard({
 
       <div className="relative w-full h-[60vh] lg:h-[85vh] rounded-xl overflow-hidden shadow border border-gray-300 group">
         {!allowed && (
-          <img
-            src="../images/home_banner_1.jpeg"
-            alt="Placeholder"
-            className="absolute inset-0 w-full h-full object-cover opacity-70 blur-md"
-          />
+          // Path absolut: "../images/..." diselesaikan terhadap URL halaman,
+          // jadi nilainya berubah tergantung rute — selama ini kebetulan kena.
+          <picture>
+            <source srcSet="/images/home_banner_1.webp" type="image/webp" />
+            <img
+              src="/images/home_banner_1.jpg"
+              alt=""
+              loading="lazy"
+              className="absolute inset-0 w-full h-full object-cover opacity-70 blur-md"
+            />
+          </picture>
         )}
 
         <div className={`w-full h-full transition-all duration-300 ${!allowed ? "blur-md pointer-events-none" : ""}`}>
@@ -244,11 +250,15 @@ function FullscreenDash({ dash, accessStatus, user, onClose, onRequestAccess, on
       <div className="flex-1 flex min-h-0">
       <div className="flex-1 relative overflow-hidden">
         {!allowed && (
-          <img
-            src="../images/home_banner_1.jpeg"
-            alt="Locked"
-            className="absolute inset-0 w-full h-full object-cover opacity-60 blur-md"
-          />
+          <picture>
+            <source srcSet="/images/home_banner_1.webp" type="image/webp" />
+            <img
+              src="/images/home_banner_1.jpg"
+              alt=""
+              loading="lazy"
+              className="absolute inset-0 w-full h-full object-cover opacity-60 blur-md"
+            />
+          </picture>
         )}
 
         {allowed && (
