@@ -1726,15 +1726,47 @@ Bandingkan dengan angka yang dicatat pada Task 3 Step 6.
 
 Isi tabel di bawah dengan angka sebenarnya. **Laporkan apa adanya**, termasuk bila suatu perbaikan ternyata kecil — spec menuliskan itu sebagai syarat.
 
-| Ukuran | Sebelum | Sesudah | Target |
-|---|---|---|---|
-| JS untuk menampilkan halaman login | 816 KB | | < 250 KB |
-| JS aplikasi setelah login | 816 KB | | dicatat apa adanya |
-| Hero image | 1,64 MB | | < 250 KB |
-| `tokenMs` p50 | | | ~0 saat prefetch kena |
-| `renderMs` p50 | | | tidak berubah (di sisi Microsoft) |
-| Angka prefetch kena | 0% | | |
-| Suite backend | 90 lulus | | tetap lulus |
+| Ukuran | Sebelum | Sesudah | Target | Status |
+|---|---|---|---|---|
+| JS untuk menampilkan halaman login | 816 KB | **242,6 KB** | < 250 KB | tercapai |
+| JS seluruh aplikasi | 816 KB, 1 chunk | 825,6 KB, 23 chunk | dicatat apa adanya | total setara, kini dimuat sesuai kebutuhan |
+| Hero image | 1.684 KB | **183 KB** WebP | < 250 KB | tercapai, turun 89% |
+| Berkas terbesar di `dist/` | 1.684 KB | 242,6 KB | — | tidak ada lagi aset besar |
+| **iframe dimuat saat halaman dibuka** | **8** | **3** | — | sisanya saat digulir |
+| **Waktu dashboard tampil, p50** | **7.345 ms** | **2.602 ms** | — | **turun 65%** |
+| `tokenMs` saat prefetch kena | 1.395 ms (dingin) | 0 ms | ~0 | tercapai |
+| Suite backend | 90 lulus | **116 lulus**, 0 gagal | tetap lulus | +26 uji baru |
+| Route terklasifikasi | 49 | 51 | semua wajib | 2 endpoint perf baru |
+
+### Yang tidak berubah, dan sebabnya
+
+`renderMs` per dashboard tidak turun — itu waktu Power BI merender laporannya di
+infrastruktur Microsoft, di luar kendali CODE. Yang turun adalah **jumlah yang
+dirender serentak**, dan itulah yang membuat p50 jatuh dari 7,3 ke 2,6 detik.
+
+`GET /api/dashboards/` tetap 3 ms; tidak disentuh sesuai rencana.
+
+### Temuan di luar cakupan, untuk ditindaklanjuti
+
+1. **`frontend/images/` menduplikasi `frontend/public/images/`** — setiap gambar
+   tersimpan dua kali di git. Setelah pekerjaan ini tidak ada berkas sumber yang
+   mengimpor dari `frontend/images/` kecuali skrip konversi hero. Menghapus
+   sisanya membebaskan ~600 KB di repo.
+
+2. **Event `tokenExpired` tidak valid di `powerbi-client-react`** — terlihat di
+   konsol sebagai "Following events are invalid: tokenExpired". Handler itu
+   tidak pernah menyala; pembaruan token sebenarnya dijalankan `setTimeout`
+   berbasis `tokenExpiry`, jadi tidak ada kerusakan fungsi — tapi pendaftaran
+   event itu kode mati yang menyesatkan.
+
+3. **Sesi user yang dihapus tidak dikeluarkan dari UI** — server benar menolak
+   dengan 403 (otorisasi bekerja), tapi frontend hanya mencatat error dan
+   membiarkan user di halaman yang rusak sampai token 8 jam-nya habis.
+   Pencabutan akses tidak terlihat oleh user.
+
+4. **`dangerouslySetInnerHTML` pada `dash.description`** — HTML dari admin lewat
+   Dashboard Manager dirender tanpa sanitasi. Risiko XSS tersimpan bila akun
+   admin disalahgunakan.
 
 - [ ] **Step 6: Commit**
 
