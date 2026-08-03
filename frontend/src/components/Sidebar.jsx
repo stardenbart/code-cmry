@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import API from "../api/api";
 import {
   Bell, Factory, Wrench, Boxes, Users, CheckCircle, Shield,
   Cog, Truck, PawPrint, Monitor, RefreshCcw, Landmark,
@@ -44,6 +45,30 @@ export default function Sidebar({
 }) {
   const navigate = useNavigate();
   const [expandedDept, setExpandedDept] = useState(null);
+  const [jumlahBaru, setJumlahBaru] = useState(0);
+
+  // Endpoint ini sudah ada sejak lama tetapi belum pernah dipakai sidebar,
+  // sehingga tidak ada tanda apa pun sampai halaman notifikasi dibuka.
+  // Balasannya { total }, bukan { count }.
+  useEffect(() => {
+    if (!user?.id) return;
+    let dibatalkan = false;
+
+    API.get(`/api/notifications/count/${user.id}`)
+      .then((res) => { if (!dibatalkan) setJumlahBaru(Number(res.data?.total) || 0); })
+      // Diam saja: badge yang gagal dimuat tidak boleh mengganggu navigasi.
+      .catch(() => {});
+
+    return () => { dibatalkan = true; };
+  }, [user?.id]);
+
+  // Esc menutup drawer di tampilan mobile. Sebelumnya hanya bisa lewat tombol X.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e) => { if (e.key === "Escape") onClose?.(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isOpen, onClose]);
 
   const handleDeptClick = (name) => {
     const allowed = canView(name) || user?.departemen === name;
@@ -82,7 +107,17 @@ export default function Sidebar({
           }`}
         >
           <Bell size={18} />
-          <span>Notifications</span>
+          <span className="flex-1 text-left">Notifications</span>
+          {jumlahBaru > 0 && (
+            // "9+" menjaga lebar badge tetap, supaya tata letak tombol tidak
+            // melompat saat angkanya jadi dua digit.
+            <span
+              className="min-w-[1.25rem] px-1.5 py-0.5 rounded-full bg-cimoryRed text-white text-[11px] font-semibold leading-none flex items-center justify-center"
+              aria-label={`${jumlahBaru} notifikasi belum dibaca`}
+            >
+              {jumlahBaru > 9 ? "9+" : jumlahBaru}
+            </span>
+          )}
         </motion.button>
       )}
 
@@ -114,16 +149,25 @@ export default function Sidebar({
 
           return (
             <li key={name}>
-              {/* Department row */}
-              <motion.div
+              {/* Baris departemen.
+                  Dulu sebuah div dengan onClick, sehingga pemakai keyboard
+                  tidak bisa menjangkaunya sama sekali: div tidak dapat fokus
+                  dan tidak menanggapi Enter atau Space. Sekarang button
+                  sungguhan, yang memberi ketiganya tanpa kode tambahan. */}
+              <motion.button
+                type="button"
                 whileHover={allowed ? { scale: 1.02 } : {}}
                 whileTap={allowed  ? { scale: 0.97 } : {}}
                 onClick={() => handleDeptClick(name)}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 cursor-pointer select-none
+                disabled={!allowed}
+                aria-expanded={hasDashes ? isExpanded : undefined}
+                aria-controls={hasDashes ? `dash-list-${name}` : undefined}
+                className={`w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 select-none
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80
                   ${isActive
                     ? "bg-white text-cimoryBlue font-semibold shadow-md"
                     : allowed
-                      ? "text-white hover:bg-cimoryRed/90"
+                      ? "text-white hover:bg-cimoryRed/90 cursor-pointer"
                       : "opacity-40 text-white cursor-not-allowed"
                   }`}
               >
@@ -134,13 +178,14 @@ export default function Sidebar({
                     ? <ChevronDown  size={13} className={isActive ? "text-cimoryBlue" : "text-white/60"} />
                     : <ChevronRight size={13} className={isActive ? "text-cimoryBlue" : "text-white/60"} />
                 )}
-              </motion.div>
+              </motion.button>
 
               {/* Dashboard sub-list */}
               <AnimatePresence initial={false}>
                 {isExpanded && hasDashes && (
                   <motion.ul
                     key="sub"
+                    id={`dash-list-${name}`}
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}

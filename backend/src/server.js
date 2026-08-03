@@ -467,6 +467,15 @@ app.put("/api/decline-request/:id", requireAdmin, (req, res) => {
 });
 
 // USERS NOTIFICATION
+// Jumlah permintaan akses yang statusnya berubah sejak terakhir user melihat
+// halaman notifikasi.
+//
+// Memakai <=> (null-safe equal), bukan !=. `last_notified_status` bernilai NULL
+// sampai user membuka halaman notifikasi pertama kalinya, dan di SQL
+// `status != NULL` menghasilkan NULL, bukan true. Akibatnya hitungan ini selalu
+// 0 untuk permintaan yang belum pernah dilihat: user yang aksesnya baru
+// disetujui tidak mendapat tanda apa pun. Terbukti dengan 3 permintaan
+// APPROVED yang dihitung 0.
 app.get("/api/notifications/count/:userId", requireSelfOrAdmin("userId"), (req, res) => {
   const { userId } = req.params;
 
@@ -475,7 +484,7 @@ app.get("/api/notifications/count/:userId", requireSelfOrAdmin("userId"), (req, 
     SELECT COUNT(*) AS total
     FROM access_requests
     WHERE user_id = ?
-      AND status != last_notified_status
+      AND NOT (status <=> last_notified_status)
     `,
     [userId],
     (err, result) => {
