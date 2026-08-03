@@ -1,6 +1,7 @@
   import React, { useEffect, useState } from "react";
   import API from "../api/api"
   import { Trash2, RefreshCw, Edit, Search, ChevronDown } from "lucide-react";
+import PerfSummary from "./PerfSummary";
 
   export default function ManageUsers({ onClose }) {
     const [dashboardAccess, setDashboardAccess] = useState([]);
@@ -215,6 +216,8 @@
               </tbody>
             </table>
           )}
+
+          <PerfSummary />
         </div>
 
         {editingUser && (
