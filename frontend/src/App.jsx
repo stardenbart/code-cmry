@@ -17,6 +17,7 @@ import AskAIPanel from "./components/AskAIPanel";
 import AISettingsModal from "./components/AISettingsModal";
 import CodeAINavigator from "./components/CodeAINavigator";
 import { extractReportGuid } from "./utils/powerbiData";
+import { markAppReady, flushAppLoad, startDashboardTimer } from "./utils/perf";
 import API from "./api/api.js";
 import { PowerBIEmbed } from "powerbi-client-react";
 import { models } from "powerbi-client";
@@ -34,18 +35,42 @@ const EMBED_SETTINGS = {
   }],
 };
 
-function PowerBIReportEmbed({ url, reportId, exportMode, onReportRendered }) {
+/**
+ * Jalur iframe — 44 dari 46 dashboard memakai ini secara default.
+ *
+ * Tanpa pengukuran di sini, telemetri dashboard hampir kosong: jalur embed
+ * token hanya menyala saat user menyalakan Export Mode atau membuka CODE AI.
+ * Tidak ada token yang diambil di jalur ini, jadi tokenMs selalu 0 dan seluruh
+ * waktunya adalah Power BI memuat isinya sendiri.
+ */
+function PowerBIIframeEmbed({ url, dashboardId }) {
+  const perfRef = useRef(null);
+  if (!perfRef.current) perfRef.current = startDashboardTimer(dashboardId);
+
+  return (
+    <iframe
+      src={url}
+      className="w-full h-full border-0"
+      // tokenDone() sengaja TIDAK dipanggil: memanggilnya di sini akan
+      // menaruh seluruh durasi ke tokenMs. Dibiarkan kosong, tokenMs jadi 0
+      // dan seluruh waktunya masuk ke renderMs — di mana ia memang berada.
+      onLoad={() => perfRef.current?.renderDone(false)}
+    />
+  );
+}
+
+function PowerBIReportEmbed({ url, reportId, dashboardId, exportMode, onReportRendered }) {
   // Export mode ON + ada report_id → pakai embed token (support export + AI)
   if (exportMode && reportId) {
-    return <PowerBITokenEmbed reportId={reportId} onReportRendered={onReportRendered} />;
+    return <PowerBITokenEmbed reportId={reportId} dashboardId={dashboardId} onReportRendered={onReportRendered} />;
   }
   // Default → pakai public embed URL via iframe
   if (url?.startsWith("https://") || url?.startsWith("http://")) {
-    return <iframe src={url} className="w-full h-full border-0" />;
+    return <PowerBIIframeEmbed url={url} dashboardId={dashboardId} />;
   }
   // Fallback: kalau tidak ada url publik tapi ada report_id, pakai token
   if (reportId) {
-    return <PowerBITokenEmbed reportId={reportId} onReportRendered={onReportRendered} />;
+    return <PowerBITokenEmbed reportId={reportId} dashboardId={dashboardId} onReportRendered={onReportRendered} />;
   }
   return (
     <div className="flex items-center justify-center w-full h-full text-gray-400 text-sm">
@@ -54,18 +79,21 @@ function PowerBIReportEmbed({ url, reportId, exportMode, onReportRendered }) {
   );
 }
 
-function PowerBITokenEmbed({ reportId, onReportRendered }) {
+function PowerBITokenEmbed({ reportId, dashboardId, onReportRendered }) {
   const [embedConfig, setEmbedConfig] = useState(null);
   const [error, setError]             = useState(null);
   const reportRef = useRef(null);
   const timerRef  = useRef(null);
+  const perfRef   = useRef(null);
 
   const fetchConfig = useCallback(async () => {
     const token = localStorage.getItem("token");
+    if (!perfRef.current) perfRef.current = startDashboardTimer(dashboardId);
     try {
       const { data } = await API.get(`/api/powerbi/embed-config-by-report/${reportId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      perfRef.current.tokenDone();
       if (reportRef.current) {
         await reportRef.current.setAccessToken(data.embedToken);
       } else {
@@ -78,7 +106,7 @@ function PowerBITokenEmbed({ reportId, onReportRendered }) {
       const msg = err.response?.data?.message || err.message || "Unknown error";
       setError(msg);
     }
-  }, [reportId]);
+  }, [reportId, dashboardId]);
 
   useEffect(() => {
     fetchConfig();
@@ -111,7 +139,10 @@ function PowerBITokenEmbed({ reportId, onReportRendered }) {
         ["error", (e) => console.error("Power BI error:", e.detail)],
         // "rendered" fires on first paint and on every filter/slicer change —
         // the AI panel uses it to know the report is queryable and data changed.
-        ["rendered", () => onReportRendered?.(reportRef.current)],
+        ["rendered", () => {
+          perfRef.current?.renderDone(false);
+          onReportRendered?.(reportRef.current);
+        }],
       ])}
       getEmbeddedComponent={(r) => { reportRef.current = r; }}
       cssClassName="w-full h-full border-0"
@@ -238,6 +269,7 @@ function FullscreenDash({ dash, accessStatus, user, onClose, onRequestAccess, on
            key={`${dash.url}-${tokenEmbed}`}
            url={dash.url}
            reportId={reportGuid}
+           dashboardId={dash.id}
            exportMode={tokenEmbed}
            onReportRendered={handleRendered}
           />
@@ -503,6 +535,7 @@ function Dashboard({ user, onLogout }) {
                         key={dash.url}
                         url={dash.url}
                         reportId={extractReportGuid(dash.report_id)}
+                        dashboardId={dash.id}
                         exportMode={false}
                        />
                       )}
@@ -726,6 +759,9 @@ export default function App() {
     }
   }, []);
 
+  // Satu kali per sesi, setelah render pertama selesai.
+  useEffect(() => { markAppReady(); }, []);
+
   if (loadingUser) {
     return <div className="h-screen flex items-center justify-center">Loading...</div>;
   }
@@ -734,6 +770,9 @@ export default function App() {
     setUser(userData);
     localStorage.setItem("user", JSON.stringify(userData));
     localStorage.setItem("token", token);
+    // Pengukuran muat halaman diambil sebelum login, saat belum ada token
+    // untuk mengirimkannya. Sekarang ada.
+    flushAppLoad();
   };
 
   const handleLogout = () => {
