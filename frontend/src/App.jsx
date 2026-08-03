@@ -7,6 +7,7 @@ import { ChevronDown, ArrowUp, ArrowLeft, Maximize2, Sparkles, KeyRound, Trash2,
 import { extractReportGuid } from "./utils/reportGuid";
 import { markAppReady, flushAppLoad, startDashboardTimer } from "./utils/perf";
 import { useInViewport } from "./hooks/useInViewport";
+import { prefetchEmbed, cancelPrefetch } from "./utils/embedPrefetch";
 import API from "./api/api.js";
 import PowerBIReport from "./components/PowerBIReport";
 import LazyBoundary from "./components/LazyBoundary";
@@ -48,12 +49,25 @@ function DashboardCard({
 }) {
   const [cardRef, visible] = useInViewport();
 
+  // Hanya kartu dengan report GUID yang bisa memakai embed token, jadi hanya
+  // itu yang layak di-prefetch. Yang ditolong adalah tombol CODE AI dan Export
+  // Mode di kartu ini — bukan tampilan iframe-nya, yang tidak memakai token.
+  const guid = allowed ? extractReportGuid(dash.report_id) : null;
+
   return (
-    <div key={index} id={`dash-${index}`} ref={cardRef}>
+    <div
+      key={index}
+      id={`dash-${index}`}
+      ref={cardRef}
+      onMouseEnter={() => prefetchEmbed(guid)}
+      onMouseLeave={() => cancelPrefetch(guid)}
+      // Pemakai keyboard mendapat manfaat yang sama dengan pemakai mouse.
+      onFocus={() => prefetchEmbed(guid)}
+    >
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-base lg:text-lg font-semibold text-cimoryRed">{dash.title}</h2>
         <div className="flex items-center gap-1">
-          {allowed && extractReportGuid(dash.report_id) && (
+          {guid && (
             <button
               onClick={() => onAskAI({ ...dash, department })}
               className="flex items-center gap-1.5 text-xs text-cimoryBlue hover:text-cimoryRed transition px-2 py-1 rounded-lg hover:bg-cimoryBlue/10"
@@ -92,7 +106,7 @@ function DashboardCard({
             <PowerBIReport
               key={dash.url}
               url={dash.url}
-              reportId={extractReportGuid(dash.report_id)}
+              reportId={guid}
               dashboardId={dash.id}
               exportMode={false}
             />

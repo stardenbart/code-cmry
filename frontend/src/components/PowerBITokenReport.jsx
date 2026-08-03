@@ -15,6 +15,7 @@ import { PowerBIEmbed } from "powerbi-client-react";
 import { models } from "powerbi-client";
 import API from "../api/api.js";
 import { startDashboardTimer } from "../utils/perf";
+import { takeEmbed } from "../utils/embedPrefetch";
 
 const EMBED_SETTINGS = {
   panes: {
@@ -35,10 +36,26 @@ export default function PowerBITokenReport({ reportId, dashboardId, onReportRend
   const reportRef = useRef(null);
   const timerRef  = useRef(null);
   const perfRef   = useRef(null);
+  const hitRef    = useRef(false);
 
   const fetchConfig = useCallback(async () => {
     const token = localStorage.getItem("token");
     if (!perfRef.current) perfRef.current = startDashboardTimer(dashboardId);
+
+    // Sudah diambil saat kursor menyentuh kartunya. Dilewati saat ini adalah
+    // pembaruan token (reportRef sudah terisi) — di situ kita justru butuh
+    // token baru, bukan yang tersimpan.
+    const prefetched = reportRef.current ? null : takeEmbed(reportId);
+    if (prefetched) {
+      hitRef.current = true;
+      perfRef.current.tokenDone();
+      setEmbedConfig(prefetched);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      const ms = new Date(prefetched.tokenExpiry) - Date.now() - 5 * 60 * 1000;
+      if (ms > 0) timerRef.current = setTimeout(fetchConfig, ms);
+      return;
+    }
+
     try {
       const { data } = await API.get(`/api/powerbi/embed-config-by-report/${reportId}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -90,7 +107,7 @@ export default function PowerBITokenReport({ reportId, dashboardId, onReportRend
         // "rendered" menyala pada cat pertama dan pada setiap perubahan
         // filter/slicer — panel AI memakainya untuk tahu data sudah berubah.
         ["rendered", () => {
-          perfRef.current?.renderDone(false);
+          perfRef.current?.renderDone(hitRef.current);
           onReportRendered?.(reportRef.current);
         }],
       ])}
