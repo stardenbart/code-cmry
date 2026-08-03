@@ -16,140 +16,11 @@ import DataRoomDashboard from "./components/DataRoomDashboard.jsx";
 import AskAIPanel from "./components/AskAIPanel";
 import AISettingsModal from "./components/AISettingsModal";
 import CodeAINavigator from "./components/CodeAINavigator";
-import { extractReportGuid } from "./utils/powerbiData";
+import { extractReportGuid } from "./utils/reportGuid";
 import { markAppReady, flushAppLoad, startDashboardTimer } from "./utils/perf";
 import { useInViewport } from "./hooks/useInViewport";
 import API from "./api/api.js";
-import { PowerBIEmbed } from "powerbi-client-react";
-import { models } from "powerbi-client";
-
-const EMBED_SETTINGS = {
-  panes: {
-    filters:        { expanded: false, visible: false },
-    pageNavigation: { visible: true },
-  },
-  bars: {
-    actionBar: { visible: false },
-  },
-  commands: [{
-    exportData: { displayOption: models.CommandDisplayOption.Enabled },
-  }],
-};
-
-/**
- * Jalur iframe — 44 dari 46 dashboard memakai ini secara default.
- *
- * Tanpa pengukuran di sini, telemetri dashboard hampir kosong: jalur embed
- * token hanya menyala saat user menyalakan Export Mode atau membuka CODE AI.
- * Tidak ada token yang diambil di jalur ini, jadi tokenMs selalu 0 dan seluruh
- * waktunya adalah Power BI memuat isinya sendiri.
- */
-function PowerBIIframeEmbed({ url, dashboardId }) {
-  const perfRef = useRef(null);
-  if (!perfRef.current) perfRef.current = startDashboardTimer(dashboardId);
-
-  return (
-    <iframe
-      src={url}
-      className="w-full h-full border-0"
-      // tokenDone() sengaja TIDAK dipanggil: memanggilnya di sini akan
-      // menaruh seluruh durasi ke tokenMs. Dibiarkan kosong, tokenMs jadi 0
-      // dan seluruh waktunya masuk ke renderMs — di mana ia memang berada.
-      onLoad={() => perfRef.current?.renderDone(false)}
-    />
-  );
-}
-
-function PowerBIReportEmbed({ url, reportId, dashboardId, exportMode, onReportRendered }) {
-  // Export mode ON + ada report_id → pakai embed token (support export + AI)
-  if (exportMode && reportId) {
-    return <PowerBITokenEmbed reportId={reportId} dashboardId={dashboardId} onReportRendered={onReportRendered} />;
-  }
-  // Default → pakai public embed URL via iframe
-  if (url?.startsWith("https://") || url?.startsWith("http://")) {
-    return <PowerBIIframeEmbed url={url} dashboardId={dashboardId} />;
-  }
-  // Fallback: kalau tidak ada url publik tapi ada report_id, pakai token
-  if (reportId) {
-    return <PowerBITokenEmbed reportId={reportId} dashboardId={dashboardId} onReportRendered={onReportRendered} />;
-  }
-  return (
-    <div className="flex items-center justify-center w-full h-full text-gray-400 text-sm">
-      No embed source configured.
-    </div>
-  );
-}
-
-function PowerBITokenEmbed({ reportId, dashboardId, onReportRendered }) {
-  const [embedConfig, setEmbedConfig] = useState(null);
-  const [error, setError]             = useState(null);
-  const reportRef = useRef(null);
-  const timerRef  = useRef(null);
-  const perfRef   = useRef(null);
-
-  const fetchConfig = useCallback(async () => {
-    const token = localStorage.getItem("token");
-    if (!perfRef.current) perfRef.current = startDashboardTimer(dashboardId);
-    try {
-      const { data } = await API.get(`/api/powerbi/embed-config-by-report/${reportId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      perfRef.current.tokenDone();
-      if (reportRef.current) {
-        await reportRef.current.setAccessToken(data.embedToken);
-      } else {
-        setEmbedConfig(data);
-      }
-      if (timerRef.current) clearTimeout(timerRef.current);
-      const msUntilRefresh = new Date(data.tokenExpiry) - Date.now() - 5 * 60 * 1000;
-      if (msUntilRefresh > 0) timerRef.current = setTimeout(fetchConfig, msUntilRefresh);
-    } catch (err) {
-      const msg = err.response?.data?.message || err.message || "Unknown error";
-      setError(msg);
-    }
-  }, [reportId, dashboardId]);
-
-  useEffect(() => {
-    fetchConfig();
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [fetchConfig]);
-
-  if (error) return (
-    <div className="flex items-center justify-center w-full h-full text-red-500 text-sm px-4 text-center">
-      {error}
-    </div>
-  );
-  if (!embedConfig) return (
-    <div className="flex items-center justify-center w-full h-full text-gray-400 text-sm animate-pulse">
-      Loading dashboard...
-    </div>
-  );
-
-  return (
-    <PowerBIEmbed
-      embedConfig={{
-        type:        "report",
-        id:          embedConfig.reportId,
-        embedUrl:    embedConfig.embedUrl,
-        accessToken: embedConfig.embedToken,
-        tokenType:   models.TokenType.Embed,
-        settings:    EMBED_SETTINGS,
-      }}
-      eventHandlers={new Map([
-        ["tokenExpired", fetchConfig],
-        ["error", (e) => console.error("Power BI error:", e.detail)],
-        // "rendered" fires on first paint and on every filter/slicer change —
-        // the AI panel uses it to know the report is queryable and data changed.
-        ["rendered", () => {
-          perfRef.current?.renderDone(false);
-          onReportRendered?.(reportRef.current);
-        }],
-      ])}
-      getEmbeddedComponent={(r) => { reportRef.current = r; }}
-      cssClassName="w-full h-full border-0"
-    />
-  );
-}
+import PowerBIReport from "./components/PowerBIReport";
 
 /**
  * Satu kartu dashboard di halaman departemen.
@@ -204,7 +75,7 @@ function DashboardCard({
 
         <div className={`w-full h-full transition-all duration-300 ${!allowed ? "blur-md pointer-events-none" : ""}`}>
           {allowed && visible && (
-            <PowerBIReportEmbed
+            <PowerBIReport
               key={dash.url}
               url={dash.url}
               reportId={extractReportGuid(dash.report_id)}
@@ -373,7 +244,7 @@ function FullscreenDash({ dash, accessStatus, user, onClose, onRequestAccess, on
         )}
 
         {allowed && (
-         <PowerBIReportEmbed
+         <PowerBIReport
            key={`${dash.url}-${tokenEmbed}`}
            url={dash.url}
            reportId={reportGuid}
