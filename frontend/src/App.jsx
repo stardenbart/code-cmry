@@ -1,26 +1,34 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, lazy } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import Header from "./components/header";
-import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
 import Register from "./components/Register";
-import AddUserModal from "./components/AddUserModal";
-import ManageUsers from "./components/ManageUsers";
-import ChangePasswordModal from "./components/ChangePasswordModal";
-import LandingPage from "./components/LandingPage";
-import DashboardManager from "./components/DashboardManager";
-import LandingPageManager from "./components/LandingPageManager";
 import { ChevronDown, ArrowUp, ArrowLeft, Maximize2, Sparkles, KeyRound, Trash2, X } from "lucide-react";
-import NotificationPage from "./components/NotificationPage";
-import DataRoomDashboard from "./components/DataRoomDashboard.jsx";
-import AskAIPanel from "./components/AskAIPanel";
-import AISettingsModal from "./components/AISettingsModal";
-import CodeAINavigator from "./components/CodeAINavigator";
 import { extractReportGuid } from "./utils/reportGuid";
 import { markAppReady, flushAppLoad, startDashboardTimer } from "./utils/perf";
 import { useInViewport } from "./hooks/useInViewport";
 import API from "./api/api.js";
 import PowerBIReport from "./components/PowerBIReport";
+import LazyBoundary from "./components/LazyBoundary";
+
+// Dimuat saat dibutuhkan. Panel manajemen dipisah karena hanya satu dari 58
+// akun yang bisa membukanya — tidak masuk akal 57 orang lain mengunduhnya.
+// AskAIPanel penting secara khusus: ia menjangkau powerbiData, yang menjangkau
+// powerbi-client, sehingga impor statisnya menahan SDK 355 KB di chunk utama.
+// Sidebar dan LandingPage keduanya memakai framer-motion (115 KB). Tidak satu
+// pun dibutuhkan halaman login — layar pertama yang dilihat semua orang.
+const Sidebar             = lazy(() => import("./components/Sidebar"));
+const LandingPage         = lazy(() => import("./components/LandingPage"));
+const AddUserModal        = lazy(() => import("./components/AddUserModal"));
+const ManageUsers         = lazy(() => import("./components/ManageUsers"));
+const ChangePasswordModal = lazy(() => import("./components/ChangePasswordModal"));
+const DashboardManager    = lazy(() => import("./components/DashboardManager"));
+const LandingPageManager  = lazy(() => import("./components/LandingPageManager"));
+const NotificationPage    = lazy(() => import("./components/NotificationPage"));
+const DataRoomDashboard   = lazy(() => import("./components/DataRoomDashboard.jsx"));
+const AskAIPanel          = lazy(() => import("./components/AskAIPanel"));
+const AISettingsModal     = lazy(() => import("./components/AISettingsModal"));
+const CodeAINavigator     = lazy(() => import("./components/CodeAINavigator"));
 
 /**
  * Satu kartu dashboard di halaman departemen.
@@ -290,17 +298,19 @@ function FullscreenDash({ dash, accessStatus, user, onClose, onRequestAccess, on
         {/* AI chat drawer — its own scroll container, independent of the page */}
         {allowed && aiOpen && (
           <div className="w-full max-w-[420px] sm:w-[420px] shrink-0 h-full overscroll-contain">
-            <AskAIPanel
-              ref={panelRef}
-              dashboard={dash}
-              report={report}
-              reportReady={Boolean(report)}
-              renderNonce={renderNonce}
-              initialQuestion={dash.initialQuestion}
-              hideHeader                        /* header lives in the bar above */
-              onClose={() => setAiOpen(false)}
-              onOpenSettings={onOpenAISettings}
-            />
+            <LazyBoundary>
+              <AskAIPanel
+                ref={panelRef}
+                dashboard={dash}
+                report={report}
+                reportReady={Boolean(report)}
+                renderNonce={renderNonce}
+                initialQuestion={dash.initialQuestion}
+                hideHeader                        /* header lives in the bar above */
+                onClose={() => setAiOpen(false)}
+                onOpenSettings={onOpenAISettings}
+              />
+            </LazyBoundary>
           </div>
         )}
       </div>
@@ -429,16 +439,18 @@ function Dashboard({ user, onLogout }) {
       />
 
       <div className="flex flex-1 p-3 lg:p-6 gap-3 lg:gap-6 min-h-0">
-        <Sidebar
-          active={activeMenu}
-          onChange={setActiveMenu}
-          user={user}
-          canView={() => true}
-          dashboards={dashboards}
-          onDashboardSelect={handleDashboardSelect}
-          isOpen={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-        />
+        <LazyBoundary>
+          <Sidebar
+            active={activeMenu}
+            onChange={setActiveMenu}
+            user={user}
+            canView={() => true}
+            dashboards={dashboards}
+            onDashboardSelect={handleDashboardSelect}
+            isOpen={sidebarOpen}
+            onClose={() => setSidebarOpen(false)}
+          />
+        </LazyBoundary>
 
         <main
           className={`flex-1 min-w-0 bg-white/60 backdrop-blur-md p-4 lg:p-8 rounded-2xl shadow-md border border-cimoryGray overflow-y-auto transition-all duration-300 ${
@@ -524,6 +536,7 @@ function Dashboard({ user, onLogout }) {
 
       {/* Home-screen assistant: finds the right dashboard, never reads its data */}
       {!focusedDash && (
+        <LazyBoundary>
         <CodeAINavigator
           user={user}
           onOpenDashboard={(ref, opts) => {
@@ -554,12 +567,15 @@ function Dashboard({ user, onLogout }) {
             await fetchAccessStatus();
           }}
         />
+        </LazyBoundary>
       )}
 
-      {showAddUser    && <AddUserModal onClose={() => setShowAddUser(false)} />}
-      {showManageUser && <ManageUsers onClose={() => setShowManageUser(false)} />}
-      {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
-      {showAISettings && <AISettingsModal onClose={() => setShowAISettings(false)} />}
+      <LazyBoundary>
+        {showAddUser    && <AddUserModal onClose={() => setShowAddUser(false)} />}
+        {showManageUser && <ManageUsers onClose={() => setShowManageUser(false)} />}
+        {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
+        {showAISettings && <AISettingsModal onClose={() => setShowAISettings(false)} />}
+      </LazyBoundary>
     </div>
   );
 }
@@ -593,14 +609,16 @@ function NotificationsLayout({ user, onLogout }) {
       />
 
       <div className="flex flex-1 p-3 lg:p-6 gap-3 lg:gap-6 min-h-0">
-        <Sidebar
-          active={activeMenu}
-          onChange={() => navigate("/App")}
-          user={user}
-          canView={() => true}
-          isOpen={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-        />
+        <LazyBoundary>
+          <Sidebar
+            active={activeMenu}
+            onChange={() => navigate("/App")}
+            user={user}
+            canView={() => true}
+            isOpen={sidebarOpen}
+            onClose={() => setSidebarOpen(false)}
+          />
+        </LazyBoundary>
 
         <main
           className={`flex-1 min-w-0 bg-white/60 backdrop-blur-md p-4 lg:p-8 rounded-2xl shadow-md border border-cimoryGray overflow-y-auto transition-all duration-300 ${
@@ -610,7 +628,9 @@ function NotificationsLayout({ user, onLogout }) {
           <h1 className="text-xl lg:text-2xl font-bold text-cimoryBlue mb-6 border-b-2 border-red-200 pb-4">
             Notifications
           </h1>
-          <NotificationPage user={user} />
+          <LazyBoundary>
+            <NotificationPage user={user} />
+          </LazyBoundary>
         </main>
       </div>
 
@@ -628,9 +648,11 @@ function NotificationsLayout({ user, onLogout }) {
         </button>
       )}
 
-      {showAddUser    && <AddUserModal onClose={() => setShowAddUser(false)} />}
-      {showManageUser && <ManageUsers onClose={() => setShowManageUser(false)} />}
-      {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
+      <LazyBoundary>
+        {showAddUser    && <AddUserModal onClose={() => setShowAddUser(false)} />}
+        {showManageUser && <ManageUsers onClose={() => setShowManageUser(false)} />}
+        {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
+      </LazyBoundary>
     </div>
   );
 }
@@ -691,6 +713,7 @@ export default function App() {
   const isAdmin = (u) => u?.role === "admin";
 
   return (
+    <LazyBoundary>
     <Routes>
       <Route
         path="/"
@@ -753,5 +776,6 @@ export default function App() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </LazyBoundary>
   );
 }
