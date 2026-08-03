@@ -18,9 +18,9 @@ const SRC = "src";
 // literal, sementara uji ini juga memeriksa teks JSX, yang justru tempat
 // sebagian besar pelanggarannya berada.
 const SISA_PELANGGARAN = {
-  emojiUi: 9,
+  emojiUi: 8,
   emDashUi: 21,
-  alert: 27,
+  alert: 0,
   confirm: 6,
 };
 

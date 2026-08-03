@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from "react";
 import API from "../api/api"
 import { Check, X, Loader2 } from "lucide-react";
+import { useToast } from "./ToastProvider";
 
 export default function NotificationPage({ user }) {
+  const toast = useToast();
   const [requests, setRequests] = useState({ userRequests: [], accessRequests: [] });
   const [userRequests, setUserRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -40,7 +42,7 @@ export default function NotificationPage({ user }) {
       await fetchRequests();
     } catch (err) {
       console.error(`Error updating ${type} request:`, err);
-      alert("Error occured while handling decision.");
+      toast.error("Gagal menyimpan keputusan");
     }
   };
 

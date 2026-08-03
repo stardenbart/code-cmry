@@ -2,8 +2,10 @@ import React, { useState } from "react";
 import { UserPlus, Eye, EyeOff, ChevronDown, ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/api"
+import { useToast } from "./ToastProvider";
 
 export default function RegisterPage() {
+  const toast = useToast();
   const navigate = useNavigate();
 
   const [form, setForm] = useState({
@@ -55,7 +57,7 @@ export default function RegisterPage() {
 
   const handleRegister = async () => {
     if (!validateForm()) {
-      alert("Please fill in all required fields.");
+      toast.warning("Lengkapi dulu semua kolom wajib");
       return;
     }
 
@@ -66,11 +68,11 @@ export default function RegisterPage() {
       setLoading(false);
 
       if (data.error) {
-        alert(data.message || "Registration failed!");
+        toast.error(data.message || "Pendaftaran gagal");
         return;
       }
 
-      alert("Successfully registered, welcome to digitalization.");
+      toast.success("Pendaftaran berhasil. Tunggu persetujuan admin.");
 
       setForm({
         nama: "",
@@ -86,7 +88,7 @@ export default function RegisterPage() {
     } catch (err) {
       console.error(err);
       setLoading(false);
-      alert(err.response?.data?.message || "Server error occurred!");
+      toast.error(err.response?.data?.message || "Terjadi kesalahan di server");
     }
   };
 

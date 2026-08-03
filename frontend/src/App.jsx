@@ -11,6 +11,7 @@ import { prefetchEmbed, cancelPrefetch } from "./utils/embedPrefetch";
 import API from "./api/api.js";
 import PowerBIReport from "./components/PowerBIReport";
 import LazyBoundary from "./components/LazyBoundary";
+import { useToast } from "./components/ToastProvider";
 
 // Dimuat saat dibutuhkan. Panel manajemen dipisah karena hanya satu dari 58
 // akun yang bisa membukanya — tidak masuk akal 57 orang lain mengunduhnya.
@@ -350,6 +351,7 @@ function FullscreenDash({ dash, accessStatus, user, onClose, onRequestAccess, on
 }
 
 function Dashboard({ user, onLogout }) {
+  const toast = useToast();
   const [activeMenu, setActiveMenu]       = useState("Plant");
   const [sidebarOpen, setSidebarOpen]     = useState(false);
   const [focusedDash, setFocusedDash]     = useState(null);
@@ -420,10 +422,10 @@ function Dashboard({ user, onLogout }) {
         department_requested: dept,
       });
       await fetchAccessStatus();
-      alert(`Request akses untuk "${dashTitle}" telah dikirim.`);
+      toast.success(`Request akses untuk "${dashTitle}" telah dikirim.`);
     } catch (err) {
       console.error("Gagal request akses:", err);
-      alert(err?.response?.data?.message || "Gagal request akses!");
+      toast.error(err?.response?.data?.message || "Gagal mengirim request akses");
     }
   };
 
@@ -431,10 +433,10 @@ function Dashboard({ user, onLogout }) {
     try {
       await API.post("/api/cancel-request", { user_id: user.id, dashboard_title: dashTitle });
       await fetchAccessStatus();
-      alert(`Request akses untuk "${dashTitle}" dibatalkan.`);
+      toast.success(`Request akses untuk "${dashTitle}" dibatalkan.`);
     } catch (err) {
       console.error("Gagal cancel request:", err);
-      alert(err?.response?.data?.message || "Gagal cancel request!");
+      toast.error(err?.response?.data?.message || "Gagal membatalkan request");
     }
   };
 

@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Loader, EyeIcon, EyeOffIcon } from "lucide-react";
 import API from "../api/api"
+import { useToast } from "./ToastProvider";
 
 export default function AddUserModal({ onClose }) {
+  const toast = useToast();
   const [form, setForm] = useState({
     name: "",
     department: "",
@@ -53,12 +55,12 @@ export default function AddUserModal({ onClose }) {
       };
       const res = await API.post("/api/add-user", payload);
       if (res.status === 200) {
-        alert("User successfully added!");
+        toast.success("User berhasil ditambahkan");
         onClose();
       }
     } catch (err) {
       console.error(err);
-      alert("Failed adding user");
+      toast.error("Gagal menambahkan user");
     } finally {
       setLoading(false);
     }

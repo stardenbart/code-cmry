@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import { EyeIcon, EyeOffIcon } from "lucide-react";
 import API from "../api/api";
+import { useToast } from "./ToastProvider";
 
 export default function ChangePasswordModal({ onClose }) {
+  const toast = useToast();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -22,22 +24,22 @@ export default function ChangePasswordModal({ onClose }) {
     const loggedInUser = JSON.parse(localStorage.getItem("user"));
 
     if (!loggedInUser) {
-      alert("No logged-in user found");
+      toast.error("Sesi tidak ditemukan. Silakan login ulang.");
       return;
     }
 
     if (!currentPassword) {
-      alert("Masukkan password saat ini");
+      toast.warning("Masukkan password saat ini");
       return;
     }
 
     if (newPassword.length < 6) {
-      alert("Password must be at least 6 characters long");
+      toast.warning("Password minimal 6 karakter");
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      alert("Password confirmation does not match");
+      toast.warning("Konfirmasi password tidak sama");
       return;
     }
 
@@ -47,9 +49,9 @@ export default function ChangePasswordModal({ onClose }) {
         newPassword,
       });
 
-      alert("Password updated successfully!");
+      toast.success("Password berhasil diperbarui");
 
-      // Deliberately NOT writing the password back into localStorage — it used
+      // Deliberately NOT writing the password back into localStorage. It used
       // to be stored there in plain text, readable by any script on the page.
 
       setCurrentPassword("");
@@ -60,7 +62,7 @@ export default function ChangePasswordModal({ onClose }) {
       console.error("Error updating password:", err);
       // The server distinguishes "wrong current password" from other failures;
       // showing a generic message would leave the user guessing.
-      alert(err?.response?.data?.message || "Failed to update password");
+      toast.error(err?.response?.data?.message || "Gagal memperbarui password");
     }
   };
 

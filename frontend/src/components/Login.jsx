@@ -2,8 +2,10 @@ import React, { useState } from "react";
 import { Eye, EyeOff, LogIn } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/api";
+import { useToast } from "./ToastProvider";
 
 export default function LoginPage({ onLogin }) {
+  const toast = useToast();
   const [username, setUsername]       = useState("");
   const [password, setPassword]       = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -13,21 +15,21 @@ export default function LoginPage({ onLogin }) {
   const handleLogin = async (e) => {
     e.preventDefault();
     if (!username || !password) {
-      alert("Username and Password may not be empty!");
+      toast.warning("Username dan password wajib diisi");
       return;
     }
     setLoading(true);
     try {
       const res  = await API.post("/api/login", { username, password });
       const data = res.data;
-      if (data.error) { alert(data.message || "Login gagal!"); return; }
+      if (data.error) { toast.error(data.message || "Login gagal"); return; }
       localStorage.setItem("token", data.token);
       localStorage.setItem("user", JSON.stringify(data.user));
       onLogin && onLogin(data.user, data.token);
       navigate("/App");
     } catch (err) {
       console.error("Login error:", err);
-      alert(err.response?.data?.message || "Error connection with server");
+      toast.error(err.response?.data?.message || "Tidak bisa menghubungi server");
     } finally {
       setLoading(false);
     }

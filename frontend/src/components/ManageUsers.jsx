@@ -2,8 +2,10 @@
   import API from "../api/api"
   import { Trash2, RefreshCw, Edit, Search, ChevronDown } from "lucide-react";
 import PerfSummary from "./PerfSummary";
+import { useToast } from "./ToastProvider";
 
   export default function ManageUsers({ onClose }) {
+    const toast = useToast();
     const [dashboardAccess, setDashboardAccess] = useState([]);
     const [dashboardChecked, setDashboardChecked] = useState({});
     const [loadingAccess, setLoadingAccess] = useState(false);
@@ -53,7 +55,7 @@ import PerfSummary from "./PerfSummary";
         fetchUsers();
       } catch (err) {
         console.error("Error deleting user:", err);
-        alert(err.response?.data?.message || "❌ Error removing user");
+        toast.error(err.response?.data?.message || "Gagal menghapus user");
       }
     };
 
@@ -114,19 +116,19 @@ import PerfSummary from "./PerfSummary";
           { dashboardId, checked }
         );
       } catch {
-        alert("Failed update dashboard access");
+        toast.error("Gagal memperbarui akses dashboard");
       }
     };
 
     const handleUpdate = async () => {
       try {
         await API.put(`/api/update-user/${editingUser.id}`, form);
-        alert("Data successfully updated!");
+        toast.success("Data berhasil diperbarui");
         setEditingUser(null);
         fetchUsers();
       } catch (err) {
         console.error("Error updating user:", err);
-        alert(err.response?.data?.message || "Error updating user");
+        toast.error(err.response?.data?.message || "Gagal memperbarui user");
       }
     };
 

@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/api";
+import { useToast } from "./ToastProvider";
 
 const EMPTY_FORM = { title: "", url: "", sort_order: 0, active: true };
 
@@ -72,6 +73,7 @@ function ImageUpload({ currentUrl, onFileChange, onUrlChange }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function LandingPageManager() {
+  const toast = useToast();
   const [links, setLinks]               = useState([]);
   const [form, setForm]                 = useState(EMPTY_FORM);
   const [editingId, setEditingId]       = useState(null);
@@ -142,7 +144,7 @@ export default function LandingPageManager() {
       await fetchLinks();
       resetForm();
     } catch (err) {
-      alert(err.response?.data?.message || "Save failed");
+      toast.error(err.response?.data?.message || "Gagal menyimpan");
     } finally {
       setSaving(false);
     }
@@ -154,7 +156,7 @@ export default function LandingPageManager() {
       await API.delete(`/api/portal-links/${id}`, authHeader());
       setLinks(prev => prev.filter(l => l.id !== id));
     } catch (err) {
-      alert(err.response?.data?.message || "Delete failed");
+      toast.error(err.response?.data?.message || "Gagal menghapus");
     }
   };
 
@@ -172,7 +174,7 @@ export default function LandingPageManager() {
       });
       setLinks(prev => prev.map(l => l.id === link.id ? { ...l, active: l.active ? 0 : 1 } : l));
     } catch (err) {
-      alert("Toggle failed");
+      toast.error("Gagal mengubah status tampil");
     }
   };
 
