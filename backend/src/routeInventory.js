@@ -65,6 +65,7 @@ export const ROUTE_CLASSIFICATION = new Map([
   ["POST /api/ai/ask", "authenticated"],
   ["POST /api/ai/navigate", "authenticated"],
   ["GET /api/ai/history/:dashboardId", "authenticated"],
+  ["POST /api/perf/", "authenticated"],
   ["DELETE /api/ai/history/:dashboardId", "authenticated"],
 
   // selfOrAdmin
