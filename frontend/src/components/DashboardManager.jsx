@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
-import { ArrowLeft, PlusCircle, Save, XCircle, Edit3, Trash2, X, Mail } from "lucide-react";
+import { ArrowLeft, PlusCircle, Save, XCircle, Edit3, Trash2, X, Mail, Link2, CheckCircle2, AlertTriangle
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/api";
 import { useConfirm } from "./ConfirmProvider";
@@ -69,15 +70,15 @@ const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const reportIdState = (value) => {
   const raw = (value || "").trim();
-  if (!raw) return { level: "empty", message: "Kosong — Export Mode & CODE AI tidak aktif untuk dashboard ini." };
-  if (GUID_RE.test(raw)) return { level: "ok", message: "Report GUID valid — Export Mode & CODE AI aktif." };
+  if (!raw) return { level: "empty", message: "Kosong. Export Mode dan CODE AI tidak aktif untuk dashboard ini." };
+  if (GUID_RE.test(raw)) return { level: "ok", message: "Report GUID valid. Export Mode dan CODE AI aktif." };
   if (/[?&]reportId=([0-9a-f-]{36})/i.test(raw)) {
     const guid = raw.match(/[?&]reportId=([0-9a-f-]{36})/i)[1];
-    return { level: "warn", message: `Terdeteksi URL. GUID-nya: ${guid} — sebaiknya isi GUID-nya saja.` };
+    return { level: "warn", message: `Terdeteksi URL. GUID-nya: ${guid}. Sebaiknya isi GUID-nya saja.` };
   }
   return {
     level: "error",
-    message: 'Bukan Report GUID. Jangan pakai link "view?r=..." — ambil GUID dari URL report: app.powerbi.com/groups/.../reports/<GUID>/...',
+    message: 'Bukan Report GUID. Jangan pakai link "view?r=...". Ambil GUID dari URL report: app.powerbi.com/groups/.../reports/<GUID>/...',
   };
 };
 
@@ -328,15 +329,17 @@ const DashboardManager = () => {
                       <td className="p-3 font-medium text-sm">{d.title}</td>
                       <td className="p-3 text-sm">{d.department}</td>
                       <td className="p-3 font-mono text-xs text-gray-500 truncate max-w-[150px]" title={d.url}>
-		         {d.url ? "✅" : <span className="text-gray-300">—</span>}
+		         {d.url
+                            ? <Link2 size={14} className="text-green-600" aria-label="URL terisi" />
+                            : <span className="text-gray-300 text-xs">Belum diisi</span>}
 		      </td>
 		      <td className="p-3 font-mono text-xs text-gray-500 max-w-[150px]" title={d.report_id}>
 		         {(() => {
 		           const { level, message } = reportIdState(d.report_id);
-		           if (level === "ok")    return <span title="Report GUID valid">✅</span>;
-		           if (level === "warn")  return <span title={message}>⚠️</span>;
-		           if (level === "error") return <span title={message} className="text-red-600">❌</span>;
-		           return <span className="text-gray-300" title={message}>—</span>;
+		           if (level === "ok")    return <CheckCircle2 size={14} className="text-green-600" aria-label="Report GUID valid" />;
+		           if (level === "warn")  return <AlertTriangle size={14} className="text-amber-600" aria-label={message} />;
+		           if (level === "error") return <XCircle size={14} className="text-red-600" aria-label={message} />;
+		           return <span className="text-gray-300 text-xs">Belum diisi</span>;
 		         })()}
 		       </td>
                       <td className="p-3">

@@ -151,7 +151,7 @@ export default function AISettingsModal({ onClose }) {
             </ul>
             {!status.hasUserKey && status.universal?.configured && (
               <p className="mt-2 text-[12px] text-amber-700">
-                Kamu memakai kunci universal — kuotanya dibagi dengan semua user.
+                Kamu memakai kunci universal, kuotanya dibagi dengan semua user.
                 Isi kunci pribadi di bawah untuk jatah sendiri.
               </p>
             )}
@@ -162,7 +162,7 @@ export default function AISettingsModal({ onClose }) {
         <div className="mb-3">
           <label className="block text-sm font-medium mb-1">
             Kunci pribadi (BYOK)
-            {status?.hasUserKey && <span className="text-gray-400 font-normal"> — kosongkan bila tidak diubah</span>}
+            {status?.hasUserKey && <span className="text-gray-400 font-normal"> (kosongkan bila tidak diubah)</span>}
           </label>
           <div className="relative">
             <input
@@ -208,7 +208,7 @@ export default function AISettingsModal({ onClose }) {
         {canManageUniversal && (
           <div className="mb-3 border-t pt-3">
             <label className="block text-sm font-medium mb-1">
-              Kunci universal <span className="text-gray-400 font-normal">— khusus admin</span>
+              Kunci universal <span className="text-gray-400 font-normal">(khusus admin)</span>
             </label>
             <div className="relative">
               <input
@@ -268,7 +268,7 @@ export default function AISettingsModal({ onClose }) {
                 <li>• Angka operasional, mesin, tanggal → tetap dikirim (isi analisisnya).</li>
               </ul>
             ) : (
-              <p className="text-amber-700">Semua data dikirim apa adanya — aktifkan lewat AI_SANITIZE=true.</p>
+              <p className="text-amber-700">Semua data dikirim apa adanya. Aktifkan lewat AI_SANITIZE=true.</p>
             )}
             <p className="mt-1 text-amber-700">
               Pada kunci gratis, Google boleh memakai isi prompt untuk pengembangan

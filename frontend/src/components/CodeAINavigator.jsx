@@ -141,7 +141,7 @@ export default function CodeAINavigator({ user, onOpenDashboard, onRequestAccess
             <div className="m-3 p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11.5px] text-amber-800 shrink-0">
               <p className="flex items-start gap-1.5">
                 <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-                CODE AI belum aktif. Simpan kunci akses di menu Pengaturan CODE AI (ikon ✨ di header).
+                CODE AI belum aktif. Simpan kunci akses lewat menu Pengaturan CODE AI di header.
               </p>
             </div>
           )}
@@ -279,7 +279,9 @@ export default function CodeAINavigator({ user, onOpenDashboard, onRequestAccess
                         </button>
                       )}
                       {bulkDone[i] && (
-                        <p className="text-[10px] text-green-600 text-center">Permintaan akses terkirim ✓</p>
+                        <p className="text-[10px] text-green-600 text-center flex items-center justify-center gap-1">
+            <Check size={11} /> Permintaan akses terkirim
+          </p>
                       )}
                     </div>
                   )}

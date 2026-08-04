@@ -11,15 +11,15 @@ import path from "path";
 
 const SRC = "src";
 
-// Diturunkan tiap task. Nol saat Task 10 selesai.
+// Semua nol. Angka ini tidak boleh naik: uji gagal begitu ada pelanggaran baru.
 //
-// Angka awal ini jauh lebih besar daripada perkiraan di spesifikasi (2 emoji
-// dan 6 em dash). Perkiraan itu berasal dari grep yang hanya melihat string
-// literal, sementara uji ini juga memeriksa teks JSX, yang justru tempat
-// sebagian besar pelanggarannya berada.
+// Angka awalnya jauh lebih besar daripada perkiraan di spesifikasi (2 emoji dan
+// 6 em dash). Perkiraan itu berasal dari grep yang hanya melihat string literal,
+// sementara uji ini juga memeriksa teks JSX, tempat sebagian besar pelanggarannya
+// justru berada. Sebenarnya: 9 emoji, 21 em dash, 27 alert, 6 confirm.
 const SISA_PELANGGARAN = {
-  emojiUi: 8,
-  emDashUi: 21,
+  emojiUi: 0,
+  emDashUi: 0,
   alert: 0,
   confirm: 0,
 };

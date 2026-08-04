@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import API from "../api/api";
 
-const ms = (v) => (typeof v === "number" ? `${Math.round(v)} ms` : "—");
+const ms = (v) => (typeof v === "number" ? `${Math.round(v)} ms` : "belum ada data");
 
 export default function PerfSummary() {
   const [data, setData]       = useState(null);
@@ -25,8 +25,8 @@ export default function PerfSummary() {
     <div className="mt-8">
       <h3 className="text-base font-semibold text-cimoryBlue mb-1">Performa</h3>
       <p className="text-xs text-gray-500 mb-3">
-        7 hari terakhir. p95 berarti 95% pemuatan lebih cepat dari angka ini —
-        rata-rata menyembunyikan pemuatan lambat yang justru dikeluhkan user.
+        7 hari terakhir. p95 berarti 95% pemuatan lebih cepat dari angka ini.
+        Rata-rata menyembunyikan pemuatan lambat yang justru dikeluhkan user.
       </p>
 
       <div className="overflow-x-auto">
@@ -74,7 +74,7 @@ export default function PerfSummary() {
           <ul className="text-sm text-gray-700 space-y-0.5">
             {slowest.map((d) => (
               <li key={d.dashboard_id}>
-                {d.title || `Dashboard #${d.dashboard_id}`} — {ms(d.p95RenderMs)} (p95, {d.samples} sampel)
+                {d.title || `Dashboard #${d.dashboard_id}`}: {ms(d.p95RenderMs)} (p95, {d.samples} sampel)
               </li>
             ))}
           </ul>

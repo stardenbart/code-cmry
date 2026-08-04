@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Home, Monitor, BarChart3, ShieldCheck, DollarSign, Wrench } from "lucide-react";
+import { Home, Monitor, BarChart3, ShieldCheck, DollarSign, Wrench, Menu
+} from "lucide-react";
 import { Link } from "react-router-dom";
 
 const PBI_TOOLBAR_HEIGHT = 60;
@@ -38,8 +39,8 @@ export default function DataRoomDashboard() {
     <div className="w-screen h-screen bg-black overflow-hidden relative">
 
       <div className="fixed top-3 left-3 z-[999] group">
-        <div className="w-11 h-11 flex items-center justify-center text-xl cursor-pointer rounded-lg bg-cimoryBlue/95 text-white">
-          ☰
+        <div className="w-11 h-11 flex items-center justify-center cursor-pointer rounded-lg bg-cimoryBlue/95 text-white">
+          <Menu size={20} />
         </div>
 
         <div className="

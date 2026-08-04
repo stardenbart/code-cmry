@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Sparkles, Send, X, RefreshCw, AlertTriangle, Database,
-  Trash2, Loader2, Filter, KeyRound, ChevronDown, ChevronUp, Layers, Gauge, Cpu, RotateCcw,
+  Trash2, Loader2, Filter, KeyRound, ChevronDown, ChevronUp, Layers, Gauge, Cpu, RotateCcw, ShieldCheck,
 } from "lucide-react";
 import API from "../api/api";
 import { captureReportSnapshot, summarizeSnapshot, listReportPages } from "../utils/powerbiData";
@@ -129,14 +129,14 @@ function QuotaBar({ quota }) {
       {quota.mostConstrained && quota.mostConstrained.remainingPct <= 40 && (
         <p className="mt-1 text-[9.5px] text-amber-700">
           Tier <b>{quota.mostConstrained.tier}</b> tinggal{" "}
-          <b>{quota.mostConstrained.limit - quota.mostConstrained.used}</b> dari {quota.mostConstrained.limit} —
-          pertanyaan analitis akan dialihkan ke tier yang lebih hemat.
+          <b>{quota.mostConstrained.limit - quota.mostConstrained.used}</b> dari {quota.mostConstrained.limit}.
+          Pertanyaan analitis akan dialihkan ke tier yang lebih hemat.
         </p>
       )}
 
       {quota.shared && (
         <p className="mt-1 text-[9.5px] text-gray-400">
-          Memakai kunci bersama — kuota ini dibagi dengan semua user. Simpan kunci
+          Memakai kunci bersama, kuota ini dibagi dengan semua user. Simpan kunci
           pribadi di Pengaturan CODE AI untuk jatah sendiri.
         </p>
       )}
@@ -538,7 +538,7 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
               />
               <span>
                 Boleh pindah halaman sebentar saat membaca
-                <span className="text-gray-400"> — Power BI kadang menolak export halaman yang belum pernah dibuka. Halamanmu dikembalikan setelah selesai. Matikan kalau tampilan berpindah terasa mengganggu (halaman yang menolak akan dilaporkan gagal).</span>
+                <span className="text-gray-400"> (Power BI kadang menolak export halaman yang belum pernah dibuka. Halamanmu dikembalikan setelah selesai. Matikan kalau tampilan berpindah terasa mengganggu (halaman yang menolak akan dilaporkan gagal).</span>
               </span>
             </label>
             <div className="max-h-32 overflow-auto space-y-0.5">
@@ -588,8 +588,8 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
                     <span className="font-semibold text-gray-700">{v.title || "(tanpa judul)"}</span>
                     <span className="text-gray-400"> [{v.type}]</span>
                     {v.error
-                      ? <span className="text-amber-600"> — {v.error}</span>
-                      : <span className="text-gray-500"> — {v.rowCount} baris × {v.columns.length} kolom</span>}
+                      ? <span className="text-amber-600">: {v.error}</span>
+                      : <span className="text-gray-500">: {v.rowCount} baris × {v.columns.length} kolom</span>}
                   </div>
                 ))}
                 {snapshot.pageNotes?.map((note, i) => (
@@ -740,7 +740,7 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
                           <span className="text-sky-600">{" · dinaikkan dari "}{m.meta.routing.escalatedFrom}</span>
                         )}
                         {m.meta.fromCache && (
-                          <span className="text-green-600" title={`Diambil dari cache (${m.meta.cacheAgeSeconds} detik lalu) — tidak memakai kuota`}>
+                          <span className="text-green-600" title={`Diambil dari cache (${m.meta.cacheAgeSeconds} detik lalu), tidak memakai kuota`}>
                             {" · "}dari cache, 0 kuota
                           </span>
                         )}
@@ -752,7 +752,7 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
                             className="text-green-600"
                             title={`${m.meta.sanitization.entities} identitas diganti token, ${m.meta.sanitization.dropped} nilai dihapus permanen sebelum data keluar dari jaringan Cimory`}
                           >
-                            {" · "}🛡 {m.meta.sanitization.entities + m.meta.sanitization.dropped} nilai disamarkan
+                            {" · "}<ShieldCheck size={10} className="inline align-[-1px]" /> {m.meta.sanitization.entities + m.meta.sanitization.dropped} nilai disamarkan
                           </span>
                         )}
                       </p>
@@ -821,7 +821,7 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
         </div>
 
         <p className="mt-1 text-[10px] text-gray-400">
-          Jawaban CODE AI berdasarkan data yang tampil — selalu verifikasi angka penting di dashboard.
+          Jawaban CODE AI berdasarkan data yang tampil. Selalu verifikasi angka penting di dashboard.
         </p>
       </div>
     </div>

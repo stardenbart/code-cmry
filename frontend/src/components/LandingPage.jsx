@@ -222,7 +222,7 @@ export default function LandingPage() {
             ))}
           </div>
           <div className="text-xs text-white/60 text-center mt-1">
-            © 2025 Cimory Operation Portal — Digital Transformation
+            © 2025 Cimory Operation Portal, Digital Transformation
           </div>
         </div>
       </footer>
