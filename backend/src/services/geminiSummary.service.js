@@ -92,18 +92,30 @@ export async function ringkasDenganAI({ jendela, domains, banding }) {
         model,
         systemInstruction: instruksiSistem(),
         question: pertanyaan,
-        // maxOutputTokens HARUS mencakup token berpikir, bukan hanya teks yang
-        // keluar. Ini tertulis di config/gemini.js dan bawaannya di sana 4096.
+        // Anggaran token job ini SENGAJA jauh lebih besar daripada jalur tanya
+        // jawab user, dan keduanya tidak saling memengaruhi karena setelan ini
+        // hanya ada di berkas ini. Alasannya sederhana: job berjalan satu kali
+        // sehari, sementara jalur chat berjalan puluhan kali dan harus hemat.
         //
-        // Versi pertama di sini menimpanya jadi 1600 dengan alasan menjaga pesan
-        // WhatsApp tetap pendek, dan hasil nyatanya keluaran 168 karakter yang
-        // ditolak validasi: hampir seluruh anggarannya habis untuk berpikir
-        // sebelum satu section pun ditulis. Panjang pesan dikendalikan lewat
-        // instruksi, bukan dengan mencekik anggaran token.
-        maxOutputTokens: Number(process.env.SUMMARY_MAX_OUTPUT_TOKENS) || 4096,
-        // Ringkasan terstruktur tidak butuh penalaran panjang, dan "low" terukur
-        // memangkas token berpikir sekitar setengah pada gemini-3.6-flash.
-        thinkingLevel: process.env.SUMMARY_THINKING_LEVEL || "low",
+        // maxOutputTokens HARUS mencakup token berpikir, bukan hanya teks yang
+        // keluar; ini tertulis di config/gemini.js. Versi pertama di sini
+        // menimpanya jadi 1600 dengan maksud menjaga pesan WhatsApp tetap
+        // pendek, dan hasil nyatanya keluaran 168 karakter yang ditolak
+        // validasi: anggarannya habis untuk berpikir sebelum satu section pun
+        // ditulis. Panjang pesan dikendalikan lewat instruksi, bukan dengan
+        // mencekik anggaran token.
+        maxOutputTokens: Number(process.env.SUMMARY_MAX_OUTPUT_TOKENS) || 16_384,
+        // Penalaran tinggi untuk job ini. Mencari akar masalah lintas Production,
+        // Quality, Maintenance, dan Cost adalah pekerjaan yang memang menuntut
+        // penalaran, dan sekali sehari membuat biayanya masuk akal. Jalur chat
+        // tetap memakai "low" dari config/gemini.js.
+        //
+        // Perlu diketahui: penalaran tinggi memakai lebih banyak kuota, dan
+        // kunci universal free-tier sudah terbukti bisa habis (429) dalam
+        // beberapa panggilan. Kalau job ini sering gagal karena kuota, jalannya
+        // bukan menurunkan penalaran, tapi memakai kunci berbayar terpisah untuk
+        // job supaya tidak berebut kuota dengan chat 57 user.
+        thinkingLevel: process.env.SUMMARY_THINKING_LEVEL || "high",
       });
 
       // askGemini mengembalikan { text, model, usage, finishReason }.
