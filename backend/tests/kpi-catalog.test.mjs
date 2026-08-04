@@ -21,6 +21,47 @@ ok("setiap entri menjelaskan dateLogic", tanpaTanggal.length === 0,
 // menyalin catatan kosong tidak.
 ok("setiap entri punya unit", KATALOG_KPI.every((e) => Boolean(e.unit)));
 
+section("Perilaku tanggal ditetapkan dengan mengukur, bukan menebak");
+
+// Cacat yang ditemukan 2026-08-04 dan alasan flag ini ada.
+//
+// Versi pertama menentukan perlu tidaknya filter tanggal dengan mencocokkan kata
+// di prosa dateLogic. Prosa itu berasal dari registry, bukan dari pengukuran, dan
+// salah untuk OEE serta Downtime kategori: keduanya ditandai "membawa jendela
+// waktunya sendiri" padahal terukur MERESPONS filter tanggal. Akibatnya laporan
+// menampilkan angka sepanjang masa sebagai angka harian, tanpa satu pun error.
+const tanpaFlag = KATALOG_KPI.filter(
+  (e) => typeof e.filterTanggal !== "boolean" || typeof e.harian !== "boolean"
+);
+ok("setiap entri punya flag filterTanggal dan harian", tanpaFlag.length === 0,
+  tanpaFlag.map((e) => e.kpi).join(", "));
+
+// Prosa dan flag tidak boleh saling membantah: pembaca kode akan mempercayai
+// prosanya, sementara program mempercayai flagnya.
+const bentrok = KATALOG_KPI.filter(
+  (e) =>
+    (e.filterTanggal &&
+      /membawa jendela waktunya sendiri|mengabaikan filter|tidak bisa difilter/i.test(e.dateLogic)) ||
+    (!e.filterTanggal && /^difilter/i.test(e.dateLogic))
+);
+ok("prosa dateLogic tidak bertentangan dengan flagnya", bentrok.length === 0,
+  bentrok.map((e) => e.kpi).join(", "));
+
+// Angka yang bukan harian WAJIB dijelaskan, karena pembaca laporan harian
+// menganggap semua angka di dalamnya harian.
+const bukanHarianTanpaCatatan = KATALOG_KPI.filter(
+  (e) => e.harian === false && (!e.notes || e.notes.length < 20)
+);
+ok("KPI bukan harian selalu menjelaskan angkanya mewakili apa",
+  bukanHarianTanpaCatatan.length === 0,
+  bukanHarianTanpaCatatan.map((e) => e.kpi).join(", "));
+
+// Tidak masuk akal meminta filter tanggal untuk angka yang bukan harian.
+const janggal = KATALOG_KPI.filter((e) => e.filterTanggal === true && e.harian === false);
+ok("filterTanggal true selalu berpasangan dengan harian true, kecuali disengaja",
+  janggal.every((e) => /bulanan|konteks/i.test(e.dateLogic + (e.notes || ""))),
+  janggal.map((e) => e.kpi).join(", "));
+
 section("Setiap measure di katalog benar-benar ada di modelnya");
 
 const pasangan = pasanganMeasure();

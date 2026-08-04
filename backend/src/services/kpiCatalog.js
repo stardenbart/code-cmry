@@ -64,7 +64,11 @@ export const KATALOG_KPI = [
     measures: ["OEE (%)", "1-Final OEE (%)"],
     unit: "%",
     status: "blocked",
-    dateLogic: "measure membawa jendela waktunya sendiri, tidak difilter dari luar",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Merespons filter tanggal, hasil harian 0,697.
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal lewat tabel tanggal yang ditandai model, cutoff harian biasa",
     notes:
       "Dua varian, KEDUANYA dirender di visual. Registry mencatat blok OEE di model ini " +
       "disalin ke Dashboard PPIC dan Data Room Service Level, bukan berbagi sumber, jadi " +
@@ -81,7 +85,11 @@ export const KATALOG_KPI = [
     ],
     unit: "%",
     status: "blocked",
-    dateLogic: "measure membawa jendela waktunya sendiri",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Merespons filter tanggal, hasil harian tersedia.
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tabel tanggal model, cutoff harian biasa",
     notes:
       "Dua set lengkap dirender berdampingan, biasa dan berawalan 1-Final. Definisi " +
       "kategori Organizational versus Operational tidak terlihat dari struktur.",
@@ -93,7 +101,16 @@ export const KATALOG_KPI = [
     measures: ["Jumlah Kejadian DT", "Total DT Hours", "Avg DT Duration (min)"],
     unit: "kejadian, jam, menit",
     status: "needs_confirmation",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // MENGABAIKAN filter tanggal: nilainya 665.686 dengan maupun tanpa filter, jadi tidak bisa jadi angka harian.
+    filterTanggal: false,
+    harian: false,
     dateLogic: "measure membawa jendela waktunya sendiri",
+    notes:
+      "Angka AKUMULATIF sepanjang data, bukan harian: measure ini mengabaikan " +
+      "filter tanggal, nilainya 665.686 kejadian dengan maupun tanpa filter. " +
+      "Dipakai sebagai konteks skala, dan laporan wajib menyebutnya akumulatif " +
+      "supaya tidak terbaca sebagai kejadian semalam. ",
   },
   {
     domain: "production",
@@ -102,7 +119,11 @@ export const KATALOG_KPI = [
     measures: ["(sum) Output", "(sum) Input"],
     unit: "pcs",
     status: "confirmed",
-    dateLogic: "difilter kolom tanggal fakta produksi, cutoff harian biasa",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Model Efis & Losses tidak punya tabel tanggal, angkanya akumulatif.
+    filterTanggal: false,
+    harian: false,
+    dateLogic: "TIDAK bisa difilter tanggal: model ini tidak punya tabel tanggal, angkanya akumulatif",
     notes:
       "Registry menyebut KPI ini Total Output/Total Input, tetapi nama yang dirender di " +
       "visual adalah (sum) Output dan (sum) Input. Measure bernama Total Input tidak " +
@@ -115,7 +136,11 @@ export const KATALOG_KPI = [
     measures: ["% Efis", "Target Efis"],
     unit: "%",
     status: "needs_confirmation",
-    dateLogic: "difilter kolom tanggal fakta produksi, cutoff harian biasa",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Model Efis & Losses tidak punya tabel tanggal.
+    filterTanggal: false,
+    harian: false,
+    dateLogic: "TIDAK bisa difilter tanggal: model ini tidak punya tabel tanggal, angkanya akumulatif",
     notes: "Formula belum jelas: output dibagi input, atau output dibagi standar.",
   },
 
@@ -127,6 +152,10 @@ export const KATALOG_KPI = [
     measures: ["Jumlah NC", "Jumlah NC (ALL)", "Jumlah NC CMD 1", "Jumlah NC CMD 2"],
     unit: "kejadian",
     status: "confirmed",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Merespons filter tanggal; null berarti tidak ada NC pada hari itu, bukan kegagalan.
+    filterTanggal: true,
+    harian: true,
     dateLogic: "difilter tanggal kejadian NC, cutoff harian biasa",
     notes:
       "Varian ALL dan per-CMD dipertahankan semuanya: laporan harian butuh total, " +
@@ -139,6 +168,10 @@ export const KATALOG_KPI = [
     measures: ["Jumlah deviasi", "Jumlah Deviasi (ALL)", "Jumlah Deviasi RMPM", "Jumlah Deviasi PM"],
     unit: "kejadian",
     status: "confirmed",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Merespons filter tanggal, hasil harian 9.
+    filterTanggal: true,
+    harian: true,
     dateLogic: "difilter tanggal kejadian deviasi, cutoff harian biasa",
   },
   {
@@ -148,6 +181,10 @@ export const KATALOG_KPI = [
     measures: ["Jumlah NC CMD 1", "Jumlah NC CMD 2", "Jumlah NC CMD 3", "% FU PA Monthly"],
     unit: "kejadian, %",
     status: "needs_confirmation",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Merespons filter tapi semantiknya bulanan, dipakai sebagai konteks recurring.
+    filterTanggal: true,
+    harian: false,
     dateLogic: "model berorientasi bulanan, bukan harian. Angka harian bisa tidak berarti",
     notes:
       "% FU PA Monthly bersatuan bulanan. Dipakai sebagai konteks recurring problem " +
@@ -162,6 +199,10 @@ export const KATALOG_KPI = [
     measures: ["MTBF", "MTBF U"],
     unit: "jam",
     status: "blocked",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Merespons filter tanggal, harian 3,63 versus akumulatif 1,40.
+    filterTanggal: true,
+    harian: true,
     dateLogic: "difilter tanggal kejadian downtime, cutoff harian biasa",
     notes: "Dua varian, keduanya dirender. Arti akhiran U belum jelas.",
   },
@@ -172,6 +213,10 @@ export const KATALOG_KPI = [
     measures: ["Total Downtime", "Persentase Downtime (%)", "(SUM) Downtimw", "Total Used Time UT"],
     unit: "jam, %",
     status: "blocked",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Merespons filter tanggal, harian 11,4 jam versus akumulatif 28.529.
+    filterTanggal: true,
+    harian: true,
     dateLogic: "difilter tanggal kejadian downtime, cutoff harian biasa",
     notes:
       "(SUM) Downtimw memang salah tulis dan memang dirender di visual. Penyebut " +
@@ -184,6 +229,10 @@ export const KATALOG_KPI = [
     measures: ["Jumlah Kejadian", "Kejadian"],
     unit: "kejadian",
     status: "blocked",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Merespons filter tanggal, harian 97 versus akumulatif 310.522.
+    filterTanggal: true,
+    harian: true,
     dateLogic: "difilter tanggal kejadian downtime, cutoff harian biasa",
     notes: "Dua measure berbeda dengan arti yang tampak sama, keduanya dirender.",
   },
@@ -196,7 +245,11 @@ export const KATALOG_KPI = [
     measures: ["Losses RM (IDR)", "Avg RM Losses", "IDR Losses (Mio)", "Total IDR (Mio)"],
     unit: "IDR",
     status: "needs_confirmation",
-    dateLogic: "difilter kolom tanggal fakta produksi, cutoff harian biasa",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Model Efis & Losses tidak punya tabel tanggal, angkanya akumulatif.
+    filterTanggal: false,
+    harian: false,
+    dateLogic: "TIDAK bisa difilter tanggal: model ini tidak punya tabel tanggal, angkanya akumulatif",
     notes: "Skala Mio diasumsikan juta IDR; tidak ada di metadata model.",
   },
   {
@@ -206,7 +259,11 @@ export const KATALOG_KPI = [
     measures: ["% Losses Packing", "% Losses Process", "Losses % of Usage", "%Losses", "(M) % Losses"],
     unit: "%",
     status: "blocked",
-    dateLogic: "difilter kolom tanggal fakta produksi, cutoff harian biasa",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Model Efis & Losses tidak punya tabel tanggal.
+    filterTanggal: false,
+    harian: false,
+    dateLogic: "TIDAK bisa difilter tanggal: model ini tidak punya tabel tanggal, angkanya akumulatif",
     notes:
       "LIMA rasio berbeda, semuanya dirender di visual, dan penyebutnya berbeda " +
       "sehingga tidak bisa saling menggantikan. Ini contoh paling jelas kenapa varian " +
@@ -219,7 +276,11 @@ export const KATALOG_KPI = [
     measures: ["Biaya Yang dibayar (cost)"],
     unit: "IDR",
     status: "confirmed",
-    dateLogic: "difilter tanggal pengajuan lembur, cutoff harian biasa",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Model Lembur Plant tidak punya tabel tanggal: 16,3 miliar IDR itu akumulasi, BUKAN sehari.
+    filterTanggal: false,
+    harian: false,
+    dateLogic: "TIDAK bisa difilter tanggal: model ini tidak punya tabel tanggal, angkanya akumulatif",
     notes:
       "PENTING untuk pembacaan laporan: model ini refresh pagi pertamanya 08:30, jadi " +
       "pada job 06:15 datanya hanya sampai 17:30 hari sebelumnya. Jam lembur justru " +
@@ -233,6 +294,10 @@ export const KATALOG_KPI = [
     measures: ["Total Jam Lembur"],
     unit: "jam",
     status: "confirmed",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Merespons filter tanggal.
+    filterTanggal: true,
+    harian: true,
     dateLogic: "difilter tanggal lembur, cutoff harian biasa",
     notes: "Refresh 07:00, 13:00, 17:00. Sama seperti biaya lembur, cakupannya sampai 17:00.",
   },
@@ -245,6 +310,10 @@ export const KATALOG_KPI = [
     measures: ["Usage W total (m3)", "Usage W CMD 1 (m3)", "Usage W CMD 2 (m3)", "Usage W CMD 3 (m3)"],
     unit: "m3",
     status: "needs_confirmation",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Merespons filter tanggal.
+    filterTanggal: true,
+    harian: true,
     dateLogic: "difilter tanggal pencatatan meter, cutoff harian biasa",
     notes:
       "Set duplikat berawalan Nw (New) juga dirender, misalnya Nw Usage W CMD 3 (m3). " +
@@ -257,6 +326,10 @@ export const KATALOG_KPI = [
     measures: ["Nw Usage Utility 1 (m3)", "Nw Usage W CMD 3 (m3)", "Nw Ratio W CMD 3 (liter)"],
     unit: "m3, liter",
     status: "blocked",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Merespons filter tanggal.
+    filterTanggal: true,
+    harian: true,
     dateLogic: "difilter tanggal pencatatan meter, cutoff harian biasa",
     notes: "Disajikan terpisah supaya selisihnya terhadap set non-Nw terlihat.",
   },
@@ -267,7 +340,15 @@ export const KATALOG_KPI = [
     measures: ["Rasio standar Listrik", "Rasio Standar Air", "Rasio standar gas", "Nw Standar Water"],
     unit: "rasio",
     status: "needs_confirmation",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Nilai standar, bukan pengukuran harian.
+    filterTanggal: false,
+    harian: false,
     dateLogic: "nilai standar, tidak difilter tanggal",
+    notes:
+      "Nilai STANDAR yang ditetapkan, bukan pengukuran harian. Dipakai sebagai " +
+      "pembanding terhadap pemakaian nyata, bukan sebagai angka yang naik " +
+      "turun tiap hari. ",
   },
   {
     domain: "energy",
@@ -276,6 +357,10 @@ export const KATALOG_KPI = [
     measures: ["Out Steam (ton)", "Pemakaian Steam per jam (ton/jam)"],
     unit: "ton, ton/jam",
     status: "needs_confirmation",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Merespons filter tanggal.
+    filterTanggal: true,
+    harian: true,
     dateLogic: "difilter tanggal pencatatan meter, cutoff harian biasa",
   },
 
@@ -287,6 +372,10 @@ export const KATALOG_KPI = [
     measures: ["Persentase akurasi PO", "Persentase akurasi FC"],
     unit: "%",
     status: "confirmed",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Merespons filter tanggal, harian 0,211 versus akumulatif 14,0.
+    filterTanggal: true,
+    harian: true,
     dateLogic: "model berorientasi periode perencanaan, bukan harian",
     notes: "Toleransi bandnya masih perlu pengesahan pemilik.",
   },
@@ -297,6 +386,10 @@ export const KATALOG_KPI = [
     measures: ["(M) % OTIR Total Only (ctn)", "(M) % OTR Total Only (ctn)"],
     unit: "%",
     status: "needs_confirmation",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Merespons filter tanggal, tapi logika flag kategorikal §2.4 belum diverifikasi.
+    filterTanggal: true,
+    harian: true,
     dateLogic:
       "TIDAK memakai cutoff tanggal biasa. Spec §2.4 menyebut OTIR memakai flag " +
       "transaksi kategorikal. Belum diverifikasi ke struktur model, jadi angka harian " +
@@ -313,6 +406,10 @@ export const KATALOG_KPI = [
     ],
     unit: "menit, kedatangan",
     status: "blocked",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Merespons filter tanggal, harian 0,63.
+    filterTanggal: true,
+    harian: true,
     dateLogic: "difilter tanggal kedatangan truk, cutoff harian biasa",
     notes:
       "Avg Cycle time total slh adalah satu-satunya measure cycle time total yang " +
@@ -333,6 +430,10 @@ export const KATALOG_KPI = [
     ],
     unit: "%",
     status: "blocked",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Snapshot realtime, mengabaikan filter tanggal.
+    filterTanggal: false,
+    harian: false,
     dateLogic: "measure realtime, tidak difilter tanggal",
     notes: "Set HIST dengan arti setara juga dirender. Lihat entri berikutnya.",
   },
@@ -347,7 +448,11 @@ export const KATALOG_KPI = [
     ],
     unit: "%",
     status: "blocked",
-    dateLogic: "difilter tanggal snapshot stok, cutoff harian biasa",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // MENGABAIKAN filter tanggal walau bernama HIST, nilainya sama dengan dan tanpa filter.
+    filterTanggal: false,
+    harian: false,
+    dateLogic: "MENGABAIKAN filter tanggal walau bernama HIST, terukur sama dengan dan tanpa filter",
     notes:
       "Dua set, RT dan HIST, keduanya dirender di dashboard yang sama. Menyajikan " +
       "keduanya membuat selisihnya terlihat, dan itu yang dibutuhkan untuk memilih.",
@@ -359,7 +464,15 @@ export const KATALOG_KPI = [
     measures: ["IC_Shortage_Value NEW", "IC_Overstock_Value NEW", "IC_OutofStock_Value NEW"],
     unit: "IDR",
     status: "needs_confirmation",
-    dateLogic: "difilter tanggal snapshot stok, cutoff harian biasa",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Mengabaikan filter tanggal, nilainya snapshot.
+    filterTanggal: false,
+    harian: false,
+    dateLogic: "mengabaikan filter tanggal, nilainya snapshot saat model terakhir refresh",
+    notes:
+      "Nilai SNAPSHOT saat model terakhir refresh, bukan perubahan harian. " +
+      "Measure ini mengabaikan filter tanggal, nilainya sama dengan dan " +
+      "tanpa filter. ",
   },
   {
     domain: "inventory",
@@ -368,7 +481,11 @@ export const KATALOG_KPI = [
     measures: ["Coverage V2", "(Hist) Coverage V2"],
     unit: "hari",
     status: "blocked",
-    dateLogic: "difilter tanggal snapshot stok, cutoff harian biasa",
+    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
+    // Mengabaikan filter tanggal, dan nilainya null di kedua cara.
+    filterTanggal: false,
+    harian: false,
+    dateLogic: "mengabaikan filter tanggal, dan nilainya null di kedua cara",
     notes:
       "Kamus KPI menyebut IC_DOI OHS punya 4 varian, tetapi tidak satu pun dirender " +
       "di visual. Yang dirender adalah Coverage V2, jadi itulah yang dipakai.",
@@ -408,6 +525,24 @@ export function validasiKatalog(katalog = KATALOG_KPI) {
     // Inti aturan 2.
     if (!e.dateLogic || String(e.dateLogic).trim().length < 10) {
       masalah.push(`${label}: dateLogic wajib dijelaskan, tidak ada nilai bawaan`);
+    }
+    // Aturan 4. Keduanya WAJIB boolean eksplisit, bukan undefined.
+    //
+    // Tanpa ini, KPI baru bisa masuk tanpa perilaku tanggalnya pernah diukur,
+    // dan perluFilterTanggal() akan membacanya sebagai false. Untuk measure yang
+    // sebenarnya merespons filter, hasilnya angka sepanjang masa yang tampil
+    // sebagai angka harian: persis cacat yang ditemukan pada OEE dan Downtime
+    // kategori sebelum flag ini ada.
+    if (typeof e.filterTanggal !== "boolean") {
+      masalah.push(`${label}: filterTanggal wajib boolean, tetapkan dengan mengukur, bukan menebak`);
+    }
+    if (typeof e.harian !== "boolean") {
+      masalah.push(`${label}: harian wajib boolean, sebutkan apakah angkanya benar-benar harian`);
+    }
+    // Angka yang tidak harian TIDAK boleh masuk tanpa penjelasan, karena
+    // pembaca laporan akan menganggap semua angka di laporan harian itu harian.
+    if (e.harian === false && (!e.notes || e.notes.length < 20)) {
+      masalah.push(`${label}: harian false wajib disertai notes yang menjelaskan angkanya mewakili apa`);
     }
     const kunci = `${e.domain}|${e.kpi}`;
     if (terlihat.has(kunci)) masalah.push(`${label}: duplikat domain dan kpi`);
