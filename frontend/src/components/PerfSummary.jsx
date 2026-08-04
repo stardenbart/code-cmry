@@ -5,6 +5,7 @@ const ms = (v) => (typeof v === "number" ? `${Math.round(v)} ms` : "belum ada da
 
 export default function PerfSummary() {
   const [data, setData]       = useState(null);
+  const [cakupan, setCakupan] = useState(null);
   const [error, setError]     = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -13,6 +14,12 @@ export default function PerfSummary() {
       .then((res) => setData(res.data))
       .catch((err) => setError(err?.response?.data?.message || "Gagal memuat ringkasan"))
       .finally(() => setLoading(false));
+
+    API.get("/api/ai/coverage")
+      .then((res) => setCakupan(res.data))
+      // Diam saja: bagian ini tambahan, kegagalannya tidak boleh menjatuhkan
+      // ringkasan performa di atasnya.
+      .catch(() => {});
   }, []);
 
   if (loading) return <p className="text-sm text-gray-500">Memuat ringkasan performa…</p>;
@@ -89,6 +96,48 @@ export default function PerfSummary() {
         <p className="text-sm text-gray-500">
           Belum ada data. Angka muncul setelah user membuka CODE dan dashboard.
         </p>
+      )}
+
+      {cakupan && cakupan.total > 0 && (
+        <>
+          <h4 className="text-sm font-semibold text-gray-700 mt-5 mb-1">Pertanyaan CODE AI</h4>
+
+          {cakupan.tercatat > 0 ? (
+            <p className="text-sm text-gray-700">
+              {cakupan.lokal} dari {cakupan.tercatat} pertanyaan ({cakupan.persenLokal} persen) dijawab
+              langsung dari data dashboard, tanpa memakai kuota. {cakupan.hariTerakhir} hari terakhir.
+            </p>
+          ) : (
+            <p className="text-sm text-gray-700">
+              Belum ada pertanyaan yang melewati pengenal intent. Angka muncul setelah
+              user bertanya lagi.
+            </p>
+          )}
+
+          {cakupan.belumTercatat > 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              {cakupan.belumTercatat} pertanyaan lain mendahului pengukuran ini dan tidak
+              ikut dihitung, supaya persentasenya tidak terlihat rendah tanpa alasan.
+            </p>
+          )}
+
+          {cakupan.perIntent.length > 0 && (
+            <ul className="text-xs text-gray-600 mt-1.5 space-y-0.5">
+              {cakupan.perIntent.slice(0, 8).map((x) => (
+                <li key={x.intent}>
+                  {x.intent}: {x.jumlah} pertanyaan, {x.lokal} dijawab lokal
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {cakupan.tercatat > 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              Target rencana 35 sampai 50 persen. Angka di bawah itu berarti pengenal
+              intent perlu diperluas, bukan bahwa fiturnya gagal.
+            </p>
+          )}
+        </>
       )}
     </div>
   );

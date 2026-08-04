@@ -98,4 +98,5 @@ export const ROUTE_CLASSIFICATION = new Map([
   ["PUT /api/ai/universal-key", "adminOnly"],
   ["DELETE /api/ai/universal-key", "adminOnly"],
   ["GET /api/perf/summary", "adminOnly"],
+  ["GET /api/ai/coverage", "adminOnly"],
 ]);

@@ -284,6 +284,58 @@ export const AiController = {
     }
   },
 
+  /**
+   * GET /api/ai/coverage — seberapa sering jawaban tidak memanggil model.
+   *
+   * Rencana Fase A menargetkan 35 sampai 50 persen pertanyaan dashboard selesai
+   * tanpa model, dan menyebut angka itu harus diukur ulang dari pemakaian nyata
+   * setelah dua minggu. Ini alat ukurnya, supaya targetnya bisa dihitung, bukan
+   * diperdebatkan.
+   */
+  coverage: async (req, res) => {
+    try {
+      const [baris] = await sql.query(
+        `SELECT COALESCE(intent, 'TIDAK_TERCATAT') AS intent,
+                COUNT(*) AS jumlah,
+                SUM(answered_locally = 1) AS lokal
+         FROM ai_chat_logs
+         WHERE created_at >= NOW() - INTERVAL 14 DAY
+         GROUP BY COALESCE(intent, 'TIDAK_TERCATAT')
+         ORDER BY jumlah DESC`
+      );
+
+      const total = baris.reduce((s, r) => s + Number(r.jumlah), 0);
+      const lokal = baris.reduce((s, r) => s + Number(r.lokal || 0), 0);
+
+      // Baris tanpa intent mendahului instrumentasi ini. Memasukkannya ke
+      // pembagi membuat persentasenya selalu terlihat nyaris nol selama dua
+      // minggu pertama, dan itu akan dibaca sebagai "fiturnya gagal" padahal
+      // artinya "belum ada data dari jalur baru". Persentase dihitung hanya
+      // atas pertanyaan yang benar-benar melewati pengenal intent.
+      const belumTercatat = baris
+        .filter((r) => r.intent === "TIDAK_TERCATAT")
+        .reduce((s, r) => s + Number(r.jumlah), 0);
+      const tercatat = total - belumTercatat;
+
+      res.json({
+        total,
+        tercatat,
+        belumTercatat,
+        lokal,
+        persenLokal: tercatat ? Math.round((lokal / tercatat) * 100) : 0,
+        perIntent: baris.map((r) => ({
+          intent: r.intent,
+          jumlah: Number(r.jumlah),
+          lokal: Number(r.lokal || 0),
+        })),
+        hariTerakhir: 14,
+      });
+    } catch (err) {
+      console.error("❌ AI coverage error:", err);
+      res.status(500).json({ message: "Gagal menghitung cakupan" });
+    }
+  },
+
   /** GET /api/ai/quota — estimated remaining quota for the logged-in user. */
   quota: async (req, res) => {
     try {

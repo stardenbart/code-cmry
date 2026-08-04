@@ -16,6 +16,9 @@ router.delete("/key", AiController.deleteKey);
 // Universal (shared) key — Digital Transformer only, enforced in the controller
 router.put("/universal-key", requireAdmin, AiController.saveUniversalKey);
 router.delete("/universal-key", requireAdmin, AiController.deleteUniversalKey);
+
+// Cakupan penjawab lokal. Admin saja: isinya pola pemakaian seluruh user.
+router.get("/coverage", requireAdmin, AiController.coverage);
 router.put("/model", AiController.saveModel);
 
 router.post("/ask", AiController.ask);
