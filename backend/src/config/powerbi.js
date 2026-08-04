@@ -8,7 +8,11 @@ const API_BASE = 'https://api.powerbi.com/v1.0/myorg';
 let cachedAADToken = null;
 let aadTokenExpiry = 0;
 
-async function getAADToken() {
+// Diekspor supaya layanan metadata (powerbiMeta.service.js) memakai cache token
+// yang sama. Menyalin logika token ke modul lain berarti dua cache yang bisa
+// kedaluwarsa pada waktu berbeda, dan dua tempat yang harus diperbaiki kalau
+// cara autentikasinya berubah.
+export async function getAADToken() {
   if (cachedAADToken && Date.now() < aadTokenExpiry - 60_000) {
     return cachedAADToken;
   }
