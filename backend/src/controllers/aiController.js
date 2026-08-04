@@ -27,6 +27,7 @@ import {
 } from "../services/aiNavigator.js";
 import * as aiSettings from "../services/aiSettings.js";
 import { buildKnowledgeBlock, isUnmappedModel, getGlossaryRows } from "../services/aiKnowledge.js";
+import { tryAnswerLocally, AMBANG_KEYAKINAN } from "../services/aiLocalAnswer.js";
 import * as rateLimit from "../services/rateLimiter.js";
 import { getSanitizer, SANITIZER_CONFIG } from "../services/aiSanitizer.js";
 
@@ -453,6 +454,10 @@ export const AiController = {
       dashboardId, question, snapshot, model,
       useHistory = true,
       tier = "auto",            // "auto" | cepat | standar | mendalam
+      // Tombol "Tanya AI untuk analisa lebih dalam" mengirim ini. Tanpa jalan
+      // keluar, pertanyaan yang sudah dijawab lokal akan selalu dijawab lokal
+      // lagi dan user tidak punya cara naik satu langkah.
+      paksaAI = false,
     } = req.body || {};
 
     const q = String(question || "").trim();
@@ -489,6 +494,64 @@ export const AiController = {
           message:
             "Data dashboard belum berhasil dibaca. Tunggu sampai dashboard selesai loading lalu klik Refresh Data.",
         });
+      }
+
+      // ── Fase A: jawab dari snapshot, tanpa model ─────────────────────────
+      //
+      // Ditempatkan SEBELUM resolveKey dan sebelum rate limit, bukan sesudah.
+      // Jawaban ini tidak memanggil Gemini, jadi tidak butuh API key dan tidak
+      // memakai kuota. Kalau ditaruh setelah resolveKey, user yang belum
+      // mengisi API key mendapat 503 untuk pertanyaan yang sebenarnya bisa
+      // dijawab tanpa key sama sekali. Rate limit pun memang dimaksudkan
+      // menjaga kuota Gemini, seperti tertulis di komentarnya sendiri di bawah.
+      const lokal = paksaAI
+        ? { answered: false, reason: "user meminta jawaban AI", intent: "ANALYTICAL" }
+        : tryAnswerLocally({ question: q, snapshot, dashboard });
+
+      if (lokal.answered && lokal.confidence >= AMBANG_KEYAKINAN) {
+        const visualsUsed = (snapshot?.visuals || []).length;
+        const rowsUsed = (snapshot?.visuals || [])
+          .reduce((s, v) => s + (v?.rows?.length || 0), 0);
+
+        // Bentuknya { answer, meta } seperti jalur lain, karena frontend
+        // membaca data.meta. usage sengaja nol, bukan dihilangkan, supaya
+        // penampil kuota tidak perlu menangani field yang hilang.
+        const payload = {
+          answer: lokal.text,
+          meta: {
+            answeredLocally: true,
+            intent: lokal.intent,
+            tier: "lokal",
+            tierLabel: "Dijawab dari data dashboard",
+            model: "local",
+            keySource: "server",
+            usage: { promptTokenCount: 0, candidatesTokenCount: 0, totalTokenCount: 0 },
+            dashboardId: dashboard.id,
+            visualsUsed,
+            rowsUsed,
+          },
+        };
+
+        // snake_case: logChat memakai nama kolom, bukan camelCase.
+        await AiModel.logChat({
+          user_id: user.id,
+          dashboard_id: dashboard.id,
+          dashboard_title: dashboard.title,
+          question: q,
+          answer: lokal.text,
+          model: "local",
+          key_source: "server",
+          visuals_used: visualsUsed,
+          rows_used: rowsUsed,
+          prompt_chars: 0,
+          total_tokens: 0,
+          tier: "lokal",
+          from_cache: 0,
+          intent: lokal.intent,
+          answered_locally: 1,
+        }).catch((err) => console.error("[ai] gagal mencatat jawaban lokal:", err.message));
+
+        return res.json(payload);
       }
 
       resolved = await resolveKey(user.id, model);
@@ -541,6 +604,8 @@ export const AiController = {
           dashboard_title: dashboard.title,
           question: q,
           answer: cached.answer,
+            intent: lokal.intent,
+            answered_locally: 0,
           model: cached.meta?.model || null,
           key_source: null,
           tier: routing.tier,
@@ -674,6 +739,8 @@ export const AiController = {
         dashboard_title: dashboard.title,
         question: q,
         answer,
+          intent: lokal.intent,
+          answered_locally: 0,
         model: result.model,
         key_source: resolved.source,
         visuals_used: stats.visuals,
@@ -767,6 +834,8 @@ export const AiController = {
       AiModel.logChat({
         user_id: req.user.id,
         dashboard_id: dashboard?.id ?? null,
+            intent: lokal?.intent ?? null,
+            answered_locally: 0,
         dashboard_title: dashboard?.title ?? null,
         question: q,
         model: resolved?.model ?? null,
