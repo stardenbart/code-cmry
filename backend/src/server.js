@@ -11,6 +11,7 @@ import dashboardRoutes from "./routes/dashboardRoutes.js";
 import portalLinkRoutes from "./routes/portalLinkRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
+import summaryRoutes from "./routes/summaryRoutes.js";
 import perfRoutes from "./routes/perfRoutes.js";
 import { SERVER_CONFIG } from "./config/config.js";
 import { getEmbedConfig, getEmbedConfigByReportId } from "./config/powerbi.js";
@@ -53,6 +54,7 @@ app.use("/api/portal-links", portalLinkRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api", userRoutes);
 app.use("/api/perf", perfRoutes);
+app.use("/api/summary", summaryRoutes);
 
 // REGISTER
 app.post("/api/register", async (req, res) => {

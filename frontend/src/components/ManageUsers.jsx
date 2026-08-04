@@ -1,7 +1,9 @@
-  import React, { useEffect, useState } from "react";
+  import React, { useEffect, useState, lazy } from "react";
   import API from "../api/api"
   import { Trash2, RefreshCw, Edit, Search, ChevronDown, ShieldCheck } from "lucide-react";
 import PerfSummary from "./PerfSummary";
+import LazyBoundary from "./LazyBoundary";
+const VisualHarvestPanel = lazy(() => import("./VisualHarvestPanel"));
 import { useToast } from "./ToastProvider";
 import { useConfirm } from "./ConfirmProvider";
 
@@ -245,6 +247,14 @@ import { useConfirm } from "./ConfirmProvider";
           )}
 
           <PerfSummary />
+
+          {/* Lazy: panel ini mengimpor SDK Power BI (sekitar 355 KB) dan hanya
+              dipakai saat admin benar-benar memanen inventaris visual. Diimpor
+              statis, SDK-nya masuk ke chunk Manage Users dan terunduh setiap
+              kali admin membuka daftar user. */}
+          <LazyBoundary>
+            <VisualHarvestPanel />
+          </LazyBoundary>
         </div>
 
         {editingUser && (

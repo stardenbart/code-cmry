@@ -99,4 +99,10 @@ export const ROUTE_CLASSIFICATION = new Map([
   ["DELETE /api/ai/universal-key", "adminOnly"],
   ["GET /api/perf/summary", "adminOnly"],
   ["GET /api/ai/coverage", "adminOnly"],
+
+  // Panen inventaris visual. Semuanya adminOnly: isinya struktur internal
+  // seluruh dashboard, dan endpoint tulisnya mengubah dasar perhitungan KPI.
+  ["GET /api/summary/harvest-plan", "adminOnly"],
+  ["POST /api/summary/visual-usage", "adminOnly"],
+  ["GET /api/summary/harvest-status", "adminOnly"],
 ]);
