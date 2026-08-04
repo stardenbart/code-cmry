@@ -68,18 +68,34 @@ for (const [label, env, pola] of KASUS) {
   pulihkan();
 }
 
-section("Baileys tanpa paket terpasang gagal dengan pesan yang bisa ditindak");
+section("Konfigurasi baileys yang sah dikenali, tanpa menyentuh jaringan");
 
 process.env.WHATSAPP_PROVIDER = "baileys";
 process.env.WHATSAPP_TARGET_MODE = "group";
 process.env.WHATSAPP_GROUP_ID = "1234567890-123456@g.us";
-
-const wa = await sendDailySummary("pesan uji ke grup");
 ok("konfigurasinya sah", konfigurasi().siap === true, JSON.stringify(konfigurasi().masalah));
-// Paketnya sengaja tidak dipasang sebagai bawaan. Yang penting: kegagalannya
-// menyebut perintah yang harus dijalankan, bukan melempar stack trace.
-ok("gagal tanpa melempar", wa.terkirim === false, JSON.stringify(wa));
-ok("menyebut cara memasangnya", /npm install @whiskeysockets\/baileys/.test(wa.alasan || ""), wa.alasan);
+ok("group id terbaca utuh", konfigurasi().groupId === "1234567890-123456@g.us");
+
+// sendDailySummary TIDAK dipanggil untuk baileys di sini, dan itu disengaja.
+//
+// Versi pertama memanggilnya dengan harapan gagal cepat karena paketnya belum
+// terpasang. Setelah paketnya dipasang, panggilan itu benar-benar mencoba
+// menyambung dan menahan seluruh suite 60 detik sebelum gagal timeout. Uji yang
+// menunggu jaringan bukan cuma lambat, tapi hasilnya bergantung pada keadaan di
+// luar kode: sesi yang sudah dipasangkan akan MENGIRIM pesan sungguhan ke grup.
+pulihkan();
+
+section("Provider yang dikenal tapi belum diimplementasikan ditolak dengan jelas");
+
+process.env.WHATSAPP_PROVIDER = "whatsapp_web_js";
+process.env.WHATSAPP_TARGET_MODE = "group";
+process.env.WHATSAPP_GROUP_ID = "1234567890-123456@g.us";
+const belum = await sendDailySummary("pesan uji");
+ok("tidak terkirim", belum.terkirim === false, JSON.stringify(belum));
+ok("alasannya menyebut belum diimplementasikan",
+  /belum diimplementasikan/.test(belum.alasan || ""), belum.alasan);
+ok("menyarankan provider yang bisa dipakai",
+  /dryrun atau baileys/.test(belum.alasan || ""), belum.alasan);
 pulihkan();
 
 ok("daftar provider memuat dryrun dan baileys",

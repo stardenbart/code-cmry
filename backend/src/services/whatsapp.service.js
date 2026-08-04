@@ -128,9 +128,6 @@ async function sesi() {
 
   const sock = makeWASocket({
     auth: state,
-    // QR dicetak ke konsol: pairing perlu sekali pemindaian oleh manusia, dan
-    // tidak ada cara mengotomatiskannya.
-    printQRInTerminal: true,
     // Riwayat tidak disinkronkan. Job ini hanya mengirim, dan sinkronisasi
     // riwayat grup besar memakan memori serta waktu tanpa guna apa pun di sini.
     syncFullHistory: false,
@@ -138,6 +135,17 @@ async function sesi() {
 
   sock.ev.on("creds.update", saveCreds);
   sock.ev.on("connection.update", (u) => {
+    // QR ditangani sendiri, TIDAK lewat opsi printQRInTerminal.
+    //
+    // Opsi itu dihapus di Baileys v7 (terpasang di sini: 7.0.0-rc14), dan
+    // memakainya tidak menghasilkan error apa pun: ia diabaikan diam-diam.
+    // Akibatnya pairing pertama akan menggantung selama 60 detik tanpa QR yang
+    // bisa dipindai, lalu gagal dengan pesan timeout yang menyesatkan.
+    if (u.qr) {
+      import("qrcode-terminal")
+        .then((m) => (m.default || m).generate(u.qr, { small: true }))
+        .catch(() => console.log(`[WA] pindai QR ini:\n${u.qr}`));
+    }
     if (u.connection === "close") {
       const alasan = u.lastDisconnect?.error?.output?.statusCode;
       // Sesi dilupakan supaya panggilan berikutnya membuka koneksi baru. Tanpa
