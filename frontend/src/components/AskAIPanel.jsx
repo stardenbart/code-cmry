@@ -328,7 +328,7 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
   }, [messages, asking]);
 
   // ── Ask ────────────────────────────────────────────────────────────────────
-  const ask = async (text) => {
+  const ask = async (text, opsi = {}) => {
     const q = (text ?? question).trim();
     if (!q || asking) return;
 
@@ -355,6 +355,9 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
         question: q,
         snapshot: payloadSnapshot,
         tier,
+        // Dikirim oleh tombol "Tanya AI untuk analisa lebih dalam", supaya
+        // pertanyaan yang sama tidak dijawab lokal untuk kedua kalinya.
+        paksaAI: Boolean(opsi.paksaAI),
       });
       setMessages((prev) => [...prev, { role: "ai", text: data.answer, meta: data.meta, sourceQuestion: q }]);
       if (data.meta?.quota) setQuota((prev) => ({ ...prev, ...data.meta.quota }));
@@ -409,7 +412,12 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuestion, snapshot, stats?.visualCount]);
 
-  const aiDisabled = status && !status.enabled;
+  // Tanpa API key, pertanyaan analitis memang tidak bisa dijawab. Tetapi
+  // pertanyaan angka dijawab backend langsung dari snapshot tanpa memanggil
+  // model, jadi kotak input TIDAK lagi dikunci: menguncinya menutup satu-satunya
+  // jalan menuju jawaban yang sebenarnya tersedia tanpa kunci. Keterbatasannya
+  // dijelaskan di atas kotaknya, bukan dengan melumpuhkannya.
+  const tanpaKunci = Boolean(status && !status.enabled);
 
   return (
     <div className="flex flex-col h-full w-full bg-white border-l border-gray-200 shadow-2xl">
@@ -601,21 +609,26 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
         )}
       </div>
 
-      {/* ── AI not configured ── */}
-      {aiDisabled && (
+      {/* ── Belum ada API key ──
+          Bukan lagi "tidak bisa apa-apa": pertanyaan angka dijawab langsung
+          dari data dashboard tanpa memanggil model, jadi kotak input tetap
+          terbuka. Yang butuh kunci adalah pertanyaan analitis. */}
+      {tanpaKunci && (
         <div className="m-3 p-3 rounded-xl bg-amber-50 border border-amber-200 text-[12px] text-amber-800 shrink-0">
           <p className="font-semibold flex items-center gap-1.5 mb-1">
-            <AlertTriangle size={13} /> Akses CODE AI belum diatur
+            <AlertTriangle size={13} /> Belum ada API key
           </p>
           <p className="mb-2">
-            Ambil API key gratis di{" "}
+            Pertanyaan angka seperti <b>total</b>, <b>tertinggi</b>, atau <b>top 3</b> tetap
+            bisa dijawab langsung dari data dashboard, tanpa kuota. Untuk pertanyaan
+            analitis seperti <b>kenapa</b> atau <b>RCA</b>, ambil API key gratis di{" "}
             <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="underline font-medium">
               Google AI Studio
             </a>
-            , lalu simpan di menu AI Settings.
+            , lalu simpan di Pengaturan CODE AI.
           </p>
           <button onClick={onOpenSettings} className="px-3 py-1.5 rounded-lg bg-amber-600 text-white font-medium hover:bg-amber-700">
-            Buka AI Settings
+            Buka Pengaturan CODE AI
           </button>
         </div>
       )}
@@ -634,7 +647,6 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
                 <button
                   key={s}
                   onClick={() => ask(s)}
-                  disabled={aiDisabled}
                   className="text-left text-[11.5px] px-3 py-2 rounded-xl border border-gray-200 hover:border-cimoryBlue hover:bg-sky-50 text-gray-600 transition disabled:opacity-50"
                 >
                   {s}
@@ -744,6 +756,15 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
                             {" · "}dari cache, 0 kuota
                           </span>
                         )}
+                        {/* User berhak tahu kapan yang menjawab bukan AI. */}
+                        {m.meta.answeredLocally && (
+                          <span
+                            className="text-cimoryBlue"
+                            title="Dihitung langsung dari angka yang tampil di dashboard, tanpa memanggil model"
+                          >
+                            {" · "}<Database size={10} className="inline align-[-1px]" /> dari data dashboard, 0 kuota
+                          </span>
+                        )}
                         {typeof m.meta.visualsUsed === "number" && ` · ${m.meta.visualsUsed} visual / ${m.meta.rowsUsed} baris`}
                         {m.meta.summarizedVisuals > 0 && ` (${m.meta.summarizedVisuals} diringkas)`}
                         {m.meta.truncated && " · data terpotong"}
@@ -756,6 +777,18 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
                           </span>
                         )}
                       </p>
+                    )}
+
+                    {/* Jawaban template bisa terasa kurang. Ini jalan naik satu
+                        langkah tanpa mengetik ulang pertanyaannya. */}
+                    {m.meta?.answeredLocally && m.sourceQuestion && (
+                      <button
+                        onClick={() => ask(m.sourceQuestion, { paksaAI: true })}
+                        disabled={asking}
+                        className="mt-1.5 flex items-center gap-1.5 text-[11px] text-cimoryBlue hover:text-cimoryRed transition disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <Sparkles size={11} /> Tanya AI untuk analisa lebih dalam
+                      </button>
                     )}
                   </>
                 )}
@@ -787,13 +820,12 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
                 ask();
               }
             }}
-            disabled={aiDisabled}
-            placeholder={aiDisabled ? "Atur akses CODE AI dulu…" : "Contoh: mesin mana yang downtime-nya paling tinggi bulan ini?"}
+            placeholder="Contoh: mesin mana yang downtime-nya paling tinggi bulan ini?"
             className="flex-1 resize-none border border-gray-300 rounded-xl px-3 py-2 text-[12.5px] focus:ring-2 focus:ring-cimoryBlue focus:outline-none disabled:bg-gray-100"
           />
           <button
             onClick={() => ask()}
-            disabled={asking || aiDisabled || !question.trim()}
+            disabled={asking || !question.trim()}
             className="p-2.5 rounded-xl bg-cimoryBlue text-white hover:bg-cimoryRed transition disabled:opacity-40 shrink-0"
             title="Kirim (Enter)"
           >
