@@ -27,15 +27,45 @@ const store = new Map(); // key -> { answer, meta, expiresAt, hits, createdAt }
 
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 24);
 
+/**
+ * Singkatan chat yang lazim dipakai, dan istilah yang sering ditulis terpisah.
+ *
+ * Sengaja hanya sinonim yang benar-benar sama artinya. Menyatukan kata yang
+ * BERBEDA arti, misalnya "tertinggi" dengan "terendah", akan membuat cache
+ * menyajikan jawaban yang salah, dan itu lebih buruk daripada cache yang jarang
+ * kena.
+ */
+const SINONIM = [
+  [/\bbrp\b/g, "berapa"],
+  [/\byg\b/g, "yang"],
+  [/\bgmn\b/g, "gimana"],
+  [/\bdgn\b/g, "dengan"],
+  [/\bsdh\b/g, "sudah"],
+  [/\btgl\b/g, "tanggal"],
+  [/\bdown\s+time\b/g, "downtime"],
+  [/\bout\s+put\b/g, "output"],
+  [/\brata\s+rata\b/g, "ratarata"],
+  [/\brata-rata\b/g, "ratarata"],
+];
+
 /** Normalizes a question so trivial wording differences still hit the cache. */
 export function normalizeQuestion(text) {
-  return String(text || "")
+  let out = String(text || "")
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ");
+
+  // Sinonim diterapkan SEBELUM pembuangan sufiks, supaya "downtimenya" tidak
+  // lebih dulu berubah menjadi "downtime" lalu "down time" luput disatukan.
+  for (const [pola, ganti] of SINONIM) out = out.replace(pola, ganti);
+
+  return out
     // Possessive/emphatic suffix: "totalnya" and "total nya" must collapse to the
     // same form, otherwise trivially different wording misses the cache.
     .replace(/(\p{L}{3,})nya\b/gu, "$1")
-    .replace(/\b(tolong|coba|mohon|dong|ya|nih|sih|kak|pak|bu|nya|lah|kah|pun)\b/g, " ")
+    // "yang" ikut dibuang: ia kata penghubung yang tidak mengubah metrik maupun
+    // arah yang diminta, sehingga "mesin mana downtime tertinggi" dan "mesin
+    // mana yang downtime tertinggi" memang pertanyaan yang sama.
+    .replace(/\b(tolong|coba|mohon|dong|ya|nih|sih|kak|pak|bu|nya|lah|kah|pun|yang)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
