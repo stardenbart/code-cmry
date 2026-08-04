@@ -166,14 +166,19 @@ export default function VisualHarvestPanel() {
             nilai={`${status.dashboard.sudahDipanen} / ${status.dashboard.bisaDipanen}`}
             catatan={`${status.dashboard.total} total`}
           />
+          {/* Yang ditampilkan namaUnik, bukan jumlah baris. Baris menghitung
+              measure bernama sama di beberapa model berulang kali, sedangkan
+              "terlihat di visual" dihitung per nama unik. Menampilkan baris di
+              sini membuat selisih kedua kotak terbaca seolah ratusan measure
+              sudah terlihat padahal belum satu pun. */}
           <Kotak
             label="Measure di model"
-            nilai={status.measure.terpanenDariModel}
-            catatan={`${status.measure.model} model`}
+            nilai={status.measure.namaUnik}
+            catatan={`${status.measure.model} model, ${status.measure.baris} baris`}
           />
           <Kotak
             label="Terlihat di visual"
-            nilai={status.measure.terlihatDiVisual}
+            nilai={`${status.measure.terlihatDiVisual} / ${status.measure.namaUnik}`}
             catatan={`${status.measure.tidakTerlihatDiVisual} tidak terlihat`}
           />
           <Kotak

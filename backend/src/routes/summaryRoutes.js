@@ -155,8 +155,16 @@ router.get("/harvest-status", requireAdmin, async (req, res) => {
       `SELECT COUNT(DISTINCT dashboard_id) dashboard, COUNT(DISTINCT field_name) field_unik,
               COUNT(*) baris FROM visual_field_usage`
     );
+    // Baris dan nama unik dilaporkan terpisah, dan ini bukan detail kosmetik.
+    // Satu measure dengan nama sama muncul di beberapa model, jadi 2289 baris
+    // hanya berisi 1666 nama unik. Membandingkan "terlihat di visual", yang
+    // dihitung per nama unik, terhadap jumlah baris akan membuat pembacanya
+    // menyimpulkan ratusan measure sudah terlihat padahal belum satu pun.
     const [[measure]] = await sql.query(
-      "SELECT COUNT(*) baris, COUNT(DISTINCT model_name) model FROM model_measure"
+      `SELECT COUNT(*) baris,
+              COUNT(DISTINCT measure_name) nama_unik,
+              COUNT(DISTINCT model_name) model
+         FROM model_measure`
     );
 
     // Measure yang benar-benar terlihat di visual. Perbandingan case-insensitive
@@ -188,8 +196,12 @@ router.get("/harvest-status", requireAdmin, async (req, res) => {
         sudahDipanen: Number(panen.dashboard),
       },
       measure: {
-        terpanenDariModel: Number(measure.baris),
+        // baris > namaUnik karena measure bernama sama ada di beberapa model.
+        baris: Number(measure.baris),
+        namaUnik: Number(measure.nama_unik),
         model: Number(measure.model),
+        // Keduanya dihitung per nama unik, jadi jumlahnya HARUS sama dengan
+        // namaUnik. Uji menegaskan kesamaan itu, bukan sekadar batas atas.
         terlihatDiVisual: Number(cocok.n),
         tidakTerlihatDiVisual: Number(tanpaVisual.n),
       },

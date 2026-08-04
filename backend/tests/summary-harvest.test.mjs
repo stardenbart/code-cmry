@@ -38,7 +38,8 @@ const status = await req("GET", "/api/summary/harvest-status", { token: ADMIN })
 ok("status 200", status.status === 200, `dapat ${status.status}`);
 for (const jalur of [
   ["dashboard.bisaDipanen", status.body?.dashboard?.bisaDipanen],
-  ["measure.terpanenDariModel", status.body?.measure?.terpanenDariModel],
+  ["measure.baris", status.body?.measure?.baris],
+  ["measure.namaUnik", status.body?.measure?.namaUnik],
   ["measure.terlihatDiVisual", status.body?.measure?.terlihatDiVisual],
   ["measure.tidakTerlihatDiVisual", status.body?.measure?.tidakTerlihatDiVisual],
   ["field.bukanMeasure", status.body?.field?.bukanMeasure],
@@ -46,18 +47,26 @@ for (const jalur of [
   ok(`${jalur[0]} berupa angka`, typeof jalur[1] === "number", `dapat ${typeof jalur[1]}`);
 }
 
-// Ini yang membuat panen ada gunanya: measure yang terlihat di visual tidak
-// mungkin lebih banyak daripada measure yang ada di model.
 const m = status.body?.measure || {};
+
+// Assertion inti, dan sebelumnya terlalu longgar.
+//
+// Versi pertama hanya menuntut "terlihat + tidak terlihat <= baris". Karena
+// baris (2289) menghitung baris sedangkan kedua angka lain menghitung nama unik
+// (1666), assertion itu lolos walau satuannya berbeda, dan panel menampilkan
+// dua angka yang tidak sebanding. Pembacanya akan menyimpulkan 2289 dikurangi
+// 1666 sama dengan 623 measure sudah terlihat, padahal jawabannya nol.
+//
+// Kesamaan persis di bawah ini tidak bisa lolos kalau satuannya tercampur lagi.
 ok(
-  "terlihatDiVisual tidak melebihi total measure",
-  m.terlihatDiVisual <= m.terpanenDariModel,
-  `${m.terlihatDiVisual} > ${m.terpanenDariModel}`
+  "terlihat + tidak terlihat = namaUnik, persis",
+  m.terlihatDiVisual + m.tidakTerlihatDiVisual === m.namaUnik,
+  `${m.terlihatDiVisual} + ${m.tidakTerlihatDiVisual} != ${m.namaUnik}`
 );
 ok(
-  "terlihat + tidak terlihat = total measure unik atau kurang",
-  m.terlihatDiVisual + m.tidakTerlihatDiVisual <= m.terpanenDariModel,
-  `${m.terlihatDiVisual} + ${m.tidakTerlihatDiVisual} > ${m.terpanenDariModel}`
+  "baris tidak kurang dari namaUnik",
+  m.baris >= m.namaUnik,
+  `baris ${m.baris} < namaUnik ${m.namaUnik}`
 );
 
 section("Masukan rusak ditolak sebelum menyentuh database");
