@@ -4,9 +4,12 @@ import { sanitasiTeks, sanitasiObjek, mengandungPolaInstruksi, PANJANG_MAKS }
   from "../src/utils/sanitizeText.util.js";
 import { ambilKunci, lepasKunci, statusKunci, denganKunci }
   from "../src/scheduler/jobLock.js";
+import { jendelaMinggu, mingguSudahLewat, mingguDalamJangkauan }
+  from "../src/utils/dateWindow.util.js";
 import {
   simpanSnapshot, ambilSnapshot, pembanding, simpanHasil, ambilHasil,
-  tandaiTerkirim, batalkanTerkirim,
+  tandaiTerkirim, batalkanTerkirim, simpanSnapshotMingguan, ambilSnapshotMingguan,
+  bekukanMingguLewat,
 } from "../src/services/historicalStore.service.js";
 
 const sql = db.promise();
@@ -197,12 +200,85 @@ await batalkanTerkirim(TGL);
 ok("pembatalan mengembalikan status", (await ambilHasil(TGL))?.whatsappSent === false);
 ok("setelah dibatalkan boleh ditandai lagi", (await tandaiTerkirim(TGL)) === true);
 
+section("Jendela mingguan dihitung dari WIB, mulai Senin");
+
+const mgg = jendelaMinggu("2026-08-05"); // Rabu
+ok("minggu memuat Rabu 5 Agustus mulai Senin 3", mgg.mulaiTanggal === "2026-08-03", mgg.mulaiTanggal);
+ok("selesai Minggu 9 Agustus", mgg.selesaiTanggal === "2026-08-09", mgg.selesaiTanggal);
+ok("kunci sama dengan tanggal mulai", mgg.kunci === mgg.mulaiTanggal);
+
+// Batas yang paling mudah salah: hari Senin dan hari Minggu.
+ok("Senin jadi awal minggunya sendiri", jendelaMinggu("2026-08-03").mulaiTanggal === "2026-08-03");
+ok("Minggu masih ikut minggu sebelumnya", jendelaMinggu("2026-08-09").mulaiTanggal === "2026-08-03");
+ok("Senin berikutnya pindah minggu", jendelaMinggu("2026-08-10").mulaiTanggal === "2026-08-10");
+
+ok(
+  "minggu yang sudah lewat dikenali",
+  mingguSudahLewat(jendelaMinggu("2026-07-28"), new Date("2026-08-05T00:00:00Z")) === true
+);
+ok(
+  "minggu berjalan belum dianggap lewat",
+  mingguSudahLewat(jendelaMinggu("2026-08-05"), new Date("2026-08-05T00:00:00Z")) === false
+);
+
+const jangkauan = mingguDalamJangkauan("2026-08-04", 7);
+ok("jangkauan 7 hari menyentuh dua minggu", jangkauan.length === 2, `dapat ${jangkauan.length}`);
+ok("minggu pertama 2026-07-27", jangkauan[0].mulaiTanggal === "2026-07-27", jangkauan[0].mulaiTanggal);
+ok("minggu kedua 2026-08-03", jangkauan[1].mulaiTanggal === "2026-08-03", jangkauan[1].mulaiTanggal);
+
+section("Snapshot mingguan disegarkan sampai dibekukan");
+
+await sql.query("DELETE FROM weekly_summary_snapshot WHERE week_start IN (?, ?)", ["2019-01-07", "2019-01-14"]);
+const mingguUji = jendelaMinggu("2019-01-09");
+const kpiEnergy = [
+  { kpi: "Pemakaian air", status: "needs_confirmation", unit: "m3", values: [{ measure: "Usage W total (m3)", value: 8317 }] },
+];
+
+const w1 = await simpanSnapshotMingguan(mingguUji, "energy", kpiEnergy, "full", null);
+ok("penarikan pertama tersimpan", w1.disimpan === true, JSON.stringify(w1));
+ok("pull_count mulai dari 1", w1.pullCount === 1, `dapat ${w1.pullCount}`);
+
+// Inti kebutuhannya: penarikan berikutnya MENYEGARKAN, tidak membuat baris baru.
+const w2 = await simpanSnapshotMingguan(mingguUji, "energy", [
+  { kpi: "Pemakaian air", status: "needs_confirmation", unit: "m3", values: [{ measure: "Usage W total (m3)", value: 9100 }] },
+], "full", null);
+ok("penarikan kedua juga tersimpan", w2.disimpan === true);
+ok("pull_count bertambah", w2.pullCount === 2, `dapat ${w2.pullCount}`);
+
+const baca = await ambilSnapshotMingguan(mingguUji.mulaiTanggal);
+ok("hanya satu baris per domain", baca.length === 1, `dapat ${baca.length}`);
+ok("angkanya tersegarkan ke yang terbaru", baca[0].kpi[0].values[0].value === 9100, `dapat ${baca[0].kpi[0].values[0].value}`);
+ok("belum dibekukan", baca[0].frozen === false);
+ok("tanggal selesai minggu tersimpan", baca[0].selesaiTanggal === mingguUji.selesaiTanggal, baca[0].selesaiTanggal);
+
+section("Minggu yang dibekukan menolak penulisan baru");
+
+// Batasnya hari pertama minggu berikutnya: minggu berjalan tidak boleh ikut beku.
+const beku = await bekukanMingguLewat("2019-01-14");
+ok("satu minggu dibekukan", beku.dibekukan >= 1, `dapat ${beku.dibekukan}`);
+
+const sesudahBeku = await ambilSnapshotMingguan(mingguUji.mulaiTanggal);
+ok("statusnya jadi beku", sesudahBeku[0].frozen === true);
+ok("waktu pembekuan tercatat", Boolean(sesudahBeku[0].frozenAt));
+
+// Kalau penulisan tetap diizinkan, angka yang sudah dipakai laporan bisa berubah
+// berhari-hari kemudian dan tidak ada yang tahu laporan mana memakai angka mana.
+const w3 = await simpanSnapshotMingguan(mingguUji, "energy", [
+  { kpi: "Pemakaian air", status: "needs_confirmation", unit: "m3", values: [{ measure: "Usage W total (m3)", value: 99999 }] },
+], "full", null);
+ok("penulisan ke minggu beku ditolak", w3.disimpan === false, JSON.stringify(w3));
+ok("alasannya disebut", /dibekukan/.test(w3.alasan || ""), w3.alasan);
+
+const tetap = await ambilSnapshotMingguan(mingguUji.mulaiTanggal);
+ok("angkanya tidak berubah setelah ditolak", tetap[0].kpi[0].values[0].value === 9100, `dapat ${tetap[0].kpi[0].values[0].value}`);
+
 section("Data uji dibersihkan");
 
 try {
   await sql.query("DELETE FROM daily_summary_snapshot WHERE report_date IN (?, ?)", [TGL, TGL_KEMARIN]);
   await sql.query("DELETE FROM daily_summary_result WHERE report_date = ?", [TGL]);
   await sql.query("DELETE FROM daily_summary_lock WHERE job_name = ?", [JOB]);
+  await sql.query("DELETE FROM weekly_summary_snapshot WHERE week_start IN (?, ?)", ["2019-01-07", "2019-01-14"]);
   const [[a]] = await sql.query(
     "SELECT COUNT(*) n FROM daily_summary_snapshot WHERE report_date IN (?, ?)", [TGL, TGL_KEMARIN]);
   const [[c]] = await sql.query("SELECT COUNT(*) n FROM daily_summary_lock WHERE job_name = ?", [JOB]);

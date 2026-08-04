@@ -72,6 +72,83 @@ export function jendelaLaporan(sekarang = new Date()) {
   return { tanggal: tanggalWib(mulaiUtc), mulaiUtc, selesaiUtc };
 }
 
+// ── Jendela mingguan ────────────────────────────────────────────────────────
+//
+// Kenapa mingguan, dan bukan cuma harian:
+//
+// Data 7 hari terakhir masih bergerak. Entri operator masuk terlambat, dan
+// beberapa domain tidak diinput harian sama sekali; Energy misalnya, keempat KPI
+// hariannya keluar kosong pada 2026-08-04 karena meterannya belum diinput.
+// Menyimpan satu angka harian sekali lalu menganggapnya final akan mengabadikan
+// angka yang belum lengkap.
+//
+// Karena itu tiap penarikan MENYEGARKAN seluruh minggu yang masih berjalan, dan
+// minggu yang sudah lewat DIBEKUKAN. Pembekuannya eksplisit di database, bukan
+// disimpulkan dari tanggal, supaya terlihat kapan sebuah angka berhenti berubah
+// dan kenapa.
+
+/** Hari mulai minggu. 1 = Senin. Bisa diubah lewat env bila plant memakai lain. */
+export function hariMulaiMinggu() {
+  const n = Number(process.env.SUMMARY_WEEK_START_DAY);
+  return Number.isInteger(n) && n >= 0 && n <= 6 ? n : 1;
+}
+
+/**
+ * @typedef {object} JendelaMinggu
+ * @property {string} kunci          Penanda minggu, sama dengan mulaiTanggal.
+ * @property {string} mulaiTanggal   YYYY-MM-DD, hari pertama minggu (WIB).
+ * @property {string} selesaiTanggal YYYY-MM-DD, hari terakhir minggu (WIB), inklusif.
+ * @property {Date}   mulaiUtc
+ * @property {Date}   selesaiUtc     Eksklusif: 00:00 WIB hari setelah selesaiTanggal.
+ */
+
+/** Jendela minggu yang memuat tanggal tersebut. */
+export function jendelaMinggu(tanggal, mulaiHari = hariMulaiMinggu()) {
+  const awal = awalHariWibUtc(tanggal);
+  // getUTCDay() pada instant yang sudah digeser ke WIB memberi hari menurut WIB.
+  const hariWib = new Date(awal.getTime() + WIB_OFFSET_MS).getUTCDay();
+  const geser = (hariWib - mulaiHari + 7) % 7;
+
+  const mulaiUtc = new Date(awal.getTime() - geser * 86_400_000);
+  const mulaiTanggal = tanggalWib(mulaiUtc);
+  const selesaiUtc = new Date(mulaiUtc.getTime() + 7 * 86_400_000);
+  const selesaiTanggal = tanggalWib(new Date(selesaiUtc.getTime() - 86_400_000));
+
+  return { kunci: mulaiTanggal, mulaiTanggal, selesaiTanggal, mulaiUtc, selesaiUtc };
+}
+
+/**
+ * Apakah minggu ini sudah lewat sepenuhnya pada saat penarikan.
+ *
+ * Minggu yang sudah lewat boleh dibekukan; minggu yang masih berjalan wajib
+ * disegarkan tiap penarikan karena angkanya masih bisa berubah.
+ */
+export function mingguSudahLewat(minggu, sekarang = new Date()) {
+  return sekarang.getTime() >= minggu.selesaiUtc.getTime();
+}
+
+/**
+ * Minggu-minggu yang bersinggungan dengan jangkauan hari ke belakang.
+ *
+ * Bawaannya 7 hari, jadi biasanya mengembalikan dua minggu: minggu berjalan dan
+ * sisa minggu sebelumnya. Keduanya perlu disegarkan, karena hari-hari di ujung
+ * minggu sebelumnya juga masih dalam rentang data yang bergerak.
+ *
+ * @returns {JendelaMinggu[]} terurut dari paling lama ke paling baru
+ */
+export function mingguDalamJangkauan(tanggal, hariKeBelakang = 7, mulaiHari = hariMulaiMinggu()) {
+  const akhir = awalHariWibUtc(tanggal);
+  const awal = new Date(akhir.getTime() - (hariKeBelakang - 1) * 86_400_000);
+
+  const hasil = [];
+  let kursor = jendelaMinggu(tanggalWib(awal), mulaiHari);
+  while (kursor.mulaiUtc.getTime() <= akhir.getTime()) {
+    hasil.push(kursor);
+    kursor = jendelaMinggu(tanggalWib(new Date(kursor.selesaiUtc.getTime())), mulaiHari);
+  }
+  return hasil;
+}
+
 /**
  * Menilai cakupan data sebuah dataset terhadap hari laporan.
  *

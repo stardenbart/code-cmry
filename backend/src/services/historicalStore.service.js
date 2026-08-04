@@ -179,6 +179,111 @@ export async function pembanding(tanggal) {
   return hasil;
 }
 
+// ── Snapshot mingguan ───────────────────────────────────────────────────────
+
+/**
+ * Menyimpan atau menyegarkan snapshot mingguan satu domain.
+ *
+ * Menolak menulis ke minggu yang SUDAH DIBEKUKAN. Itu inti dari pembekuan: kalau
+ * penulisan tetap diizinkan, angka yang sudah dipakai laporan bisa berubah
+ * berhari-hari kemudian dan tidak ada yang tahu laporan mana yang memakai angka
+ * mana.
+ *
+ * @returns {Promise<{disimpan: boolean, alasan?: string, pullCount?: number}>}
+ */
+export async function simpanSnapshotMingguan(minggu, domain, kpi, freshness, cutoffWib = null) {
+  const [[ada]] = await sql.query(
+    "SELECT frozen, pull_count FROM weekly_summary_snapshot WHERE week_start = ? AND domain = ?",
+    [minggu.mulaiTanggal, domain]
+  );
+
+  if (ada && Number(ada.frozen) === 1) {
+    return { disimpan: false, alasan: "minggu sudah dibekukan", pullCount: Number(ada.pull_count) };
+  }
+
+  await sql.query(
+    `INSERT INTO weekly_summary_snapshot
+       (week_start, week_end, domain, kpi_json, data_freshness, cutoff_wib, pull_count)
+     VALUES (?, ?, ?, CAST(? AS JSON), ?, ?, 1)
+     ON DUPLICATE KEY UPDATE
+       week_end = VALUES(week_end),
+       kpi_json = VALUES(kpi_json),
+       data_freshness = VALUES(data_freshness),
+       cutoff_wib = VALUES(cutoff_wib),
+       pull_count = pull_count + 1`,
+    [
+      minggu.mulaiTanggal, minggu.selesaiTanggal, domain,
+      JSON.stringify(kpi ?? []), freshness, cutoffWib,
+    ]
+  );
+
+  const [[sesudah]] = await sql.query(
+    "SELECT pull_count FROM weekly_summary_snapshot WHERE week_start = ? AND domain = ?",
+    [minggu.mulaiTanggal, domain]
+  );
+  return { disimpan: true, pullCount: Number(sesudah?.pull_count || 1) };
+}
+
+/** Snapshot mingguan satu minggu, per domain. */
+export async function ambilSnapshotMingguan(mulaiTanggal) {
+  const [rows] = await sql.query(
+    `SELECT week_start, week_end, domain, kpi_json, data_freshness, cutoff_wib,
+            frozen, frozen_at, pull_count, refreshed_at
+       FROM weekly_summary_snapshot WHERE week_start = ?`,
+    [mulaiTanggal]
+  );
+  return rows.map((r) => ({
+    mulaiTanggal: tanggalDariBaris(r.week_start),
+    selesaiTanggal: tanggalDariBaris(r.week_end),
+    domain: r.domain,
+    kpi: bacaJson(r.kpi_json),
+    freshness: r.data_freshness,
+    cutoffWib: r.cutoff_wib,
+    frozen: Boolean(Number(r.frozen)),
+    frozenAt: r.frozen_at,
+    pullCount: Number(r.pull_count),
+    refreshedAt: r.refreshed_at,
+  }));
+}
+
+/**
+ * Membekukan semua minggu yang sudah lewat sepenuhnya.
+ *
+ * Batasnya `week_end < batasTanggal`, dan batasTanggal adalah hari pertama minggu
+ * berjalan. Minggu yang masih berjalan TIDAK ikut, karena datanya masih bergerak.
+ *
+ * Pembekuan tidak menghapus apa pun dan tidak mengubah angka; ia hanya menutup
+ * pintu penulisan berikutnya.
+ *
+ * @returns {Promise<{dibekukan: number}>}
+ */
+export async function bekukanMingguLewat(batasTanggal) {
+  const [hasil] = await sql.query(
+    `UPDATE weekly_summary_snapshot
+        SET frozen = 1, frozen_at = NOW()
+      WHERE frozen = 0 AND week_end < ?`,
+    [batasTanggal]
+  );
+  return { dibekukan: hasil.affectedRows };
+}
+
+/** Minggu yang masih boleh disegarkan, untuk log dan diagnosis. */
+export async function mingguBelumBeku() {
+  const [rows] = await sql.query(
+    `SELECT week_start, week_end, COUNT(*) domain_count, MIN(pull_count) pull_min,
+            MAX(pull_count) pull_max
+       FROM weekly_summary_snapshot WHERE frozen = 0
+      GROUP BY week_start, week_end ORDER BY week_start`
+  );
+  return rows.map((r) => ({
+    mulaiTanggal: tanggalDariBaris(r.week_start),
+    selesaiTanggal: tanggalDariBaris(r.week_end),
+    jumlahDomain: Number(r.domain_count),
+    pullMin: Number(r.pull_min),
+    pullMax: Number(r.pull_max),
+  }));
+}
+
 /** Menyimpan atau memperbarui hasil AI untuk satu tanggal. */
 export async function simpanHasil(tanggal, data) {
   await sql.query(

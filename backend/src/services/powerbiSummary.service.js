@@ -140,12 +140,22 @@ function bangunDax(entri, jendela, kolomTanggal) {
   if (!perluFilterTanggal(entri) || !kolomTanggal?.kolom) return `EVALUATE ${row}`;
 
   const kol = `${tabel(kolomTanggal.tabel)}${kurung(kolomTanggal.kolom)}`;
-  const mulai = daxTanggal(jendela.tanggal);
-  // Batas atas eksklusif memakai hari berikutnya, bukan <= hari yang sama:
-  // kolom dateTime dengan komponen jam akan terpotong oleh <= tengah malam.
-  const [y, m, d] = jendela.tanggal.split("-").map(Number);
-  const besok = new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
-  return `EVALUATE CALCULATETABLE(${row}, ${kol} >= ${mulai}, ${kol} < ${daxTanggal(besok)})`;
+
+  // Jendela menerima dua bentuk: harian lewat `tanggal`, dan rentang lewat
+  // `mulaiTanggal` dan `selesaiTanggal`. Bentuk rentang dipakai penarikan
+  // mingguan, yang menyegarkan seluruh minggu berjalan karena datanya masih
+  // bergerak beberapa hari setelah kejadiannya.
+  const mulaiTgl = jendela.mulaiTanggal || jendela.tanggal;
+  const selesaiTgl = jendela.selesaiTanggal || jendela.tanggal;
+
+  // Batas atas eksklusif memakai hari SETELAH hari terakhir, bukan <= hari
+  // terakhir: kolom dateTime yang membawa komponen jam akan terpotong oleh
+  // perbandingan terhadap tengah malam, sehingga kejadian sore di hari terakhir
+  // hilang tanpa jejak.
+  const [y, m, d] = String(selesaiTgl).split("-").map(Number);
+  const setelah = new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+
+  return `EVALUATE CALCULATETABLE(${row}, ${kol} >= ${daxTanggal(mulaiTgl)}, ${kol} < ${daxTanggal(setelah)})`;
 }
 
 function bacaAngka(baris, i) {
