@@ -62,6 +62,19 @@ const v = classifyIntent("downtime mesin serac 2 bulan juli berapa durasinya ya?
 ok("dikenali VALUE_OF", v.intent === "VALUE_OF", `dapat ${v.intent}`);
 ok("entitas terbaca", Boolean(v.entitas) && /serac/i.test(v.entitas), `dapat ${JSON.stringify(v.entitas)}`);
 
+section("Kelalaian yang ditemukan saat mengukur log nyata");
+
+// "top" sendiri sudah berarti tertinggi. Versi pertama menuntut kata arah
+// eksplisit, sehingga pertanyaan ini jatuh ke UNKNOWN.
+const t3 = classifyIntent("Berikan top 3 downtime pada line dan mesin yang ada");
+ok("top tanpa kata arah tetap TOP_N", t3.intent === "TOP_N", `dapat ${t3.intent}`);
+ok("arah default tertinggi", t3.arah === "tertinggi", `dapat ${t3.arah}`);
+
+// Koma setelah "mesin" memutus pola entitas di versi pertama.
+const v2 = classifyIntent("gua mau liat downtime mesin, serac 2 bulan juli berapa durasinya ya?");
+ok("entitas terbaca walau ada koma", v2.intent === "VALUE_OF", `dapat ${v2.intent}`);
+ok("entitasnya serac 2", /serac/i.test(String(v2.entitas)), `dapat ${JSON.stringify(v2.entitas)}`);
+
 section("Yang tidak dikenali tetap UNKNOWN, bukan dipaksakan");
 
 for (const q of ["", "asdkjhasd", "Gimana cara export data to excel dari visual dashboard Power BI?"]) {

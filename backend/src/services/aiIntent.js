@@ -63,7 +63,9 @@ function bacaArah(t) {
  * baik menyerahkannya ke AI daripada menjawab baris yang bukan diminta.
  */
 function bacaEntitas(t) {
-  const m = t.match(/\b(?:mesin|line|lini|produk|customer|pelanggan)\s+([\p{L}\p{N}][\p{L}\p{N}\s.-]{0,24})/iu);
+  // Koma atau titik dua setelah kata benda ikut dilewati: orang menulis
+  // "downtime mesin, serac 2 berapa" dan versi pertama pola ini melewatkannya.
+  const m = t.match(/\b(?:mesin|line|lini|produk|customer|pelanggan)[\s,:]+([\p{L}\p{N}][\p{L}\p{N}\s.-]{0,24})/iu);
   if (!m) return null;
   const nilai = m[1]
     .replace(/\b(?:bulan|tahun|berapa|durasinya|ya|dong|itu|pada|di|yang|paling)\b.*$/i, "")
@@ -103,10 +105,14 @@ export function classifyIntent(question) {
     return { ...kosong, intent: "FILTER_STATE" };
   }
 
-  const arah = bacaArah(t);
   const n = bacaN(t);
   const entitas = bacaEntitas(t);
   const kolomDiminta = bacaKolom(t);
+
+  // Kata "top" sendiri sudah berarti tertinggi. Versi pertama menuntut kata
+  // arah eksplisit, sehingga "Berikan top 3 downtime pada line" jatuh ke
+  // UNKNOWN padahal maksudnya jelas.
+  const arah = bacaArah(t) || (/\btop\b/i.test(t) ? "tertinggi" : null);
   const dasar = { arah, n, entitas, kolomDiminta };
 
   // TOP_N diperiksa sebelum MAX: "top 3 tertinggi" adalah daftar, bukan satu.

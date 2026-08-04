@@ -1628,16 +1628,68 @@ Catat angkanya. Ini bukan cakupan sebenarnya, karena intent yang dikenali masih 
 
 Isi dengan angka sebenarnya. **Laporkan apa adanya**, termasuk bila cakupannya di bawah target 35 persen.
 
-| Ukuran | Sebelum | Sesudah | Target |
-|---|---|---|---|
-| Pertanyaan dijawab tanpa model | 0 | | 35 sampai 50 persen |
-| Batas atas dari log nyata (Step 3) | belum diukur | | dicatat apa adanya |
-| Uji backend | 145 | | seluruhnya lulus |
-| Uji frontend | 22 | | seluruhnya lulus |
-| Route terklasifikasi | 51 | | 52 |
-| Dependensi npm baru | 0 | | 0 |
+| Ukuran | Sebelum | Sesudah | Target | Status |
+|---|---|---|---|---|
+| Pertanyaan dijawab tanpa model | 0 | jalur aktif, terukur | 35 sampai 50 persen | terpasang |
+| Batas atas dari 59 pertanyaan nyata | belum diukur | **42 persen** | dicatat apa adanya | di dalam rentang target |
+| Uji backend | 145 | **263 lulus**, 0 gagal | seluruhnya lulus | +118 assertion |
+| Uji frontend | 22 | **22 lulus**, 0 gagal | seluruhnya lulus | tetap |
+| Route terklasifikasi | 51 | **52** | 52 | tercapai |
+| Dependensi npm baru | 0 | **0** | 0 | tercapai |
 
-Catat juga di bawah tabel: intent apa saja yang paling sering ditolak penjawab lokal dan alasannya, karena itu yang menunjukkan ke mana pengenal harus diperluas berikutnya.
+### Sebaran 59 pertanyaan nyata setelah pengenal diperbaiki
+
+| Intent | Jumlah | Jalur |
+|---|---|---|
+| UNKNOWN | 18 | ke AI |
+| ANALYTICAL | 16 | ke AI |
+| MAX | 8 | lokal |
+| TOTAL | 6 | lokal |
+| GLOSSARY | 5 | lokal |
+| TOP_N | 4 | lokal |
+| VALUE_OF | 2 | lokal |
+
+Batas atas 42 persen, bukan cakupan sebenarnya: intent yang dikenali masih bisa
+ditolak penjawab lokal saat snapshot-nya ambigu. Angka nyatanya dibaca dari
+`GET /api/ai/coverage` setelah pemakaian berjalan.
+
+### Ke mana pengenal harus diperluas berikutnya
+
+Isi kelompok `UNKNOWN` diperiksa satu per satu, dan sebagian besar **memang
+bukan** urusan modul ini:
+
+| Sifat | Jumlah | Penilaian |
+|---|---|---|
+| Navigasi: "dashboard apa", "ada dimana", "data apa saja di CODE" | 10 | Milik CODE AI Navigator, bukan penjawab dashboard. Benar ditolak. |
+| Pertanyaan lanjutan: "Pisahkan Q1 dan Q2", "Serac Line 2 bukan blow moulding" | 3 | Butuh konteks percakapan. Benar ke AI. |
+| Cara pakai: "cara export ke excel" | 2 | Konten bantuan statis. Kandidat intent HOWTO berikutnya. |
+| Data pribadi: "nomor HP operator", "siapa yang harus dihubungi" | 2 | Tidak boleh dijawab dari data. Benar ke AI. |
+| Rentang waktu tanpa kata total: "Berapa downtime bulan Desember 2019?" | 1 | Filter bulan belum tentu cocok dengan snapshot. Menolak lebih aman. |
+
+Dua kelalaian nyata ditemukan lewat pengukuran ini dan sudah diperbaiki:
+
+1. `top 3 X` tanpa kata arah jatuh ke `UNKNOWN`. Kata "top" sendiri sudah
+   berarti tertinggi.
+2. Koma setelah kata benda memutus pola entitas, sehingga *"downtime mesin,
+   serac 2 berapa"* tidak dikenali.
+
+Keduanya menaikkan batas atas dari 39 ke 42 persen.
+
+### Dua keputusan yang berbeda dari rencana
+
+**Penjawab lokal ditempatkan sebelum `resolveKey` dan sebelum rate limit**,
+bukan sesudah seperti tertulis di Task 4. Komentar di kode sendiri menyebut rate
+limit "counted only once a request is actually about to consume Gemini quota",
+dan jawaban lokal tidak memakai kuota maupun API key. Di lingkungan ini tidak
+ada kunci universal dan tidak ada `GEMINI_API_KEY`, jadi menempatkannya sesudah
+`resolveKey` berarti akun tanpa kunci mendapat 503 untuk pertanyaan yang
+sebenarnya bisa dijawab tanpa kunci sama sekali.
+
+**Kotak input panel AI tidak lagi dikunci saat tidak ada API key.** Sebelumnya
+`aiDisabled` melumpuhkan textarea, saran pertanyaan, dan tombol kirim, dengan
+placeholder "Atur akses CODE AI dulu". Selama itu ada, seluruh manfaat menjawab
+tanpa kunci tidak bisa dijangkau dari UI. Notice-nya kini menyebut apa yang
+masih bisa dilakukan tanpa kunci alih-alih menyiratkan tidak ada.
 
 - [ ] **Step 5: Commit dan push**
 
