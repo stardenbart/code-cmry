@@ -9,6 +9,7 @@ export default function AddUserModal({ onClose }) {
     name: "",
     department: "",
     access: "Department Access Only",
+    role: "user",
     nik: "",
     email: "",
     username: "",
@@ -48,6 +49,7 @@ export default function AddUserModal({ onClose }) {
         nama: form.name,
         departemen: form.department,
         tipe_akses: form.access,
+        role: form.role,
         nik: form.nik,
         email: form.email,
         username: form.username,
@@ -70,7 +72,7 @@ export default function AddUserModal({ onClose }) {
     <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 z-50">
       <div className="bg-white p-6 w-[400px] shadow-xl">
         <h2 className="text-lg font-semibold mb-4 text-cimoryBlue">Add New User</h2>
-        {["name", "department", "access", "nik", "email", "username", "password"].map((key) => (
+        {["name", "department", "access", "role", "nik", "email", "username", "password"].map((key) => (
           <div key={key} className="mb-3">
             <label className="block text-sm font-medium capitalize mb-1">{key}</label>
 
@@ -95,6 +97,18 @@ export default function AddUserModal({ onClose }) {
               >
                 <option>Department Access Only</option>
                 <option>All Access</option>
+              </select>
+            ) : key === "role" ? (
+              // Wajib select, bukan input teks. Lewat teks bebas, admin bisa
+              // menulis "Admin" dengan A besar: server menolaknya sebagai tidak
+              // valid, dan kalaupun lolos, requireAdmin tidak akan mengenalinya.
+              <select
+                className="border w-full p-2 rounded-lg"
+                value={form.role}
+                onChange={(e) => setForm({ ...form, role: e.target.value })}
+              >
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
               </select>
             ) : key === "password" ? (
               <div className="relative">

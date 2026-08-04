@@ -15,6 +15,29 @@ import { requireAdmin, requireSelfOrAdmin } from "../middleware/authorize.js";
 
 const router = express.Router();
 
+/**
+ * Peran yang boleh disimpan.
+ *
+ * requireAdmin membandingkan role === "admin" persis, jadi nilai di luar daftar
+ * ini tidak gagal dengan berisik: ia tersimpan rapi lalu mencabut akses tanpa
+ * pesan apa pun. "Admin" dengan A besar sudah cukup untuk mengunci orangnya.
+ */
+const ROLE_SAH = new Set(["user", "admin"]);
+
+/**
+ * Menolak penurunan admin terakhir.
+ *
+ * Kalau jumlah admin menjadi nol, requireAdmin gagal untuk semua orang dan
+ * tidak ada lagi jalan lewat UI untuk memperbaikinya, termasuk untuk
+ * mengangkat admin baru. Pemulihannya cuma lewat SQL langsung ke database.
+ */
+async function menurunkanAdminTerakhir(targetId) {
+  const [rows] = await db
+    .promise()
+    .query("SELECT COUNT(*) AS sisa FROM users WHERE role = 'admin' AND id <> ?", [targetId]);
+  return rows[0].sisa === 0;
+}
+
 // GET ALL USERS
 router.get("/users", requireAdmin, (req, res) => {
   const q =
@@ -78,12 +101,16 @@ router.post("/add-user", requireAdmin, async (req, res) => {
     return res.status(400).json({ message: "Nama, username, dan password wajib diisi" });
   }
 
+  // Bawaannya "user". Akun baru tidak boleh lahir sebagai admin hanya karena
+  // body permintaannya menyebut begitu tanpa disengaja.
+  const peran = ROLE_SAH.has(req.body?.role) ? req.body.role : "user";
+
   const hashedPassword = await bcrypt.hash(password, 10);
   const q = `
-    INSERT INTO users (nama, departemen, tipe_akses, nik, email, username, password, approved)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+    INSERT INTO users (nama, departemen, tipe_akses, nik, email, username, password, approved, role)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
   `;
-  db.query(q, [nama, departemen, tipe_akses, nik, email, username, hashedPassword], (err) => {
+  db.query(q, [nama, departemen, tipe_akses, nik, email, username, hashedPassword, peran], (err) => {
     if (err) return res.status(500).json({ message: "Database error", error: err });
     res.status(200).json({ message: "User successfully added" });
   });
@@ -92,26 +119,39 @@ router.post("/add-user", requireAdmin, async (req, res) => {
 // UPDATE USER
 router.put("/update-user/:id", requireAdmin, async (req, res) => {
   const { id } = req.params;
-  const { nama, departemen, tipe_akses, nik, email, username, password } = req.body;
+  const { nama, departemen, tipe_akses, nik, email, username, password, role } = req.body;
 
   try {
-    let q = "";
-    let params = [];
+    if (role !== undefined && !ROLE_SAH.has(role)) {
+      return res.status(400).json({ message: "Role tidak valid" });
+    }
+
+    if (role === "user" && (await menurunkanAdminTerakhir(id))) {
+      return res.status(409).json({
+        message: "Tidak bisa menurunkan admin terakhir. Angkat admin lain dulu supaya akun tidak terkunci.",
+      });
+    }
+
+    // Kolom disusun bertahap, bukan dua cabang query tetap. Sebelumnya daftar
+    // kolomnya pasti, dan menambahkan role=? di situ berarti setiap pemanggil
+    // yang tidak mengirim role akan menurunkan perannya ke nilai bawaan.
+    // Sekarang kolom yang tidak dikirim memang tidak ikut ditulis.
+    const kolom = ["nama=?", "departemen=?", "tipe_akses=?", "nik=?", "email=?", "username=?"];
+    const params = [nama, departemen, tipe_akses, nik, email, username];
 
     if (password && password.trim() !== "") {
-      const hashedPassword = await bcrypt.hash(password, 10);
-      q = `
-        UPDATE users
-        SET nama=?, departemen=?, tipe_akses=?, nik=?, email=?, username=?, password=?
-        WHERE id=?`;
-      params = [nama, departemen, tipe_akses, nik, email, username, hashedPassword, id];
-    } else {
-      q = `
-        UPDATE users
-        SET nama=?, departemen=?, tipe_akses=?, nik=?, email=?, username=?
-        WHERE id=?`;
-      params = [nama, departemen, tipe_akses, nik, email, username, id];
+      kolom.push("password=?");
+      params.push(await bcrypt.hash(password, 10));
     }
+    if (role !== undefined) {
+      kolom.push("role=?");
+      params.push(role);
+    }
+    params.push(id);
+
+    // Nama kolom berasal dari literal di atas, tidak pernah dari req.body,
+    // jadi penggabungan string ini tidak membuka celah injeksi.
+    const q = `UPDATE users SET ${kolom.join(", ")} WHERE id=?`;
 
     db.query(q, params, (err, result) => {
       if (err) return res.status(500).json({ message: "Database error", error: err });

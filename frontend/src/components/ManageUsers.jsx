@@ -1,6 +1,6 @@
   import React, { useEffect, useState } from "react";
   import API from "../api/api"
-  import { Trash2, RefreshCw, Edit, Search, ChevronDown } from "lucide-react";
+  import { Trash2, RefreshCw, Edit, Search, ChevronDown, ShieldCheck } from "lucide-react";
 import PerfSummary from "./PerfSummary";
 import { useToast } from "./ToastProvider";
 import { useConfirm } from "./ConfirmProvider";
@@ -25,6 +25,7 @@ import { useConfirm } from "./ConfirmProvider";
       email: "",
       username: "",
       password: "",
+      role: "user",
     });
 
     useEffect(() => {
@@ -91,6 +92,10 @@ import { useConfirm } from "./ConfirmProvider";
         email: user.email,
         username: user.username,
         password: user.password || "",
+        // Baris lama bisa punya role NULL. Tanpa nilai jatuhan, select-nya
+        // tampil kosong lalu mengirim "" dan server menolaknya sebagai tidak
+        // valid, padahal admin tidak mengubah apa pun di kolom itu.
+        role: user.role === "admin" ? "admin" : "user",
       });
 
       setLoadingAccess(true);
@@ -196,6 +201,7 @@ import { useConfirm } from "./ConfirmProvider";
                   <th className="border p-2">NIK</th>
                   <th className="border p-2">Email</th>
                   <th className="border p-2">Username</th>
+                  <th className="border p-2">Role</th>
                   <th className="border p-2">Action</th>
                 </tr>
               </thead>
@@ -208,6 +214,16 @@ import { useConfirm } from "./ConfirmProvider";
                     <td className="border p-2">{u.nik}</td>
                     <td className="border p-2">{u.email}</td>
                     <td className="border p-2">{u.username}</td>
+                    <td className="border p-2 text-center">
+                      {u.role === "admin" ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-cimoryBlue/10 px-2 py-0.5 text-xs font-semibold text-cimoryBlue">
+                          <ShieldCheck size={13} />
+                          Admin
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-500">User</span>
+                      )}
+                    </td>
                     <td className="border p-2 flex justify-center gap-2">
                       <button
                         onClick={() => openEditModal(u)}
@@ -323,6 +339,29 @@ import { useConfirm } from "./ConfirmProvider";
                     size={18}
                     className="absolute right-3 top-9 text-gray-500 pointer-events-none"
                   />
+                </div>
+
+                {/* Role */}
+                <div className="relative">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Role
+                  </label>
+                  <select
+                    value={form.role}
+                    onChange={(e) => setForm({ ...form, role: e.target.value })}
+                    className="appearance-none border rounded-lg px-3 py-2 w-full focus:ring focus:ring-cimoryBlue/40"
+                  >
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <ChevronDown
+                    size={18}
+                    className="absolute right-3 top-9 text-gray-500 pointer-events-none"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Admin bisa mengelola user, dashboard, dan kunci universal CODE AI.
+                    Access Type di atas mengatur dashboard yang terlihat, bukan hak kelola ini.
+                  </p>
                 </div>
 
                 {/* Email */}
