@@ -56,18 +56,23 @@ export const AiModel = {
       output_tokens = null,
       total_tokens = null,
       from_cache = 0,
+      // Fase A: dipakai menghitung berapa sering jawaban tidak memanggil model.
+      intent = null,
+      answered_locally = 0,
     } = entry;
 
     const [res] = await sql.query(
       `INSERT INTO ai_chat_logs
          (user_id, dashboard_id, dashboard_title, question, answer, model,
           key_source, visuals_used, rows_used, prompt_chars, error,
-          tier, prompt_tokens, output_tokens, total_tokens, from_cache)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          tier, prompt_tokens, output_tokens, total_tokens, from_cache,
+          intent, answered_locally)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         user_id, dashboard_id, dashboard_title, question, answer, model,
         key_source, visuals_used, rows_used, prompt_chars, error,
         tier, prompt_tokens, output_tokens, total_tokens, from_cache,
+        intent, answered_locally ? 1 : 0,
       ]
     );
     return res.insertId;

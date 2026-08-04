@@ -24,6 +24,7 @@ Batasan proyek yang tetap berlaku:
 - **Migrasi dijaga `information_schema` + `PREPARE`/`EXECUTE`.** `IF NOT EXISTS` adalah sintaks MariaDB dan gagal diam-diam di MySQL.
 - **Route `/api` baru wajib terdaftar di `ROUTE_CLASSIFICATION`** (`backend/src/routeInventory.js`), kalau tidak `npm test` gagal.
 - **Test tidak boleh menyentuh data user nyata.** Akun sekali pakai yang dibuat dan dihapus sendiri, atau id hantu `999999`.
+- **`ai_chat_logs.user_id` punya foreign key ke `users(id)`.** Id hantu `999999` TIDAK bisa dipakai di sana: insert-nya gagal dengan `ER_NO_REFERENCED_ROW_2`. Pakai id user yang benar-benar ada, dan hapus barisnya setelah selesai. `dashboard_id` tidak punya kendala itu, jadi `999999` aman untuk kolom tersebut.
 - Backend dijalankan ulang manual setelah mengubah `src/` sebelum `npm test`; test menembak server di `http://localhost:5050`.
 - Branch kerja: buat `feat/ai-efficiency` dari `feat/uiux`.
 
