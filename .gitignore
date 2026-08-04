@@ -79,3 +79,9 @@ coverage/
 
 # Probe sementara yang sempat disajikan dari public/ saat menguji sanitasi
 frontend/public/__*.html
+
+# Sesi WhatsApp (Baileys). Memuat kredensial sesi yang setara akses penuh ke
+# akun WhatsApp pengirim: siapa pun yang punya berkas ini bisa mengirim pesan
+# sebagai nomor itu. Jangan pernah di-commit.
+.wa-session/
+**/.wa-session/

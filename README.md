@@ -775,3 +775,77 @@ git pull
 npm run build
 # Nginx serves the new dist/ automatically — no restart needed
 ```
+
+## Automated Daily Executive Summary: risiko WhatsApp
+
+Fitur ringkasan operasional harian mengirim pesan lewat WhatsApp **Group**, dan
+itu hanya mungkin dengan klien tidak resmi. Keputusan ini diambil pemilik pada
+2026-08-04 dengan kesadaran penuh, setelah alternatifnya diperiksa.
+
+### Kenapa tidak memakai Cloud API resmi
+
+WhatsApp Cloud API resmi **tidak mendukung pengiriman ke Group** tanpa use case
+khusus yang di-approve Meta. Yang didukung adalah pengiriman ke nomor per orang
+dengan template message yang harus lolos approval lebih dulu. Karena laporan ini
+memang ditujukan ke satu grup manajemen, jalur resmi tidak memenuhi kebutuhan.
+
+### Risiko yang diterima
+
+Provider `baileys` adalah klien WhatsApp tidak resmi, dan memakainya
+**melanggar Terms of Service WhatsApp**. Risikonya nyata, bukan teoretis:
+
+- Nomor pengirim bisa dibatasi atau **diblokir permanen** oleh WhatsApp
+- Sesi bisa terputus sewaktu-waktu, dan job gagal tanpa sebab yang jelas dari
+  sisi kode
+- Tidak ada dukungan resmi bila terjadi masalah
+
+**Gunakan nomor khusus, bukan nomor pribadi siapa pun.** Nomor yang diblokir
+akan kehilangan seluruh riwayat WhatsApp-nya.
+
+### Kenapa Baileys, bukan whatsapp-web.js
+
+Keduanya sama-sama tidak resmi dengan risiko yang sama. `whatsapp-web.js`
+menjalankan Chromium lewat Puppeteer, sekitar 300 MB dan satu proses browser
+penuh di server, hanya untuk mengirim satu pesan sehari. Baileys bicara langsung
+ke protokolnya tanpa browser.
+
+### Bawaannya tidak mengirim
+
+Provider bawaan adalah `dryrun`: pipeline berjalan penuh sampai pesan tersusun,
+lalu pesannya dicatat alih-alih dikirim. Ini disengaja. Job yang salah
+konfigurasi harus diam, karena pesan yang salah kirim ke grup manajemen tidak
+bisa ditarik kembali.
+
+### Mengaktifkan pengiriman sungguhan
+
+```
+npm install @whiskeysockets/baileys
+```
+
+```
+WHATSAPP_PROVIDER=baileys
+WHATSAPP_TARGET_MODE=group
+WHATSAPP_GROUP_ID=1234567890-123456@g.us
+WHATSAPP_SESSION_DIR=./.wa-session
+```
+
+Pairing perlu **sekali pemindaian QR di konsol server**, dan tidak ada cara
+mengotomatiskannya. Sesinya disimpan ke `WHATSAPP_SESSION_DIR` supaya restart
+tidak menuntut pemindaian ulang. Direktori itu memuat kredensial sesi WhatsApp,
+jadi jangan pernah di-commit.
+
+Kombinasi `WHATSAPP_PROVIDER=cloud_api` dengan `WHATSAPP_TARGET_MODE=group`
+ditolak saat startup, bukan dibiarkan gagal tiap hari dengan pesan dari Meta
+yang sulit dibaca.
+
+### Alerting terpisah dari penerima laporan
+
+`ADMIN_ALERT_CHANNEL` adalah alamat email tim teknis, dan sengaja **tidak**
+jatuh ke daftar penerima laporan bila kosong. Kegagalan teknis yang dikirim ke
+manajemen dalam bahasa yang tidak mereka butuhkan justru mengurangi kepercayaan
+pada laporannya.
+
+Yang memicu alert hanya kegagalan berarti: semua domain tanpa angka, AI gagal,
+validasi keluaran gagal, atau pengiriman gagal. Satu domain kosong tidak memicu
+alert, karena keadaan itu sudah ditandai di laporannya dan alert yang terlalu
+sering akan diabaikan.
