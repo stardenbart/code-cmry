@@ -82,6 +82,54 @@ ok("menaikkan diri sendiri → 403", naikSendiri.status === 403, `dapat ${naikSe
 const rasimin = await ambilUser(36);
 ok("rasimin tetap role user", rasimin?.role === "user", `dapat ${rasimin?.role}`);
 
+section("Kolom role sampai ke pemeriksaan admin CODE AI");
+
+// getUser di aiController pernah tidak mengambil kolom role. Akibatnya
+// user.role undefined untuk semua orang, canManage selalu false, dan
+// PUT /api/ai/universal-key menjawab 403 bahkan untuk admin sungguhan:
+// kunci universalnya tidak bisa diatur oleh siapa pun. Tidak ada error yang
+// muncul di mana pun, jadi hanya uji seperti ini yang menangkapnya.
+
+const statusAdmin = await req("GET", "/api/ai/status", { token: ADMIN });
+ok("status CODE AI admin → 200", statusAdmin.status === 200, `dapat ${statusAdmin.status}`);
+ok(
+  "admin melihat canManage true",
+  statusAdmin.body?.universal?.canManage === true,
+  `dapat ${statusAdmin.body?.universal?.canManage}, artinya kolom role tidak sampai ke isAdminUser`
+);
+
+const statusUser = await req("GET", "/api/ai/status", { token: USER });
+ok(
+  "user biasa melihat canManage false",
+  statusUser.body?.universal?.canManage === false,
+  `dapat ${statusUser.body?.universal?.canManage}`
+);
+
+// Kunci sengaja tidak valid: ia tidak akan pernah lolos validasi ke Google,
+// jadi kunci universal yang sedang dipakai tidak mungkin tertimpa oleh uji ini.
+const KUNCI_TIDAK_VALID = "AIzaKunciUjiTidakValidSamaSekali000";
+
+const tulisUser = await req("PUT", "/api/ai/universal-key", {
+  token: USER,
+  body: { apiKey: KUNCI_TIDAK_VALID },
+});
+ok("user biasa menulis kunci universal → 403", tulisUser.status === 403, `dapat ${tulisUser.status}`);
+
+const hapusUser = await req("DELETE", "/api/ai/universal-key", { token: USER });
+ok("user biasa menghapus kunci universal → 403", hapusUser.status === 403, `dapat ${hapusUser.status}`);
+
+// Yang diuji cuma gerbangnya terbuka, bukan kuncinya diterima. Admin harus
+// gagal di validasi, bukan di otorisasi.
+const tulisAdmin = await req("PUT", "/api/ai/universal-key", {
+  token: ADMIN,
+  body: { apiKey: KUNCI_TIDAK_VALID },
+});
+ok(
+  "admin tidak lagi kena 403 saat menulis kunci universal",
+  tulisAdmin.status !== 403,
+  `dapat 403, gerbangnya masih menolak admin`
+);
+
 section("Siklus akun sekali pakai");
 
 let idProbe = null;

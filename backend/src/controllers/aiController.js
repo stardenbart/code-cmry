@@ -41,9 +41,14 @@ const ESCALATION_ENABLED = !/^(0|false|off|no)$/i.test(process.env.AI_ESCALATION
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+// role WAJIB ikut. isAdminUser membaca user.role, dan tanpa kolomnya nilainya
+// undefined untuk semua orang: canManage selalu false, form kunci universal
+// tidak pernah dirender, dan PUT /api/ai/universal-key menjawab 403 bahkan
+// untuk admin sungguhan. Kunci universalnya jadi tidak bisa diatur oleh
+// siapa pun, tanpa satu pun error yang muncul di mana pun.
 async function getUser(userId) {
   const [rows] = await sql.query(
-    "SELECT id, nama, departemen, tipe_akses, approved FROM users WHERE id = ?",
+    "SELECT id, nama, departemen, tipe_akses, approved, role FROM users WHERE id = ?",
     [userId]
   );
   return rows[0] || null;
