@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import { Cpu, ChevronLeft, ChevronRight } from "lucide-react";
+import { normalkanUrlUnggahan } from "../utils/uploadUrl";
 // Gambar dirujuk lewat path runtime dari public/, bukan diimpor sebagai modul.
 //
 // Impor `from "/images/..."` diselesaikan Vite dari root proyek, yaitu
@@ -16,19 +16,10 @@ const departments = [
 
 const ITEMS_PER_PAGE = 8;
 
-// Fade + subtle scale — no x-translation means no overflow-hidden needed,
-// so hover scale is never clipped.
-const pageVariants = {
-  enter:  { opacity: 0, scale: 0.96 },
-  center: { opacity: 1, scale: 1 },
-  exit:   { opacity: 0, scale: 0.96 },
-};
-
 export default function LandingPage() {
   const [links, setLinks]     = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage]       = useState(0);
-  const [dir, setDir]         = useState(1);
 
   useEffect(() => {
     document.title = "Cimory Operation Portal";
@@ -42,10 +33,9 @@ export default function LandingPage() {
   const totalPages   = Math.max(1, Math.ceil(links.length / ITEMS_PER_PAGE));
   const currentLinks = links.slice(page * ITEMS_PER_PAGE, (page + 1) * ITEMS_PER_PAGE);
 
-  const goTo = (next) => {
-    setDir(next > page ? 1 : -1);
-    setPage(next);
-  };
+  // setDir dulu dipanggil di sini, tetapi tidak ada yang pernah membaca
+  // nilainya: pageVariants pun tidak memakainya. Kode mati, dibuang.
+  const goTo = (next) => setPage(next);
 
   return (
     <>
@@ -79,12 +69,7 @@ export default function LandingPage() {
         <div className="relative z-10 w-full max-w-[1400px] mx-auto px-4 sm:px-8 flex flex-col items-center min-h-screen pt-6 sm:pt-10 pb-24">
 
           {/* Brand heading */}
-          <motion.div
-            className="flex flex-col items-center text-center mb-6 sm:mb-8"
-            initial={{ opacity: 0, y: -22 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.85 }}
-          >
+          <div className="flex flex-col items-center text-center mb-6 sm:mb-8 animate-rise-in motion-reduce:animate-none">
             <img
               src="/images/Logo_Cimory.png"
               alt="Cimory Logo"
@@ -102,7 +87,7 @@ export default function LandingPage() {
             >
               Empowering Digitalization for Operational Excellence
             </p>
-          </motion.div>
+          </div>
 
           {/* ── Carousel ── */}
           <div className="w-full flex flex-col items-center gap-4">
@@ -132,28 +117,29 @@ export default function LandingPage() {
                     ))}
                   </div>
                 ) : (
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={page}
-                      variants={pageVariants}
-                      initial="enter"
-                      animate="center"
-                      exit="exit"
-                      transition={{ duration: 0.28, ease: "easeInOut" }}
-                      className="flex flex-wrap justify-center gap-4 sm:gap-5 lg:gap-6"
-                    >
+                  // Penyederhanaan yang disengaja: animasi halaman yang KELUAR
+                  // dihapus. Menahan elemen keluar tetap terpasang adalah
+                  // persisnya pekerjaan AnimatePresence, dan membangunnya ulang
+                  // dengan tangan membatalkan tujuan mencabut dependensinya.
+                  // Yang dipertahankan animasi halaman MASUK: key pada indeks
+                  // halaman membuat React memasang ulang, sehingga animasi CSS
+                  // berjalan setiap kali halaman berganti.
+                  <div
+                    key={page}
+                    className="flex flex-wrap justify-center gap-4 sm:gap-5 lg:gap-6 animate-slide-in motion-reduce:animate-none"
+                  >
                       {currentLinks.map((link, idx) => (
-                        <motion.div
+                        <div
                           key={link.id ?? idx}
                           onClick={() => window.open(link.url, "_blank", "noopener,noreferrer")}
-                          whileHover={{ scale: 1.14, y: -7, filter: "drop-shadow(0px 8px 10px rgba(0,0,0,0.30))" }}
-                          transition={{ type: "spring", stiffness: 280, damping: 20 }}
-                          className="cursor-pointer"
+                          className="cursor-pointer transition-transform duration-200 ease-out
+                            hover:scale-[1.14] hover:-translate-y-[7px] hover:drop-shadow-xl
+                            motion-reduce:transform-none"
                         >
                           <div className="w-32 h-32 sm:w-40 sm:h-40 lg:w-48 lg:h-48 flex items-center justify-center">
                             {link.image_url ? (
                               <img
-                                src={link.image_url}
+                                src={normalkanUrlUnggahan(link.image_url)}
                                 alt={link.title}
                                 className="max-w-full max-h-full object-contain"
                               />
@@ -163,10 +149,9 @@ export default function LandingPage() {
                               </div>
                             )}
                           </div>
-                        </motion.div>
+                        </div>
                       ))}
-                    </motion.div>
-                  </AnimatePresence>
+                  </div>
                 )}
               </div>
 
@@ -199,18 +184,21 @@ export default function LandingPage() {
             )}
 
             {/* Dashboard CMD Sentul */}
-            <motion.button
+            <button
+              type="button"
               onClick={() => window.open("/login", "_blank")}
-              whileHover={{ y: -3, scale: 1.04 }}
               className="w-full md:w-3/4 lg:w-1/2 mx-auto px-6 py-4 sm:py-5 rounded-2xl
                 bg-gradient-to-r from-sky-600 to-sky-700
                 text-white font-semibold text-sm sm:text-base
                 flex flex-col items-center justify-center gap-1.5
-                shadow-xl shadow-sky-900/30"
+                shadow-xl shadow-sky-900/30
+                transition-transform duration-200 ease-out
+                hover:-translate-y-[3px] hover:scale-[1.04] motion-reduce:transform-none
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
             >
               <Cpu className="w-7 h-7 sm:w-9 sm:h-9" />
               Dashboard CMD Sentul
-            </motion.button>
+            </button>
           </div>
 
         </div>

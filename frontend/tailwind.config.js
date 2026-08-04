@@ -22,6 +22,9 @@ export default {
         // Kelas animate-fade-in sudah dipakai di App.jsx tetapi keyframes-nya
         // tidak pernah didefinisikan, jadi selama ini tidak berefek apa pun.
         "fade-in": "fadeIn 200ms ease-out",
+        // Animasi masuk yang dulu dikerjakan framer-motion di LandingPage.
+        "rise-in": "riseIn 850ms ease-out both",
+        "slide-in": "slideIn 280ms ease-in-out both",
       },
       keyframes: {
         gradientBG: {
@@ -43,6 +46,14 @@ export default {
         fadeIn: {
           from: { opacity: "0" },
           to:   { opacity: "1" },
+        },
+        riseIn: {
+          from: { opacity: "0", transform: "translateY(-22px)" },
+          to:   { opacity: "1", transform: "translateY(0)" },
+        },
+        slideIn: {
+          from: { opacity: "0", transform: "translateX(24px)" },
+          to:   { opacity: "1", transform: "translateX(0)" },
         },
       },
       backgroundSize: {

@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import API from "../api/api";
 import { useToast } from "./ToastProvider";
 import { useConfirm } from "./ConfirmProvider";
+import { normalkanUrlUnggahan } from "../utils/uploadUrl";
 
 const EMPTY_FORM = { title: "", url: "", sort_order: 0, active: true };
 
@@ -340,7 +341,7 @@ export default function LandingPageManager() {
                     }`}
                   >
                     <td className="p-3">
-                      <ImageCell src={link.image_url} title={link.title} />
+                      <ImageCell src={normalkanUrlUnggahan(link.image_url)} title={link.title} />
                     </td>
                     <td className="p-3 font-medium text-sm">{link.title}</td>
                     <td className="p-3 text-xs text-gray-500 max-w-[200px] truncate" title={link.url}>
