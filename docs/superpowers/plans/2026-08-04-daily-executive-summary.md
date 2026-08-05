@@ -317,3 +317,52 @@ Konsekuensinya: OEE dan downtime per CMD wajib memakai query berdimensi atas
 kolom `CMD` atau `Gedung`, sementara NC dan Deviasi per CMD bisa langsung dari
 nama measure. Dua jalur berbeda untuk kebutuhan yang terlihat sama, dan
 menyamakan keduanya akan menghasilkan angka kosong tanpa error.
+
+## 13. Mekanisme breakdown: terbukti jalan, plus tiga cacat yang ditemukannya
+
+Ditambahkan 2026-08-05. `ambilBreakdown()` di powerbiSummary.service.js sudah
+berjalan atas data nyata.
+
+Hasil nyata, minggu 2026-07-27 sampai 2026-08-02, model Maintenance Downtime,
+dikelompokkan atas `Machine` dan difilter tanggal:
+
+```
+tertinggi   Serac Line 3 CYD 65ml     56,35 jam
+            Hassia S600 Line 2        49,37 jam
+            Tetra Pak Line 5 250ml    33,94 jam
+terendah    Hongju 2                   0,50 jam
+            Hongju 3                   0,58 jam
+            Hongju 6                   1,20 jam
+```
+
+Katalog menyebut NAMA KOLOM saja; tabelnya diresolusi runtime lewat
+`INFO.VIEW.COLUMNS()`. Nama kolom yang ada di lebih dari satu tabel DITOLAK,
+bukan dipilih sembarang: `Section` ada di 4 tabel dan `nama_mesin` di 11, dan
+memilih salah satunya berarti mengelompokkan atas kolom yang salah tanpa error.
+
+### Tiga cacat yang muncul justru karena dijalankan
+
+1. **Kunci baris `SUMMARIZECOLUMNS` berbentuk `Tabel[Kolom]`, bukan `[Kolom]`.**
+   Versi pertama memakai bentuk kedua, sehingga setiap label terbaca null
+   sementara angkanya tetap keluar. Daftar tiga baris tanpa nama mesin terlihat
+   berhasil dan tidak berguna sama sekali.
+2. **`TOPN` tidak menjamin urutan**, dan itu perilaku terdokumentasi. Keluaran
+   pertama berbunyi 33,94 lalu 56,35 lalu 49,37, dan pembaca akan menyimpulkan
+   yang pertama paling parah. Pengurutan dilakukan di JavaScript setelah query.
+3. **Baris blank harus dibuang SEBELUM TOPN**, kalau tidak "tiga tertinggi" bisa
+   terisi dua baris kosong dan satu angka.
+
+### Letak Issue dan Action: dashboard lain
+
+`Issue`, `Action`, dan `CMD` TIDAK ada di model Maintenance Downtime, Utility
+Failure, Sparepart Management, maupun Data Room Service Level. Letaknya:
+
+| Dashboard | Page | Kolom |
+|---|---|---|
+| Technical Downtime ORS | `Raw Data`, `Plant Sentul` | `Issue`, `Action`, `CMD` |
+| Losses Report | `Efis CMD 1..3` | `CMD` |
+| Utility Failure | `Issue` | `Issue` |
+
+Langkah berikutnya: resolusi report_id kedua dashboard itu ke dataset-nya lewat
+API, lalu tambahkan entri breakdown per CMD untuk downtime beserta `Issue` dan
+`Action`, dan entri % losses per CMD dari Losses Report.
