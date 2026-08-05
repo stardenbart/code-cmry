@@ -195,6 +195,20 @@ async function sesi() {
       // yang menyesatkan.
       sesiBaileys = null;
       console.warn(`[WA] koneksi tertutup, kode ${alasan ?? "tidak diketahui"}`);
+      // 440 berarti KONFLIK SESI: proses lain memakai kredensial yang sama dan
+      // WhatsApp menendang salah satunya. Terjadi 2026-08-06 dan menyebabkan
+      // laporan pagi gagal terkirim tanpa sebab yang jelas dari sisi kode.
+      //
+      // Disebutkan eksplisit karena kode angka saja tidak memberi tahu apa pun,
+      // dan penyebabnya hampir selalu sama: dua backend jalan bersamaan, atau
+      // npm run wa:groups dijalankan sementara backend hidup.
+      if (alasan === 440) {
+        console.warn(
+          "[WA] konflik sesi: ada proses lain memakai .wa-session yang sama. " +
+          "Pastikan HANYA SATU backend yang jalan, dan jangan menjalankan " +
+          "npm run wa:groups sementara backend hidup."
+        );
+      }
       if (alasan === DisconnectReason?.loggedOut) {
         console.warn("[WA] sesi sudah logout, hapus WHATSAPP_SESSION_DIR dan pindai QR lagi");
       }

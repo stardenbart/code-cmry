@@ -326,6 +326,9 @@ export async function ambilHasil(tanggal) {
     isFallback: Boolean(r.is_fallback),
     whatsappSent: Boolean(r.whatsapp_sent),
     whatsappSentAt: r.whatsapp_sent_at,
+    // Dibedakan dari whatsappSent: yang ini berarti provider benar-benar
+    // menjawab berhasil, bukan sekadar sudah diklaim.
+    sentConfirmed: Boolean(r.sent_confirmed),
   };
 }
 
@@ -341,11 +344,56 @@ export async function ambilHasil(tanggal) {
 export async function tandaiTerkirim(tanggal) {
   const [hasil] = await sql.query(
     `UPDATE daily_summary_result
-        SET whatsapp_sent = 1, whatsapp_sent_at = NOW()
+        SET whatsapp_sent = 1, whatsapp_sent_at = NOW(), sent_confirmed = 0
       WHERE report_date = ? AND whatsapp_sent = 0`,
     [tanggal]
   );
   return hasil.affectedRows === 1;
+}
+
+/**
+ * Menandai pengiriman BERHASIL, dipanggil setelah provider menjawab sukses.
+ *
+ * Penandaan dua tahap ini menutup kehilangan yang senyap. tandaiTerkirim()
+ * menandai sebelum mengirim supaya dua proses tidak mungkin keduanya mengirim,
+ * tapi bila prosesnya MATI di antara menandai dan mengirim, pembatalannya tidak
+ * pernah jalan: barisnya bertanda terkirim, laporannya tidak pernah sampai, dan
+ * tidak ada yang mencoba lagi.
+ *
+ * Terjadi 2026-08-06: baris 2026-08-05 bertanda terkirim jam 06:17 sementara
+ * grup tidak menerima apa pun.
+ */
+export async function konfirmasiTerkirim(tanggal) {
+  const [hasil] = await sql.query(
+    "UPDATE daily_summary_result SET sent_confirmed = 1 WHERE report_date = ?",
+    [tanggal]
+  );
+  return hasil.affectedRows >= 1;
+}
+
+/**
+ * Melepas klaim pengiriman yang menggantung.
+ *
+ * Baris bertanda terkirim tapi belum terkonfirmasi lebih lama dari batas waktu
+ * berarti prosesnya mati saat mengirim. Klaimnya dilepas supaya percobaan
+ * berikutnya bisa mengirim. Kematian proses menunda pengiriman, bukan
+ * menghilangkannya.
+ *
+ * Batasnya sengaja tidak terlalu pendek: pengiriman lewat Baileys bisa memakan
+ * puluhan detik saat sesi baru dibuka, dan melepas klaim terlalu cepat justru
+ * mengundang kirim ganda yang ingin dicegah sejak awal.
+ *
+ * @returns {Promise<{dilepas: number}>}
+ */
+export async function lepasKlaimMenggantung(menit = Number(process.env.SUMMARY_SEND_CLAIM_MINUTES) || 10) {
+  const [hasil] = await sql.query(
+    `UPDATE daily_summary_result
+        SET whatsapp_sent = 0, whatsapp_sent_at = NULL
+      WHERE whatsapp_sent = 1 AND sent_confirmed = 0
+        AND whatsapp_sent_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
+    [menit]
+  );
+  return { dilepas: hasil.affectedRows };
 }
 
 /** Membatalkan penandaan bila pengiriman ternyata gagal. */
@@ -356,6 +404,9 @@ export async function batalkanTerkirim(tanggal) {
       WHERE report_date = ?`,
     [tanggal]
   );
+  // sent_confirmed ikut dikembalikan ke 0: pembatalan berarti pengirimannya
+  // gagal, jadi tidak ada yang terkonfirmasi.
+  await sql.query("UPDATE daily_summary_result SET sent_confirmed = 0 WHERE report_date = ?", [tanggal]);
 }
 
 /**

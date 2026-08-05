@@ -26,6 +26,7 @@ import { validasiKatalog } from "../services/kpiCatalog.js";
 import {
   simpanSnapshot, simpanSnapshotMingguan, bekukanMingguLewat,
   pembanding, simpanHasil, ambilHasil, tandaiTerkirim, batalkanTerkirim,
+  konfirmasiTerkirim, lepasKlaimMenggantung,
 } from "../services/historicalStore.service.js";
 import { ringkasDenganAI } from "../services/geminiSummary.service.js";
 import { pesanCadangan, catatanKaki, validasiKeluaran } from "../services/summaryFormatter.js";
@@ -223,6 +224,13 @@ export async function jalankanPengiriman({ dryRun = false, tanggal = null, onPro
   log.catat("mulai", dryRun ? "DRY RUN" : "");
 
   const tanggalLaporan = tanggal || jendelaLaporan().tanggal;
+
+  // Klaim yang menggantung dilepas LEBIH DULU. Baris bertanda terkirim tapi
+  // belum terkonfirmasi berarti proses sebelumnya mati saat mengirim, dan tanpa
+  // pelepasan ini laporannya hilang selamanya tanpa ada yang mencoba lagi.
+  const lepas = await lepasKlaimMenggantung();
+  if (lepas.dilepas) log.catat("klaim menggantung dilepas", `${lepas.dilepas} baris`);
+
   const hasil = await ambilHasil(tanggalLaporan);
 
   if (!hasil?.text) {
@@ -238,7 +246,10 @@ export async function jalankanPengiriman({ dryRun = false, tanggal = null, onPro
     return { berhasil: false, alasan: "belum ada hasil untuk tanggal ini", tanggalLaporan, jejak: log.jejak };
   }
 
-  if (hasil.whatsappSent) {
+  // Hanya yang TERKONFIRMASI dianggap sudah terkirim. Bertanda terkirim tapi
+  // belum terkonfirmasi berarti klaim yang belum kedaluwarsa, dan itu ditangani
+  // oleh tandaiTerkirim di bawah.
+  if (hasil.whatsappSent && hasil.sentConfirmed) {
     log.catat("sudah terkirim", String(hasil.whatsappSentAt));
     return {
       berhasil: true, sudahTerkirim: true, tanggalLaporan,
@@ -267,6 +278,13 @@ export async function jalankanPengiriman({ dryRun = false, tanggal = null, onPro
 
   const kirim = await sendDailySummary(hasil.text);
   log.catat("pengiriman", kirim.terkirim ? `ok ${kirim.provider}` : `gagal: ${kirim.alasan}`);
+
+  // Konfirmasi HANYA setelah provider menjawab berhasil. Inilah yang membedakan
+  // "sudah diklaim" dari "sudah sampai".
+  if (kirim.terkirim) {
+    await konfirmasiTerkirim(tanggalLaporan);
+    log.catat("pengiriman dikonfirmasi", "");
+  }
 
   if (!kirim.terkirim) {
     await batalkanTerkirim(tanggalLaporan);
