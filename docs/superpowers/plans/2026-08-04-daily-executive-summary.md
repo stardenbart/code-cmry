@@ -233,3 +233,50 @@ menyebabkan kirim ganda.
   06:15 yang terlewat karena server mati tidak dijalankan otomatis jam 09:00,
   karena laporan yang datang setelah morning meeting tidak berguna dan justru
   membingungkan. Manual trigger tetap tersedia.
+
+## 12. Breakdown per CMD dan per mesin: hasil pengukuran kelayakan
+
+Diminta pemilik 2026-08-05 setelah membaca pesan pertama yang masuk grup.
+Semuanya diperiksa terhadap tabel `visual_field_usage` hasil panen, jadi yang
+tercatat di bawah adalah kolom yang BENAR-BENAR dirender di dashboard.
+
+### Pemisahan per CMD sudah ada di nama page
+
+| Dashboard | Page per CMD |
+|---|---|
+| NC & Deviasi | `Non Conformance CMD1 ver2`, `CMD2`, `CMD3` |
+| NC & Deviasi | `Deviasi RMPM CMD1 (TRIAL)`, `CMD2`, `CMD3` |
+| OEE & Downtime | `CMD 1`, `CMD 2`, `CMD 3`, plus `Detail CMD 1..3` |
+| Repetitive NC Report | `Repetitive NC CMD 1`, `CMD 2`, `CMD 3` |
+| Utility Energy | `(Water) CMD 1..3`, `(Electricity) CMD 1&2`, `CMD 3` |
+
+Selain itu nama measure-nya sendiri sudah berakhiran CMD: `Jumlah NC CMD 1`,
+`Deviasi FG 2025 CMD 1`, `CMD 1 (ton)`, dan seterusnya. Jadi pecahan per CMD
+untuk ANGKA tidak butuh query berdimensi sama sekali; cukup menambah entri
+katalog per CMD dari measure yang sudah terbukti dirender.
+
+### Kolom teks untuk RCA dan koreksi ada
+
+`CORRECTION (TINDAKAN KOREKSI)`, `Deskripsi NC`, `DESKRIPSI DEVIASI`,
+`Keterangan`, `Tanggal Analisa`. Untuk remarks lembur dan lainnya: `Remark`,
+`Remarks`, `Remark MTC`, `Remark TWH`, `Remark Eksekusi`, `Remark Filling`.
+
+Semua kolom teks WAJIB lewat `sanitasiTeks` sebelum masuk prompt: isinya entri
+operator, dan itu tepat vektor yang §12.2 lindungi.
+
+### Kolom mesin dan line ada
+
+`Machine`, `Machine Name`, `First Machine Name`, `First nama_mesin`, `Line`,
+`Line 3` sampai `Line 6`, `Avail Machine`.
+
+### Yang masih perlu dibangun
+
+1. Jenis entri katalog `breakdown`: kolom dimensi, measure agregasi, arah, dan N,
+   dijalankan lewat `TOPN` di atas `SUMMARYCOLUMNS`, bukan `ROW`.
+2. Jenis entri `teks`: mengambil baris terbaru per CMD beserta kolom RCA dan
+   koreksinya, dibatasi jumlah baris supaya muatan tetap di bawah 10KB.
+3. Verifikasi kolom dimensi terhadap `visual_field_usage`, aturan yang sama
+   seperti measure: yang tidak terbukti dirender tidak masuk katalog.
+4. Muatan dan instruksi Gemini diperluas supaya breakdown DIANALISIS, bukan cuma
+   dilaporkan: downtime per mesin dipakai menjelaskan angka OEE, dan delay atau
+   hold dipakai menjelaskan capaian versus PO.
