@@ -280,3 +280,40 @@ operator, dan itu tepat vektor yang §12.2 lindungi.
 4. Muatan dan instruksi Gemini diperluas supaya breakdown DIANALISIS, bukan cuma
    dilaporkan: downtime per mesin dipakai menjelaskan angka OEE, dan delay atau
    hold dipakai menjelaskan capaian versus PO.
+
+### Kolom dimensi downtime, terukur dari panen
+
+Ditambahkan 2026-08-05 setelah pemilik menyebut Technical dan Organizational
+downtime punya remarks. Benar, dan letaknya ketemu: halaman **Raw Data** di
+dashboard OEE & Downtime memuat semuanya sekaligus.
+
+```
+CMD | Machine | Section | Issue | Action | Duration (Min) | Date | Status | WO/WR
+```
+
+`Issue` adalah remarks penyebabnya, `Action` adalah tindakan koreksinya. Ini yang
+membuat downtime bisa dipakai MENJELASKAN angka OEE, bukan cuma dilaporkan
+sebagai persentase.
+
+Kolom dimensi lain yang terbukti dirender:
+
+| Kolom | Halaman | Guna |
+|---|---|---|
+| `CMD` | Raw Data | pecahan per CMD untuk downtime |
+| `Gedung`, `departemen` | Overview OEE | pecahan per gedung dan departemen |
+| `Machine`, `nama_mesin`, `nama_sub_mesin` | MTBF, MTTR, Detail Page | top 3 mesin |
+| `Line`, `Section` | Overview, Detail Page | pecahan lini |
+| `Nama Downtime`, `Grup Downtime` | Detail Page | kategori sebab downtime |
+| `Shift` | MTBF, MTTR | pecahan shift |
+| `Status`, `WO/WR` | Raw Data | status penanganan |
+
+### Catatan penting: OEE per CMD TIDAK punya measure terpisah
+
+Dashboard Daily Meeting untuk OEE punya halaman bernama `CMD 1`, `CMD 2`, dan
+`CMD 3`, tetapi NOL measure berakhiran CMD. Pemisahannya di situ dilakukan lewat
+FILTER HALAMAN, bukan measure terpisah.
+
+Konsekuensinya: OEE dan downtime per CMD wajib memakai query berdimensi atas
+kolom `CMD` atau `Gedung`, sementara NC dan Deviasi per CMD bisa langsung dari
+nama measure. Dua jalur berbeda untuk kebutuhan yang terlihat sama, dan
+menyamakan keduanya akan menghasilkan angka kosong tanpa error.

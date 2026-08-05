@@ -490,6 +490,123 @@ export const KATALOG_KPI = [
       "Kamus KPI menyebut IC_DOI OHS punya 4 varian, tetapi tidak satu pun dirender " +
       "di visual. Yang dirender adalah Coverage V2, jadi itulah yang dipakai.",
   },
+  // ── Quality per CMD ───────────────────────────────────────────────────────
+  //
+  // Pemisahan per CMD di sini TIDAK butuh query berdimensi: modelnya sudah
+  // menyediakan measure terpisah per CMD, dan semuanya terbukti dirender di page
+  // Non Conformance CMD1 sampai CMD3 serta Deviasi RMPM CMD1 sampai CMD3.
+  //
+  // Perlu dicatat sebagai keterbatasan nyata, bukan kelalaian: untuk hitungan NC
+  // dan Deviasi, hanya CMD 1 dan CMD 2 yang punya measure yang dirender. CMD 3
+  // hanya tersedia dalam bentuk total per kategori, jadi dipisah ke entri
+  // sendiri di bawah alih-alih dipaksa masuk satu baris.
+  {
+    domain: "quality",
+    kpi: "Jumlah NC per CMD",
+    modelName: "Dashboard NC dan Deviasi",
+    measures: ["Jumlah NC CMD 1", "Jumlah NC CMD 2"],
+    unit: "kejadian",
+    status: "confirmed",
+    // Perilaku tanggal DIUKUR 2026-08-04: model ini merespons filter tanggal.
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal kejadian NC, cutoff harian biasa",
+    notes:
+      "Hanya CMD 1 dan CMD 2 yang punya measure hitungan NC yang dirender di " +
+      "visual. CMD 3 lihat entri NC per kategori per CMD.",
+  },
+  {
+    domain: "quality",
+    kpi: "Jumlah Deviasi per CMD",
+    modelName: "Dashboard NC dan Deviasi",
+    measures: ["Jumlah deviasi CMD 1", "Jumlah deviasi CMD 2"],
+    unit: "kejadian",
+    status: "confirmed",
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal kejadian deviasi, cutoff harian biasa",
+    notes:
+      "Hanya CMD 1 dan CMD 2 yang punya measure hitungan deviasi yang dirender. " +
+      "Deviasi RMPM per CMD ada di entri terpisah.",
+  },
+  {
+    domain: "quality",
+    kpi: "Deviasi RMPM per CMD",
+    modelName: "Dashboard NC dan Deviasi",
+    measures: ["Jumlah Deviasi RMPM CMD 1", "Jumlah Deviasi RMPM CMD 2"],
+    unit: "kejadian",
+    status: "confirmed",
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal kejadian deviasi RMPM, cutoff harian biasa",
+    notes: "RMPM berarti Raw Material dan Packaging Material, bukan Preventive Maintenance.",
+  },
+  {
+    domain: "quality",
+    kpi: "NC per kategori per CMD",
+    modelName: "Dashboard NC dan Deviasi",
+    measures: [
+      "NC CMD 1 total per kategori", "NC CMD 2 total per kategori",
+      "NC CMD 3 total per kategori",
+    ],
+    unit: "kejadian",
+    status: "needs_confirmation",
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal kejadian NC, cutoff harian biasa",
+    notes:
+      "Satu-satunya jalur yang mencakup CMD 3. Arti total per kategori belum " +
+      "disahkan pemilik: bisa jumlah kategori berbeda, bisa total kejadian yang " +
+      "sudah berkategori.",
+  },
+  {
+    domain: "quality",
+    kpi: "Deviasi FG per kategori per CMD",
+    modelName: "Dashboard NC dan Deviasi",
+    measures: [
+      "Deviasi FG CMD 1 total per kategori", "Deviasi FG CMD 2 total per kategori",
+      "Deviasi FG CMD 3 total per kategori",
+    ],
+    unit: "kejadian",
+    status: "needs_confirmation",
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal kejadian deviasi, cutoff harian biasa",
+    notes: "FG berarti Finished Good. Mencakup ketiga CMD, satu-satunya untuk deviasi FG.",
+  },
+  {
+    domain: "quality",
+    kpi: "Deviasi terhadap standar per CMD",
+    modelName: "Dashboard NC dan Deviasi",
+    measures: [
+      "Jumlah Deviasi - Standar Deviasi CMD 1", "Jumlah Deviasi - Standar Deviasi CMD 2",
+      "Jumlah Deviasi - Standar Deviasi CMD 3",
+    ],
+    unit: "kejadian",
+    status: "needs_confirmation",
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal kejadian deviasi, cutoff harian biasa",
+    notes:
+      "Selisih terhadap ambang Standar CMD. Kamus KPI menandai ambang 51, 200, " +
+      "dan 265 sebagai perlu dikonfirmasi masih berlaku atau tidak, jadi tanda " +
+      "positif atau negatifnya belum bisa dijadikan kesimpulan.",
+  },
+  {
+    domain: "quality",
+    kpi: "NC berulang per CMD",
+    modelName: "Repetitive NC",
+    measures: ["Jumlah NC CMD 1", "Jumlah NC CMD 2", "Jumlah NC CMD 3"],
+    unit: "kejadian",
+    status: "needs_confirmation",
+    filterTanggal: true,
+    harian: false,
+    dateLogic: "merespons filter tanggal tapi semantiknya bulanan",
+    notes:
+      "Angka BULANAN, bukan capaian periode ini. Dipakai sebagai konteks masalah " +
+      "berulang sesuai spec §6, bukan sebagai hitungan kejadian minggu ini.",
+  },
+
 ];
 
 /** Domain yang dikenali. Dipakai uji untuk menolak salah tulis. */
