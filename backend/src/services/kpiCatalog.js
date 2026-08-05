@@ -607,6 +607,107 @@ export const KATALOG_KPI = [
       "berulang sesuai spec §6, bukan sebagai hitungan kejadian minggu ini.",
   },
 
+  // ── Breakdown downtime, dengan penyebab dan tindakannya ───────────────────
+  //
+  // Model Dashboard DT ORS. Kolom Issue dan Action di Dim_DBCatatan adalah
+  // remarks penyebab dan tindakan koreksi, yang membuat downtime bisa dipakai
+  // MENJELASKAN angka OEE alih-alih cuma dilaporkan sebagai persentase.
+  //
+  // Nama measure di model ini BERBEDA dari nama tampilannya di visual, dan itu
+  // bukan kelalaian: `(M) DT Tech in Hour` dirender sebagai "Duration (Min)",
+  // `(M) Downtime Freq` sebagai "Frequency", `nama_mesin` sebagai "Machine".
+  // Karena itu setiap entri di bawah membawa `terlihatSebagai`, yaitu nama
+  // tampilan yang MEMBUKTIKAN measure ini benar-benar dirender. Tanpa field itu,
+  // penjaga katalog akan menolak measure yang sebenarnya dipakai dashboard.
+  {
+    domain: "maintenance",
+    jenis: "breakdown",
+    kpi: "Top mesin downtime tertinggi",
+    modelName: "Dashboard DT ORS",
+    dimensi: "nama_mesin",
+    // Disebut eksplisit: nama_mesin ada di 2 tabel pada model ini.
+    dimensiTabel: "Dim_DBCatatan",
+    kolomTeks: ["Issue", "Action"],
+    measures: ["(M) DT Tech in Hour"],
+    terlihatSebagai: ["Duration (Min)"],
+    arah: "tertinggi",
+    n: 3,
+    // SATUANNYA BELUM PASTI, dan itu ditulis apa adanya. Nama measure berbunyi
+    // "in Hour" tetapi visual merendernya sebagai "Duration (Min)". Angka 480
+    // untuk satu mesin dalam seminggu mustahil bila jam, karena seminggu hanya
+    // 168 jam; bila menit, 480 berarti 8 jam dan itu masuk akal. Menuliskan
+    // "jam" tanpa dasar akan membuat laporan melaporkan angka 60 kali lipat.
+    unit: "menit atau jam, satuannya belum dipastikan pemilik",
+    status: "needs_confirmation",
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal kejadian downtime, cutoff harian biasa",
+    notes:
+      "Issue dan Action berasal dari entri operator, jadi WAJIB lewat sanitasiTeks " +
+      "sebelum masuk prompt. Inilah yang menjawab kenapa OEE turun, bukan cuma " +
+      "berapa persen turunnya. Karena dikelompokkan bersama Issue dan Action, satu " +
+      "mesin bisa muncul beberapa kali dengan penyebab berbeda, dan itu memang " +
+      "yang dicari: bukan cuma mesin mana, tapi kenapa.",
+  },
+  {
+    domain: "maintenance",
+    jenis: "breakdown",
+    kpi: "Top mesin downtime terendah",
+    modelName: "Dashboard DT ORS",
+    dimensi: "nama_mesin",
+    dimensiTabel: "Dim_DBCatatan",
+    measures: ["(M) DT Tech in Hour"],
+    terlihatSebagai: ["Duration (Min)"],
+    arah: "terendah",
+    n: 3,
+    unit: "menit atau jam, satuannya belum dipastikan pemilik",
+    status: "needs_confirmation",
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal kejadian downtime, cutoff harian biasa",
+    notes: "Pembanding sisi lain: mesin yang paling sehat pada periode yang sama.",
+  },
+  {
+    domain: "maintenance",
+    jenis: "breakdown",
+    kpi: "Downtime per gedung",
+    modelName: "Dashboard DT ORS",
+    dimensi: "gedung",
+    measures: ["(M) DT Tech in Hour"],
+    terlihatSebagai: ["Duration (Min)"],
+    arah: "tertinggi",
+    n: 5,
+    unit: "menit atau jam, satuannya belum dipastikan pemilik",
+    status: "needs_confirmation",
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal kejadian downtime, cutoff harian biasa",
+    notes:
+      "gedung di Dim_Plant adalah pecahan per CMD yang diminta: visual merendernya " +
+      "sebagai CMD, dan isinya memang CMD1, CMD2, CMD3. n dibuat 5, bukan 3, supaya " +
+      "seluruh gedung terlihat alih-alih terpotong sewenang-wenang. Entri serupa atas " +
+      "kolom departemen sudah DIBUANG karena terukur menghasilkan angka yang identik: " +
+      "dua baris laporan yang sama hanya menambah panjang tanpa menambah informasi.",
+  },
+  {
+    domain: "maintenance",
+    jenis: "breakdown",
+    kpi: "Downtime per section",
+    modelName: "Dashboard DT ORS",
+    dimensi: "SectionDowntime",
+    kolomTeks: ["Issue"],
+    measures: ["(M) Downtime Freq"],
+    terlihatSebagai: ["Frequency"],
+    arah: "tertinggi",
+    n: 3,
+    unit: "kejadian",
+    status: "needs_confirmation",
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal kejadian downtime, cutoff harian biasa",
+    notes: "Frekuensi, bukan durasi: section yang paling sering berhenti belum tentu yang terlama.",
+  },
+
 ];
 
 /** Domain yang dikenali. Dipakai uji untuk menolak salah tulis. */

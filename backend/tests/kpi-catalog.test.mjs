@@ -95,12 +95,57 @@ const adaDiVisual = new Set(barisVisual.map((r) => r.field_name.trim().toLowerCa
 ok("inventaris visual sudah dipanen", adaDiVisual.size > 0,
   "visual_field_usage kosong, jalankan panen dulu lewat Manage Users");
 
-const tidakDirender = pasangan.filter((p) => !adaDiVisual.has(p.measure.trim().toLowerCase()));
+// Nama measure tidak selalu sama dengan nama tampilannya di visual. Terukur di
+// Dashboard DT ORS: `(M) DT Tech in Hour` dirender sebagai "Duration (Min)" dan
+// `(M) Downtime Freq` sebagai "Frequency". Untuk kasus itu entri katalog membawa
+// `terlihatSebagai`, yaitu nama tampilan yang MEMBUKTIKAN measure itu dipakai.
+//
+// Tanpa jalur ini, penjaga menolak measure yang sebenarnya dirender, dan
+// satu-satunya cara lolos adalah menghapus KPI yang benar dari katalog.
+const buktiAlias = new Map();
+for (const e of KATALOG_KPI) {
+  for (const alias of e.terlihatSebagai || []) {
+    if (adaDiVisual.has(String(alias).trim().toLowerCase())) {
+      for (const m of e.measures) buktiAlias.set(m.trim().toLowerCase(), alias);
+    }
+  }
+}
+
+const tidakDirender = pasangan.filter(
+  (p) =>
+    !adaDiVisual.has(p.measure.trim().toLowerCase()) &&
+    !buktiAlias.has(p.measure.trim().toLowerCase())
+);
 ok(
   `${pasangan.length} measure semuanya terbukti dirender di visual`,
   tidakDirender.length === 0,
   tidakDirender.map((p) => `${p.kpi} :: ${p.measure}`).join(" ; ")
 );
+
+section("Alias terlihatSebagai wajib benar-benar ada di visual");
+
+// Alias yang salah tulis akan MELEWATI penjaga tanpa membuktikan apa pun, jadi
+// aliasnya sendiri harus terbukti dirender.
+const aliasSalah = [];
+for (const e of KATALOG_KPI) {
+  for (const a of e.terlihatSebagai || []) {
+    if (!adaDiVisual.has(String(a).trim().toLowerCase())) aliasSalah.push(`${e.kpi} :: ${a}`);
+  }
+}
+ok("setiap alias terbukti dirender di visual", aliasSalah.length === 0, aliasSalah.join(" ; "));
+
+// Entri breakdown wajib membawa dimensi dan arah, kalau tidak querynya tidak
+// bisa dibangun dan hasilnya senyap kosong.
+const bdCacat = KATALOG_KPI.filter(
+  (e) => e.jenis === "breakdown" &&
+    (!e.dimensi || !["tertinggi", "terendah"].includes(e.arah) || !Number.isInteger(e.n))
+);
+ok("entri breakdown lengkap dimensi, arah, dan n", bdCacat.length === 0,
+  bdCacat.map((e) => e.kpi).join(", "));
+
+// Breakdown hanya boleh satu measure: TOPN mengurutkan berdasarkan satu nilai.
+const bdBanyak = KATALOG_KPI.filter((e) => e.jenis === "breakdown" && e.measures.length !== 1);
+ok("breakdown memakai tepat satu measure", bdBanyak.length === 0, bdBanyak.map((e) => e.kpi).join(", "));
 
 section("Varian bersaing tidak dipilih diam-diam");
 

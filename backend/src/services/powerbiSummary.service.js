@@ -222,7 +222,14 @@ export async function ambilBreakdown(entri, jendela) {
 
   if (!datasetId) return { ...dasar, baris: [], error: "model tidak ditemukan di workspace" };
 
-  const dim = await temukanKolom(datasetId, entri.dimensi);
+  // Tabel boleh disebut eksplisit di katalog. Diperlukan karena nama kolom yang
+  // sama sering ada di beberapa tabel: `nama_mesin` dan `departemen` masing-masing
+  // ada di 2 tabel pada Dashboard DT ORS, dan penolakan otomatis membuat KPI yang
+  // benar tidak bisa dipakai sama sekali. Menyebut tabelnya adalah keputusan yang
+  // bisa ditinjau; memilih otomatis tidak.
+  const dim = entri.dimensiTabel
+    ? { tabel: entri.dimensiTabel, kolom: entri.dimensi }
+    : await temukanKolom(datasetId, entri.dimensi);
   if (!dim.kolom) return { ...dasar, baris: [], error: `dimensi tidak terpakai: ${dim.alasan}` };
 
   const kolomTanggal = await temukanKolomTanggal(datasetId);
@@ -401,7 +408,12 @@ export async function ambilDomain(domain, jendela) {
       freshnessPerModel.set(e.modelName, await statusKesegaran(datasetId, jendela));
     }
     try {
-      hasil.push(await ambilEntri(e, jendela));
+      // Entri berdimensi dialihkan ke jalurnya sendiri. Dijalankan lewat
+      // ambilEntri, ia akan memakai ROW() dan mengembalikan satu angka total
+      // alih-alih daftar per mesin, tanpa error apa pun.
+      hasil.push(e.jenis === "breakdown"
+        ? await ambilBreakdown(e, jendela)
+        : await ambilEntri(e, jendela));
     } catch (err) {
       // Jaring terakhir. ambilEntri sudah menangkap kegagalan DAX, jadi sampai
       // di sini berarti kegagalan tak terduga, dan tetap tidak boleh

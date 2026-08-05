@@ -77,6 +77,48 @@ export function susunMuatan({ jendela, domains, banding = new Map() }) {
     const kpiList = [];
 
     for (const k of d.kpi || []) {
+      // ── Entri berdimensi ──────────────────────────────────────────────────
+      //
+      // Bentuknya berbeda dari entri skalar: daftar baris berlabel, bukan satu
+      // angka. Tanpa cabang ini, breakdown lolos lewat filter `nilai` yang
+      // kosong lalu tercatat sebagai "tidak ada angka", padahal datanya ada.
+      if (k.jenis === "breakdown") {
+        const baris = (k.baris || [])
+          .filter((b) => b.value !== null && b.label !== null)
+          .slice(0, Math.max(1, Number(k.n) || 3))
+          .map((b) => {
+            const out = { label: sanitasiTeks(b.label, 60), v: angka(b.value), t: fmt(angka(b.value)) };
+            // Kolom teks WAJIB disanitasi: isinya entri operator di lapangan,
+            // dan itu tepat vektor yang §12.2 lindungi. Sebelum breakdown ada,
+            // belum ada satu pun teks bebas yang masuk prompt.
+            for (const kolom of k.kolomTeksDipakai || []) {
+              const isi = sanitasiTeks(b[kolom], 140);
+              if (isi) out[kolom.toLowerCase()] = isi;
+            }
+            return out;
+          });
+
+        if (!baris.length) {
+          catatanData.push(`${d.domain}/${k.kpi}: tidak ada baris pada periode ini`);
+          continue;
+        }
+
+        kpiList.push({
+          kpi: sanitasiTeks(k.kpi, 60),
+          unit: k.unit,
+          status: k.status,
+          jenis: "breakdown",
+          dikelompokkan: k.dimensi,
+          arah: k.arah,
+          angkaHarian: k.dateFilterApplied === true,
+          sifatAngka: k.dateFilterApplied === true
+            ? "periode ini"
+            : "akumulatif atau snapshot, BUKAN periode ini",
+          baris,
+        });
+        continue;
+      }
+
       // Setiap angka dikirim DUA KALI: `v` sebagai number supaya model bisa
       // membandingkan, dan `t` sebagai teks yang sudah diformat gaya Indonesia.
       //
@@ -160,12 +202,20 @@ function kecilkanSampaiBatas(muatan) {
   if (ukur(salin) <= BATAS_MUATAN_BYTE) return tandaiPemangkasan(salin, ["pembanding vs kemarin dan rata 7 hari"]);
 
   // Tahap 2: varian measure di luar dua pertama.
+  // Entri breakdown TIDAK punya `nilai`, ia punya `baris`. Versi pertama
+  // memanggil k.nilai.length tanpa syarat dan melempar TypeError begitu entri
+  // berdimensi masuk, sehingga seluruh muatan gagal disusun.
   let adaVarianDibuang = false;
   for (const d of salin.domains) {
     for (const k of d.kpi) {
-      if (k.nilai.length > 2) {
+      if (Array.isArray(k.nilai) && k.nilai.length > 2) {
         adaVarianDibuang = true;
         k.nilai = k.nilai.slice(0, 2);
+      }
+      // Untuk breakdown, yang dipangkas jumlah barisnya, bukan varian measure.
+      if (Array.isArray(k.baris) && k.baris.length > 3) {
+        adaVarianDibuang = true;
+        k.baris = k.baris.slice(0, 3);
       }
     }
   }
