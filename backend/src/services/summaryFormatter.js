@@ -26,6 +26,16 @@ export const PROMPT_VERSION = "v1";
 export const BATAS_MUATAN_BYTE = 10 * 1024;
 
 /**
+ * Batas panjang pesan yang dikirim ke grup.
+ *
+ * Bukan batas WhatsApp, yang jauh lebih besar, tapi batas keterbacaan. Pesan
+ * pertama yang benar-benar terkirim mencapai 7234 karakter dan menjadi dinding
+ * teks. Ditegakkan di validasi, bukan cuma disarankan di instruksi, karena model
+ * bisa mengabaikan instruksi.
+ */
+export const BATAS_PESAN_KARAKTER = Number(process.env.SUMMARY_MAX_CHARS) || 2800;
+
+/**
  * Section yang WAJIB ada di keluaran Gemini.
  *
  * Dipakai validasi §7.1. Pesan yang kehilangan section tidak dikirim ke grup:
@@ -67,8 +77,16 @@ export function susunMuatan({ jendela, domains, banding = new Map() }) {
     const kpiList = [];
 
     for (const k of d.kpi || []) {
+      // Setiap angka dikirim DUA KALI: `v` sebagai number supaya model bisa
+      // membandingkan, dan `t` sebagai teks yang sudah diformat gaya Indonesia.
+      //
+      // Tanpa `t`, model menulis angkanya sendiri dari JSON dan hasilnya gaya
+      // Inggris: pesan yang benar-benar terkirim 2026-08-05 memuat "0.7571" dan
+      // "IDR 16281993351", titik sebagai desimal dan tanpa pemisah ribuan.
+      // Menyuruh model memformat lewat instruksi saja tidak bisa diandalkan;
+      // memberi bentuk jadinya membuat pekerjaan itu tidak perlu ditebak.
       const nilai = (k.values || [])
-        .map((v) => ({ m: v.measure, v: angka(v.value) }))
+        .map((v) => ({ m: v.measure, v: angka(v.value), t: fmt(angka(v.value)) }))
         .filter((v) => v.v !== null);
 
       // KPI tanpa satu pun angka tidak dikirim sebagai baris kosong; ia dicatat
@@ -232,6 +250,17 @@ export function instruksiSistem() {
     "5. Kalau kesegaran domain bernilai partial, sebut dataSampaiJam saat",
     "   membahas domain itu.",
     "6. Jangan memakai emoji. Jangan memakai tanda pisah panjang.",
+    "7. Tulis angka PERSIS seperti field `t`, bukan dari field `v`. Field `t`",
+    "   sudah berformat Indonesia. Jangan pernah menulis angka bergaya Inggris",
+    "   seperti 0.7571 atau 16281993351.",
+    "8. Angka dengan angkaHarian false TIDAK BOLEH muncul di section REKOMENDASI",
+    "   maupun RISIKO. Tempatnya hanya di PERLU DIKONFIRMASI. Angka akumulatif",
+    "   di section risiko terbaca sebagai kerugian periode ini, dan itu salah.",
+    "9. Pakai kata periode yang diberikan di `periode`. Kalau jenisnya mingguan,",
+    "   JANGAN menulis harian, semalam, atau hari ini untuk angka mingguan.",
+    "10. Padat. Maksimum 2 kalimat per domain di ANALISIS, maksimum 5 butir",
+    "    REKOMENDASI, dan seluruh pesan di bawah 2500 karakter. Pesan 7000",
+    "    karakter tidak dibaca sampai habis oleh siapa pun di WhatsApp.",
     "",
     "FORMAT KELUARAN, memakai penanda tebal WhatsApp dan URUTAN INI:",
     "*RINGKASAN OPERASIONAL* diikuti periodenya",
@@ -271,6 +300,27 @@ export function validasiKeluaran(teks) {
   // dibaca manusia. Model bisa mengabaikan instruksi, jadi diperiksa di sini.
   if (/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(t)) {
     return { lolos: false, catatan: "keluaran memuat emoji" };
+  }
+
+  // Instruksi saja tidak menahan panjang: pesan yang benar-benar terkirim
+  // 2026-08-05 mencapai 7234 karakter. Batas ini ditegakkan, bukan disarankan,
+  // supaya model yang mengabaikan instruksi tidak lolos ke grup.
+  if (t.length > BATAS_PESAN_KARAKTER) {
+    return { lolos: false, catatan: `keluaran terlalu panjang: ${t.length} karakter, batas ${BATAS_PESAN_KARAKTER}` };
+  }
+
+  // Angka bergaya Inggris menandakan model menulis dari field `v`, bukan `t`.
+  //
+  // Polanya sengaja SEMPIT: titik diikuti EMPAT digit atau lebih, plus deretan
+  // tujuh digit tanpa pemisah. Versi pertama memakai tiga digit atau lebih dan
+  // itu salah tuduh pada pemisah ribuan Indonesia, karena 16.281.993.351 memang
+  // berbentuk titik diikuti tiga digit. Penjaga yang menolak keluaran yang benar
+  // akan membuat setiap laporan jatuh ke pesan cadangan.
+  if (/\d\.\d{4,}/.test(t) || /\b\d{7,}\b/.test(t)) {
+    return {
+      lolos: false,
+      catatan: "keluaran memuat angka bergaya Inggris, seharusnya memakai field t",
+    };
   }
 
   return { lolos: true, catatan: null };

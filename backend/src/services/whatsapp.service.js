@@ -102,6 +102,23 @@ async function kirimDryrun(pesan, cfg) {
 let sesiBaileys = null;
 
 /**
+ * Logger no-op berbentuk pino, cukup untuk memuaskan Baileys.
+ *
+ * `child()` mengembalikan dirinya sendiri supaya rantai logger bersarang tetap
+ * bisu. Peringatan penting tetap dicetak oleh kode ini sendiri lewat
+ * console.warn, jadi membungkam logger Baileys tidak menyembunyikan kegagalan
+ * yang perlu diketahui.
+ */
+function loggerBisu() {
+  const bisu = {
+    level: "silent",
+    trace() {}, debug() {}, info() {}, warn() {}, error() {}, fatal() {},
+    child() { return bisu; },
+  };
+  return bisu;
+}
+
+/**
  * Membuka sesi Baileys, memakai sesi tersimpan bila ada.
  *
  * Impor dinamis, bukan impor statis di kepala berkas: dengan impor statis,
@@ -131,6 +148,14 @@ async function sesi() {
     // Riwayat tidak disinkronkan. Job ini hanya mengirim, dan sinkronisasi
     // riwayat grup besar memakan memori serta waktu tanpa guna apa pun di sini.
     syncFullHistory: false,
+    // Logger dibungkam. Bawaan Baileys membanjiri stdout dengan dump sesi,
+    // termasuk buffer remoteIdentityKey dan preKeyId. Selain membuat log server
+    // tidak terbaca, itu menuliskan MATERI KRIPTOGRAFIS ke log yang bisa dibaca
+    // siapa pun yang punya akses ke berkas log.
+    //
+    // Objek no-op dipakai alih-alih pino supaya tidak menambah dependensi hanya
+    // untuk mematikan keluaran. `child()` wajib ada karena Baileys memanggilnya.
+    logger: loggerBisu(),
   });
 
   sock.ev.on("creds.update", saveCreds);

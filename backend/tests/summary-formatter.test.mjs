@@ -2,6 +2,7 @@ import { ok, section } from "./harness.mjs";
 import {
   susunMuatan, validasiKeluaran, pesanCadangan, catatanKaki,
   instruksiSistem, SECTION_WAJIB, BATAS_MUATAN_BYTE, PROMPT_VERSION,
+  BATAS_PESAN_KARAKTER,
 } from "../src/services/summaryFormatter.js";
 
 // Domain palsu yang menirukan bentuk nyata dari ambilDomain(), termasuk kasus
@@ -161,6 +162,61 @@ for (const s of SECTION_WAJIB) {
 const beremoji = `${lengkap}\nBagus sekali \u{1F600}`;
 ok("keluaran beremoji ditolak", validasiKeluaran(beremoji).lolos === false);
 ok("alasan emoji disebut", /emoji/.test(validasiKeluaran(beremoji).catatan || ""));
+
+section("Angka dikirim beserta bentuk tampilannya");
+
+// Cacat pada pesan yang BENAR-BENAR terkirim ke grup 2026-08-05: modelnya
+// menulis angka sendiri dari JSON dan hasilnya gaya Inggris, "0.7571" dan
+// "IDR 16281993351". Menyuruhnya memformat lewat instruksi saja tidak bisa
+// diandalkan, jadi bentuk jadinya ikut dikirim di field `t`.
+const mAngka = susunMuatan({
+  jendela: JENDELA_HARI,
+  domains: [{
+    domain: "cost", freshness: "full", cutoffWib: null,
+    kpi: [{
+      kpi: "Biaya lembur", unit: "IDR", status: "confirmed", dateFilterApplied: false,
+      values: [{ measure: "Biaya", value: 16281993351 }, { measure: "Rasio", value: 0.7571 }],
+    }],
+  }],
+});
+const nilaiCost = mAngka.domains[0].kpi[0].nilai;
+ok("angka besar diformat gaya Indonesia", nilaiCost[0].t === "16.281.993.351", nilaiCost[0].t);
+ok("rasio kecil tetap teliti", nilaiCost[1].t === "0,757", nilaiCost[1].t);
+ok("nilai numeriknya tetap dikirim", nilaiCost[0].v === 16281993351);
+
+section("Validasi menolak pesan yang terlalu panjang dan angka gaya Inggris");
+
+ok(`batas karakter ${BATAS_PESAN_KARAKTER} lebih kecil dari pesan pertama 7234`,
+  BATAS_PESAN_KARAKTER < 7234);
+
+const panjang = validasiKeluaran(lengkap + "y".repeat(7000));
+ok("pesan 7000+ karakter ditolak", panjang.lolos === false, JSON.stringify(panjang));
+ok("alasannya menyebut panjang", /terlalu panjang/.test(panjang.catatan || ""), panjang.catatan);
+
+for (const [label, tambahan] of [
+  ["desimal titik", " nilainya 0.7571"],
+  ["digit panjang tanpa pemisah", " IDR 16281993351"],
+]) {
+  const v = validasiKeluaran(`${lengkap} ${tambahan}`);
+  ok(`${label} ditolak`, v.lolos === false, JSON.stringify(v));
+  ok(`${label} alasannya menyebut field t`, /field t/.test(v.catatan || ""), v.catatan);
+}
+
+// Yang sah tidak boleh salah tuduh: versi model dan angka berformat Indonesia.
+const sah = `${lengkap}\nModel gemini-3.6-flash, OEE 0,757 dan biaya 16.281.993.351 IDR.`;
+ok("angka Indonesia dan versi model tidak salah tuduh", validasiKeluaran(sah).lolos === true,
+  validasiKeluaran(sah).catatan);
+
+section("Instruksi memuat larangan yang baru ditambahkan");
+
+for (const frasa of [
+  "PERSIS seperti field `t`",
+  "TIDAK BOLEH muncul di section REKOMENDASI",
+  "JANGAN menulis harian",
+  "di bawah 2500 karakter",
+]) {
+  ok(`instruksi menyebut "${frasa.slice(0, 34)}"`, ins.includes(frasa), "hilang dari instruksi");
+}
 
 section("Pesan cadangan tetap membawa angka dan penandanya");
 
