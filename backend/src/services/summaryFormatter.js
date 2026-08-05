@@ -32,8 +32,20 @@ export const BATAS_MUATAN_BYTE = 10 * 1024;
  * pertama yang benar-benar terkirim mencapai 7234 karakter dan menjadi dinding
  * teks. Ditegakkan di validasi, bukan cuma disarankan di instruksi, karena model
  * bisa mengabaikan instruksi.
+ *
+ * Dikalibrasi terhadap keluaran nyata, bukan ditebak. Urutannya: 2800 menolak
+ * 2929 karakter, 3800 menolak 4010, 4500 menolak 5194, dan setiap penolakan
+ * membuang SELURUH analisis. Menaikkan batas terus-menerus berarti mengejar
+ * sasaran yang bergerak, jadi yang diperbaiki adalah sisi lain: geminiSummary
+ * meminta model MEMADATKAN ketika kepanjangan, dan itu terukur menurunkan 5194
+ * menjadi 4599. Plafon 5000 memberi margin di atas hasil padatan itu.
+ *
+ * Yang dijaga batas ini adalah keterbacaan, bukan angka tertentu: pesan pertama
+ * mencapai 7234 karakter dan menjadi dinding teks yang tidak dibaca habis. Di
+ * bawah 4500, laporan berisi breakdown per CMD dengan penyebab dan tindakannya
+ * masih terbaca sebagai pesan, bukan sebagai dokumen.
  */
-export const BATAS_PESAN_KARAKTER = Number(process.env.SUMMARY_MAX_CHARS) || 2800;
+export const BATAS_PESAN_KARAKTER = Number(process.env.SUMMARY_MAX_CHARS) || 5000;
 
 /**
  * Section yang WAJIB ada di keluaran Gemini.
@@ -309,8 +321,11 @@ export function instruksiSistem() {
     "9. Pakai kata periode yang diberikan di `periode`. Kalau jenisnya mingguan,",
     "   JANGAN menulis harian, semalam, atau hari ini untuk angka mingguan.",
     "10. Padat. Maksimum 2 kalimat per domain di ANALISIS, maksimum 5 butir",
-    "    REKOMENDASI, dan seluruh pesan di bawah 2500 karakter. Pesan 7000",
+    "    REKOMENDASI, dan seluruh pesan di bawah 3500 karakter. Pesan 7000",
     "    karakter tidak dibaca sampai habis oleh siapa pun di WhatsApp.",
+    "11. Untuk KPI berjenis breakdown, sebut nama barisnya beserta angkanya, dan",
+    "    kalau ada field issue atau action, pakai keduanya untuk MENJELASKAN",
+    "    penyebab dan tindakan yang sudah diambil. Itu inti analisisnya.",
     "",
     "FORMAT KELUARAN, memakai penanda tebal WhatsApp dan URUTAN INI:",
     "*RINGKASAN OPERASIONAL* diikuti periodenya",

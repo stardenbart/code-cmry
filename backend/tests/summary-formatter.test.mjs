@@ -188,6 +188,9 @@ section("Validasi menolak pesan yang terlalu panjang dan angka gaya Inggris");
 
 ok(`batas karakter ${BATAS_PESAN_KARAKTER} lebih kecil dari pesan pertama 7234`,
   BATAS_PESAN_KARAKTER < 7234);
+// Harus cukup untuk keluaran nyata berisi breakdown, yang terukur 2929 karakter.
+ok("batas cukup untuk keluaran berisi breakdown", BATAS_PESAN_KARAKTER >= 4100,
+  `dapat ${BATAS_PESAN_KARAKTER}, keluaran nyata terukur 2929 lalu 4010, keduanya sempat ditolak`);
 
 const panjang = validasiKeluaran(lengkap + "y".repeat(7000));
 ok("pesan 7000+ karakter ditolak", panjang.lolos === false, JSON.stringify(panjang));
@@ -213,7 +216,8 @@ for (const frasa of [
   "PERSIS seperti field `t`",
   "TIDAK BOLEH muncul di section REKOMENDASI",
   "JANGAN menulis harian",
-  "di bawah 2500 karakter",
+  "di bawah 3500 karakter",
+  "pakai keduanya untuk MENJELASKAN",
 ]) {
   ok(`instruksi menyebut "${frasa.slice(0, 34)}"`, ins.includes(frasa), "hilang dari instruksi");
 }
