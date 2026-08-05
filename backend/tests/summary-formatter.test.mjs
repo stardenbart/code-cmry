@@ -129,12 +129,23 @@ for (const s of SECTION_WAJIB) {
 
 section("Validasi keluaran menolak yang cacat");
 
+// Susunan mengikuti SECTION_WAJIB yang sekarang berjenjang: INTISARI dan PER
+// AREA menggantikan satu blok ANALISIS, supaya pesannya terbaca di ponsel
+// alih-alih menjadi paragraf panjang.
 const lengkap = [
   "*RINGKASAN OPERASIONAL* periode 2026-08-04",
-  "*ANALISIS* OEE turun ke 0,697 dan downtime teknikal naik.",
-  "*PERLU DIKONFIRMASI* angka output bersifat akumulatif.",
-  "*REKOMENDASI* periksa filler Serac 2 pagi ini.",
-  "*RISIKO* risiko berhenti lini bila filler belum diperbaiki.",
+  "*INTISARI*",
+  "- OEE turun ke 69,7% dan downtime teknikal naik.",
+  "*PER AREA*",
+  "- Produksi (data s.d. jam 15:03): OEE 69,7%, dipicu downtime teknikal.",
+  "*MESIN DAN CMD YANG PERLU DILIHAT*",
+  "- Serac Line 3: 56,35, issue servo filling, action perbaikan servo drive.",
+  "*PERLU DIKONFIRMASI*",
+  "- Angka output bersifat akumulatif.",
+  "*REKOMENDASI*",
+  "- Periksa filler Serac 2 pagi ini.",
+  "*RISIKO*",
+  "- Risiko berhenti lini bila filler belum diperbaiki.",
   "x".repeat(200),
 ].join("\n");
 
@@ -229,7 +240,9 @@ const cadangan = pesanCadangan({
 });
 ok("menyebut periodenya", cadangan.includes("2026-08-04"));
 ok("menyebut sebab kegagalannya", /kunci universal belum diatur/.test(cadangan));
-ok("membawa angka OEE", cadangan.includes("0,697") || cadangan.includes("0.697"));
+// OEE 0,697 kini ditulis 69,7% karena nama measure-nya memuat tanda persen.
+// Inilah keluhan nyata yang diperbaiki: 0,132 terbaca sebagai nol koma sesuatu.
+ok("angka persen ditulis sebagai persen", cadangan.includes("69,7%"), cadangan.slice(0, 200));
 // Tanpa penanda ini, 16 miliar akan terbaca sebagai biaya lembur semalam.
 ok("angka akumulatif diberi penanda", /\[akumulatif\]/.test(cadangan));
 ok("status non-confirmed diberi penanda", /\[blocked\]/.test(cadangan));

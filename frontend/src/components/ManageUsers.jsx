@@ -4,6 +4,9 @@
 import PerfSummary from "./PerfSummary";
 import LazyBoundary from "./LazyBoundary";
 const VisualHarvestPanel = lazy(() => import("./VisualHarvestPanel"));
+  // Ringan, tidak mengimpor SDK Power BI, tapi tetap lazy supaya konsisten dan
+  // tidak menambah berat chunk Manage Users.
+  const SummaryJobPanel = lazy(() => import("./SummaryJobPanel"));
 import { useToast } from "./ToastProvider";
 import { useConfirm } from "./ConfirmProvider";
 
@@ -252,6 +255,10 @@ import { useConfirm } from "./ConfirmProvider";
               dipakai saat admin benar-benar memanen inventaris visual. Diimpor
               statis, SDK-nya masuk ke chunk Manage Users dan terunduh setiap
               kali admin membuka daftar user. */}
+          <LazyBoundary>
+            <SummaryJobPanel />
+          </LazyBoundary>
+
           <LazyBoundary>
             <VisualHarvestPanel />
           </LazyBoundary>

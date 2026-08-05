@@ -295,6 +295,67 @@ router.post("/send", requireAdmin, async (req, res) => {
 });
 
 /**
+ * POST /api/summary/run-and-send
+ *
+ * Satu tombol: olah data lalu kirim ke grup. Digabung di server, bukan dirangkai
+ * dari UI, karena rangkaian di UI bisa terputus di tengah, misalnya tab ditutup
+ * setelah pengumpulan selesai tapi sebelum pengiriman. Hasilnya laporan
+ * tersimpan tanpa terkirim dan tidak ada yang tahu.
+ *
+ * dryRun tetap BAWAANNYA true, sama seperti /run dan /send. Tombol di UI
+ * mengirim dryRun false secara eksplisit setelah admin mengonfirmasi.
+ *
+ * `paksaKirimUlang` diperlukan karena idempotensi menolak pengiriman kedua untuk
+ * tanggal yang sama. Tanpa itu, admin yang menekan tombol setelah laporan
+ * terkirim otomatis akan mendapat "sudah terkirim" dan menyangka tombolnya rusak.
+ */
+router.post("/run-and-send", requireAdmin, async (req, res) => {
+  const tanggal = bacaTanggal(req.body);
+  if (tanggal === "TIDAK_SAH") {
+    return res.status(400).json({ message: "tanggal harus berformat YYYY-MM-DD" });
+  }
+  const dryRun = bacaDryRun(req.body);
+  const paksaKirimUlang = req.body?.paksaKirimUlang === true;
+  const holder = `manual-${req.dbUser?.id ?? "?"}`;
+
+  try {
+    const { kumpulkanTerkunci, kirimTerkunci } = await import("../scheduler/dailySummaryJob.js");
+    const { batalkanTerkirim } = await import("../services/historicalStore.service.js");
+    const { jendelaLaporan } = await import("../utils/dateWindow.util.js");
+
+    const kumpul = await kumpulkanTerkunci({ dryRun, tanggal, holder });
+    if (!kumpul.dijalankan) {
+      return res.status(409).json({ message: "Job lain sedang berjalan", alasan: kumpul.alasan });
+    }
+
+    const tgl = tanggal || jendelaLaporan().tanggal;
+    if (!dryRun && paksaKirimUlang) await batalkanTerkirim(tgl);
+
+    const kirim = await kirimTerkunci({ dryRun, tanggal, holder });
+    if (!kirim.dijalankan) {
+      return res.status(409).json({
+        message: "Pengumpulan selesai tapi pengiriman terhalang job lain",
+        pengumpulan: kumpul.hasil,
+        alasan: kirim.alasan,
+      });
+    }
+
+    res.json({
+      message: dryRun
+        ? "Dry run selesai. Data diolah, pesan TIDAK dikirim."
+        : "Data diolah dan pesan dikirim ke grup.",
+      dryRun,
+      tanggalLaporan: tgl,
+      pengumpulan: kumpul.hasil,
+      pengiriman: kirim.hasil,
+    });
+  } catch (err) {
+    console.error("run-and-send error:", err);
+    res.status(500).json({ message: "Gagal menjalankan olah dan kirim", error: String(err.message).slice(0, 200) });
+  }
+});
+
+/**
  * GET /api/summary/job-status
  * Keadaan scheduler, kunci, konfigurasi pengiriman, dan hasil terakhir.
  */
@@ -307,6 +368,7 @@ router.get("/job-status", requireAdmin, async (req, res) => {
     const { ambilHasil, mingguBelumBeku } = await import("../services/historicalStore.service.js");
     const { jendelaLaporan } = await import("../utils/dateWindow.util.js");
     const { tujuanAlert } = await import("../services/alerting.service.js");
+    const { statusListener } = await import("../services/whatsappListener.service.js");
 
     const tgl = jendelaLaporan().tanggal;
     const cfg = konfigurasi();
@@ -328,6 +390,7 @@ router.get("/job-status", requireAdmin, async (req, res) => {
         jumlahNomor: cfg.daftarNomor.length,
       },
       alert: { tujuan: tujuanAlert().length },
+      listenerWhatsApp: statusListener(),
       hariLaporan: tgl,
       hasilTerakhir: await ambilHasil(tgl),
       mingguBelumBeku: await mingguBelumBeku(),

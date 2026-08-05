@@ -37,7 +37,7 @@ export const JOB_KUMPUL = "summary_kumpul";
 export const JOB_KIRIM = "summary_kirim";
 
 /** Log bertimestamp dan berdurasi, sesuai §14. */
-function pencatat(namaJob) {
+function pencatat(namaJob, onProgress = null) {
   const mulai = Date.now();
   const jejak = [];
   return {
@@ -47,6 +47,15 @@ function pencatat(namaJob) {
       const baris = `[${new Date().toISOString()}] ${namaJob} ${tahap} +${ms}ms ${ekstra}`.trim();
       jejak.push({ tahap, ms, ekstra });
       console.log(baris);
+      // Kemajuan diteruskan ke pemanggil bila diminta, dipakai listener WhatsApp
+      // untuk membalas "sedang menarik data" sebelum laporannya siap. Kegagalan
+      // callback TIDAK boleh menjatuhkan job: pemberitahuan lebih murah daripada
+      // laporannya sendiri.
+      if (onProgress) {
+        try {
+          onProgress({ job: namaJob, tahap, ms, ekstra });
+        } catch { /* pemberitahuan gagal bukan alasan job berhenti */ }
+      }
     },
     totalMs: () => Date.now() - mulai,
   };
@@ -59,8 +68,8 @@ function pencatat(namaJob) {
  * data 7 hari terakhir masih berubah dan beberapa domain tidak diinput harian.
  * Minggu yang sudah lewat dibekukan sesudahnya.
  */
-export async function jalankanPengumpulan({ dryRun = false, tanggal = null } = {}) {
-  const log = pencatat("kumpul");
+export async function jalankanPengumpulan({ dryRun = false, tanggal = null, onProgress = null } = {}) {
+  const log = pencatat("kumpul", onProgress);
   log.catat("mulai", dryRun ? "DRY RUN" : "");
 
   // Katalog divalidasi lebih dulu. Entri tanpa flag tanggal terukur akan
@@ -209,8 +218,8 @@ export async function jalankanPengumpulan({ dryRun = false, tanggal = null } = {
  * menyebabkan kirim ganda. Kalau pengirimannya gagal, penandaannya dibatalkan
  * supaya percobaan berikutnya masih bisa jalan.
  */
-export async function jalankanPengiriman({ dryRun = false, tanggal = null } = {}) {
-  const log = pencatat("kirim");
+export async function jalankanPengiriman({ dryRun = false, tanggal = null, onProgress = null } = {}) {
+  const log = pencatat("kirim", onProgress);
   log.catat("mulai", dryRun ? "DRY RUN" : "");
 
   const tanggalLaporan = tanggal || jendelaLaporan().tanggal;

@@ -110,5 +110,6 @@ export const ROUTE_CLASSIFICATION = new Map([
   // sungguhan ke grup manajemen, dan /job-status memuat konfigurasi pengiriman.
   ["POST /api/summary/run", "adminOnly"],
   ["POST /api/summary/send", "adminOnly"],
+  ["POST /api/summary/run-and-send", "adminOnly"],
   ["GET /api/summary/job-status", "adminOnly"],
 ]);

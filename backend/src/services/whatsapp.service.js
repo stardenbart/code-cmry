@@ -199,6 +199,19 @@ async function sesi() {
     });
   });
 
+  // Listener dipasang di sini, bukan di startup server, karena ia butuh socket
+  // yang sudah tersambung. Impor dinamis supaya modul ini tetap bisa dimuat
+  // dalam mode dry-run tanpa menarik lapisan job dan database.
+  try {
+    const { pasangListener } = await import("./whatsappListener.service.js");
+    pasangListener(sock);
+  } catch (err) {
+    // Listener gagal dipasang TIDAK boleh menggagalkan pengiriman: kemampuan
+    // menjawab tag adalah tambahan, sedangkan mengirim laporan adalah tugas
+    // utamanya.
+    console.error("[WA] listener gagal dipasang:", err?.message || err);
+  }
+
   sesiBaileys = sock;
   return sock;
 }

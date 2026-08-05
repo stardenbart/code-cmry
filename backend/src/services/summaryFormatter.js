@@ -55,7 +55,8 @@ export const BATAS_PESAN_KARAKTER = Number(process.env.SUMMARY_MAX_CHARS) || 500
  * pembacanya tidak tahu bagian mana yang hilang.
  */
 export const SECTION_WAJIB = [
-  "ANALISIS",
+  "INTISARI",
+  "PER AREA",
   "PERLU DIKONFIRMASI",
   "REKOMENDASI",
   "RISIKO",
@@ -99,7 +100,11 @@ export function susunMuatan({ jendela, domains, banding = new Map() }) {
           .filter((b) => b.value !== null && b.label !== null)
           .slice(0, Math.max(1, Number(k.n) || 3))
           .map((b) => {
-            const out = { label: sanitasiTeks(b.label, 60), v: angka(b.value), t: fmt(angka(b.value)) };
+            const out = {
+              label: sanitasiTeks(b.label, 60),
+              v: angka(b.value),
+              t: fmtNilai(k.measures?.[0] ?? k.kpi, angka(b.value)),
+            };
             // Kolom teks WAJIB disanitasi: isinya entri operator di lapangan,
             // dan itu tepat vektor yang §12.2 lindungi. Sebelum breakdown ada,
             // belum ada satu pun teks bebas yang masuk prompt.
@@ -140,7 +145,7 @@ export function susunMuatan({ jendela, domains, banding = new Map() }) {
       // Menyuruh model memformat lewat instruksi saja tidak bisa diandalkan;
       // memberi bentuk jadinya membuat pekerjaan itu tidak perlu ditebak.
       const nilai = (k.values || [])
-        .map((v) => ({ m: v.measure, v: angka(v.value), t: fmt(angka(v.value)) }))
+        .map((v) => ({ m: v.measure, v: angka(v.value), t: fmtNilai(v.measure, angka(v.value)) }))
         .filter((v) => v.v !== null);
 
       // KPI tanpa satu pun angka tidak dikirim sebagai baris kosong; ia dicatat
@@ -312,9 +317,11 @@ export function instruksiSistem() {
     "5. Kalau kesegaran domain bernilai partial, sebut dataSampaiJam saat",
     "   membahas domain itu.",
     "6. Jangan memakai emoji. Jangan memakai tanda pisah panjang.",
-    "7. Tulis angka PERSIS seperti field `t`, bukan dari field `v`. Field `t`",
-    "   sudah berformat Indonesia. Jangan pernah menulis angka bergaya Inggris",
-    "   seperti 0.7571 atau 16281993351.",
+    "7. Tulis angka PERSIS seperti field `t`. Field itu sudah berformat Indonesia",
+    "   DAN sudah membawa tanda persen bila memang persentase. Jangan menghitung",
+    "   ulang, jangan menambah atau membuang tanda persen. Menulis 0,132 untuk",
+    "   sesuatu yang field t sebut 13,2% membuat pembacanya menyimpulkan capaian",
+    "   nol koma sesuatu, bukan tiga belas persen.",
     "8. Angka dengan angkaHarian false TIDAK BOLEH muncul di section REKOMENDASI",
     "   maupun RISIKO. Tempatnya hanya di PERLU DIKONFIRMASI. Angka akumulatif",
     "   di section risiko terbaca sebagai kerugian periode ini, dan itu salah.",
@@ -327,12 +334,35 @@ export function instruksiSistem() {
     "    kalau ada field issue atau action, pakai keduanya untuk MENJELASKAN",
     "    penyebab dan tindakan yang sudah diambil. Itu inti analisisnya.",
     "",
-    "FORMAT KELUARAN, memakai penanda tebal WhatsApp dan URUTAN INI:",
-    "*RINGKASAN OPERASIONAL* diikuti periodenya",
-    "*ANALISIS* akar masalah dan keterkaitan antar domain",
-    "*PERLU DIKONFIRMASI* angka yang statusnya belum disahkan atau bukan periode ini",
-    "*REKOMENDASI* tindakan konkret, paling banyak 5, diurut prioritas",
-    "*RISIKO* risiko operasional hari ini",
+    "SUSUNAN KELUARAN. Pakai penanda tebal WhatsApp dan urutan ini persis.",
+    "Berjenjang, bukan paragraf panjang: pembacanya manajemen yang membaca di",
+    "ponsel sambil berjalan ke morning meeting.",
+    "",
+    "*RINGKASAN OPERASIONAL*  periode dan plant, satu baris.",
+    "",
+    "*INTISARI*  tiga baris berawalan tanda hubung, satu baris satu hal paling",
+    "penting. Ini yang dibaca kalau tidak ada waktu membaca sisanya, jadi tulis",
+    "kesimpulan, bukan pengantar.",
+    "",
+    "*PER AREA*  satu baris per domain, berawalan tanda hubung, berbentuk:",
+    "- Nama area (data s.d. jam HH:MM bila ada): angka kunci, lalu sebab singkat.",
+    "Lewati area yang tidak punya angka, jangan menulis baris kosong untuknya.",
+    "",
+    "*MESIN DAN CMD YANG PERLU DILIHAT*  diambil dari KPI berjenis breakdown:",
+    "- Nama mesin atau CMD: angka, issue, lalu action bila ada.",
+    "Maksimum 5 baris, urut dari terparah. Bagian inilah yang menjawab KENAPA",
+    "angka OEE dan downtime seperti itu, jadi issue dan action wajib ikut bila ada.",
+    "",
+    "*PERLU DIKONFIRMASI*  maksimum 4 baris. Angka berstatus blocked atau",
+    "needs_confirmation, dan angka yang angkaHarian bernilai false. Sebut singkat",
+    "apa yang perlu dipastikan.",
+    "",
+    "*REKOMENDASI*  maksimum 4 butir berawalan tanda hubung, masing-masing",
+    "tindakan KONKRET yang bisa dikerjakan hari ini, bukan saran umum seperti",
+    "tingkatkan pengawasan.",
+    "",
+    "*RISIKO*  maksimum 3 butir. Risiko operasional hari ini, bukan pengulangan",
+    "analisis di atas.",
   ].join("\n");
 }
 
@@ -404,6 +434,49 @@ const fmt = (v) => {
   return v.toLocaleString("id-ID", { maximumFractionDigits: desimal });
 };
 
+/**
+ * Apakah sebuah measure menyatakan persentase.
+ *
+ * Ditentukan dari NAMA MEASURE-nya, bukan dari satuan KPI-nya, karena satu KPI
+ * bisa mencampur keduanya: entri "Total downtime dan rasionya" memuat
+ * `Total Downtime` yang berjam dan `Persentase Downtime (%)` yang berasio.
+ * Memakai satuan KPI akan mengubah 11,4 jam menjadi 1.140%.
+ */
+const measurePersen = (nama) => /%|persen|percentage/i.test(String(nama || ""));
+
+/**
+ * Batas aman pengali rasio ke persen.
+ *
+ * Seluruh measure persen yang terukur mengembalikan RASIO: OEE 0,697, Technical
+ * DT 0,032, % Efis 0,164, akurasi PO 0,211, OTIR 0,988, IC_OK 0,17 dan 0,879,
+ * % Losses Packing 0,001. Tapi ada juga measure bernama persen yang sudah dalam
+ * poin persen, misalnya akurasi PO tanpa filter tanggal mengembalikan 14,015.
+ * Mengalikannya akan menghasilkan 1.401,5% dan itu jelas salah.
+ *
+ * Karena itu pengalian hanya dilakukan bila nilainya di bawah batas ini. Nilai
+ * di atasnya dianggap sudah dalam poin persen dan hanya diberi tanda %.
+ */
+const BATAS_RASIO = 1.5;
+
+/**
+ * Teks tampilan sebuah nilai, sadar satuan.
+ *
+ * Inilah yang memperbaiki keluhan nyata: laporan menulis "akurasi PO 0,132"
+ * padahal maksudnya 13,2%. Angka rasio tanpa tanda persen membuat pembaca
+ * menyimpulkan capaian nol koma sesuatu, bukan tiga belas persen.
+ */
+export function fmtNilai(namaMeasure, v) {
+  if (typeof v !== "number" || !Number.isFinite(v)) return String(v);
+
+  if (measurePersen(namaMeasure)) {
+    const persen = Math.abs(v) <= BATAS_RASIO ? v * 100 : v;
+    const desimal = Math.abs(persen) < 10 ? 1 : Math.abs(persen) < 100 ? 1 : 0;
+    return `${persen.toLocaleString("id-ID", { maximumFractionDigits: desimal })}%`;
+  }
+
+  return fmt(v);
+}
+
 function judulPeriode(jendela) {
   return jendela.mulaiTanggal
     ? `${jendela.mulaiTanggal} sampai ${jendela.selesaiTanggal}`
@@ -435,7 +508,7 @@ export function pesanCadangan({ jendela, domains, alasan }) {
       const nilai = (k.values || [])
         .filter((v) => v.value !== null)
         .slice(0, 3)
-        .map((v) => `${v.measure}: ${fmt(v.value)}`)
+        .map((v) => `${v.measure}: ${fmtNilai(v.measure, v.value)}`)
         .join(", ");
       // Penanda sifat angka ikut, karena tanpanya angka akumulatif akan terbaca
       // sebagai capaian periode ini.
