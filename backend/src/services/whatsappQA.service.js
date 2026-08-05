@@ -55,8 +55,61 @@ function instruksiTanyaJawab() {
   ].join("\n");
 }
 
+
 /**
- * Menjawab pertanyaan bebas dari snapshot mingguan terakhir.
+ * Menebak domain yang ditanyakan, dari katalog KPI itu sendiri.
+ *
+ * Kata kuncinya dibangun dari nama domain, nama KPI, dan nama measure di katalog,
+ * jadi daftarnya ikut bertambah otomatis setiap KPI baru masuk. Menulis daftar
+ * kata kunci terpisah berarti ada dua sumber kebenaran, dan yang satu akan
+ * ketinggalan.
+ *
+ * @returns {string[]} domain yang cocok, kosong berarti tidak jelas
+ */
+export async function kenaliDomain(teks) {
+  const t = " " + String(teks || "").toLowerCase() + " ";
+  const { KATALOG_KPI } = await import("./kpiCatalog.js");
+
+  // Kata Indonesia yang jelas menunjuk domain tapi tidak muncul di nama teknis.
+  const EKSTRA = {
+    production: ["produksi", "oee", "output", "downtime kategori"],
+    quality: ["kualitas", "mutu", "nc", "deviasi", "reject"],
+    maintenance: ["maintenance", "mesin", "downtime", "mtbf", "kerusakan", "breakdown"],
+    cost: ["biaya", "cost", "losses", "lembur", "overtime", "rugi"],
+    energy: ["energi", "listrik", "air", "steam", "gas", "utilitas", "utility"],
+    planning: ["planning", "ppic", "po", "forecast", "otir", "cycle time", "pengiriman"],
+    inventory: ["stok", "stock", "gudang", "inventory", "coverage"],
+  };
+
+  const skor = new Map();
+  const tambahSkor = (d, n) => skor.set(d, (skor.get(d) || 0) + n);
+
+  for (const [d, kata] of Object.entries(EKSTRA)) {
+    for (const k of kata) if (t.includes(" " + k) || t.includes(k + " ")) tambahSkor(d, 2);
+  }
+
+  for (const e of KATALOG_KPI) {
+    // Nama KPI dan measure dipakai apa adanya: itu kosakata yang benar-benar ada
+    // di dashboard, jadi kalau orang menyebutnya, dia memang menunjuk KPI itu.
+    const kandidat = [e.kpi, ...(e.measures || [])].map((x) => String(x).toLowerCase());
+    for (const k of kandidat) {
+      const inti = k.replace(/[()%]/g, " ").trim();
+      if (inti.length >= 5 && t.includes(inti)) tambahSkor(e.domain, 3);
+    }
+  }
+
+  if (!skor.size) return [];
+  const maks = Math.max(...skor.values());
+  // Ambang: hanya domain dengan skor tertinggi, dan maksimum tiga domain supaya
+  // penarikan tetap cepat. Menarik tujuh domain menghapus keunggulan jalur ini.
+  return [...skor.entries()]
+    .filter(([, n]) => n >= maks)
+    .map(([d]) => d)
+    .slice(0, 3);
+}
+
+/**
+ * Menjawab pertanyaan bebas, dari data langsung bila domainnya jelas.
  *
  * @param {object} arg
  * @param {string} arg.pertanyaan
@@ -72,6 +125,46 @@ export async function jawabDariSnapshot({ pertanyaan }) {
   const dicurigai = mengandungPolaInstruksi(pertanyaan);
 
   const minggu = jendelaMinggu(jendelaLaporan().tanggal);
+
+  // ── Penarikan langsung bila domainnya jelas ────────────────────────────────
+  //
+  // Satu domain butuh 1,3 sampai 3,1 detik, terukur. Yang 140 detik pada job
+  // harian adalah tujuh domain kali dua minggu ditambah snapshot harian, jadi
+  // menarik dua atau tiga domain yang relevan tetap cepat untuk balasan chat.
+  //
+  // Ini lebih baik daripada snapshot untuk pertanyaan spesifik: snapshot berumur
+  // sampai satu hari, sementara penanya biasanya justru ingin tahu keadaan
+  // sekarang. Domain yang tidak jelas tetap dijawab dari snapshot, karena
+  // menarik tujuh domain menghapus keunggulan jalur ini.
+  const domainDiminta = await kenaliDomain(tanya);
+  if (domainDiminta.length) {
+    try {
+      const { ambilDomain } = await import("./powerbiSummary.service.js");
+      const langsung = [];
+      for (const d of domainDiminta) langsung.push(await ambilDomain(d, minggu));
+
+      const adaIsi = langsung.some((d) =>
+        (d.kpi || []).some(
+          (k) => (k.values || []).some((v) => v.value !== null) || (k.baris || []).length
+        )
+      );
+
+      if (adaIsi) {
+        return await tanyakanKeModel({
+          tanya, dicurigai,
+          jendela: minggu,
+          domains: langsung,
+          sumber: `data langsung dari Power BI, domain ${domainDiminta.join(", ")}`,
+        });
+      }
+      // Kosong berarti periode ini memang belum ada datanya. Jatuh ke snapshot
+      // alih-alih menjawab "tidak ada": snapshot bisa memuat minggu sebelumnya.
+    } catch (err) {
+      // Penarikan langsung gagal TIDAK berarti pertanyaannya gagal dijawab.
+      console.warn("[WA QA] penarikan langsung gagal, memakai snapshot:", err?.message || err);
+    }
+  }
+
   let snapshot = await ambilSnapshotMingguan(minggu.mulaiTanggal);
 
   // Minggu berjalan bisa belum punya snapshot bila penarikan hari ini belum
@@ -93,15 +186,26 @@ export async function jawabDariSnapshot({ pertanyaan }) {
     };
   }
 
-  const muatan = susunMuatan({
+  return await tanyakanKeModel({
+    tanya, dicurigai,
     jendela: { mulaiTanggal: dipakai.mulaiTanggal, selesaiTanggal: dipakai.selesaiTanggal },
-    domains: snapshot.map((s) => ({
-      domain: s.domain,
-      freshness: s.freshness,
-      cutoffWib: s.cutoffWib,
-      kpi: s.kpi,
+    domains: snapshot.map((s2) => ({
+      domain: s2.domain, freshness: s2.freshness, cutoffWib: s2.cutoffWib, kpi: s2.kpi,
     })),
+    sumber: "snapshot tersimpan",
   });
+}
+
+/**
+ * Menyusun muatan, memanggil model, dan merapikan jawabannya.
+ *
+ * Dipisah supaya jalur data langsung dan jalur snapshot memakai guardrail yang
+ * SAMA. Menyalinnya ke dua tempat berarti suatu hari salah satunya ketinggalan
+ * saat aturan diperketat, dan yang ketinggalan justru jalur yang lebih sering
+ * dipakai tanpa ada yang sadar.
+ */
+async function tanyakanKeModel({ tanya, dicurigai, jendela, domains, sumber }) {
+  const muatan = susunMuatan({ jendela, domains });
 
   const apiKey = await kunci();
   if (!apiKey) return { berhasil: false, alasan: "kunci universal CODE AI belum diatur" };
@@ -128,8 +232,9 @@ export async function jawabDariSnapshot({ pertanyaan }) {
       apiKey,
       model: normalizeModel(process.env.GEMINI_MODEL_VERSION || process.env.GEMINI_MODEL),
       systemInstruction: instruksiTanyaJawab(),
-      question: isi.join("\n"),
-      // Lebih kecil daripada job harian: ini balasan chat, dan orang menunggu.
+      // String.fromCharCode(10) alih-alih escape baris baru: skrip suntingan
+      // pernah menerjemahkannya menjadi baris baru sungguhan dan merusak sintaks.
+      question: isi.join(String.fromCharCode(10)),
       maxOutputTokens: Number(process.env.WHATSAPP_QA_MAX_TOKENS) || 6000,
       thinkingLevel: process.env.WHATSAPP_QA_THINKING || "low",
       timeoutMs: Number(process.env.WHATSAPP_QA_TIMEOUT_MS) || 90_000,
@@ -138,9 +243,6 @@ export async function jawabDariSnapshot({ pertanyaan }) {
     let teks = String(hasil?.text || "").trim();
     if (!teks) return { berhasil: false, alasan: "model tidak mengembalikan jawaban" };
 
-    // Dipotong bila melewati batas, TIDAK ditolak. Berbeda dari laporan harian:
-    // jawaban chat yang kepanjangan masih berguna, sementara menolaknya berarti
-    // penanya tidak mendapat apa pun.
     if (teks.length > BATAS_JAWABAN) {
       teks = `${teks.slice(0, BATAS_JAWABAN - 20).trimEnd()} [dipotong]`;
     }
@@ -148,7 +250,8 @@ export async function jawabDariSnapshot({ pertanyaan }) {
     return {
       berhasil: true,
       teks,
-      periode: `${dipakai.mulaiTanggal} sampai ${dipakai.selesaiTanggal}`,
+      sumber,
+      periode: `${jendela.mulaiTanggal} sampai ${jendela.selesaiTanggal}`,
       modelVersion: hasil.model,
       muatanByte: Buffer.byteLength(JSON.stringify(muatan), "utf8"),
     };
@@ -160,4 +263,5 @@ export async function jawabDariSnapshot({ pertanyaan }) {
         : String(err.message).slice(0, 140),
     };
   }
+
 }

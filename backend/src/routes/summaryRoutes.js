@@ -387,6 +387,7 @@ router.get("/job-status", requireAdmin, async (req, res) => {
         // Group id disamarkan: endpoint ini dibaca dari browser dan id grup
         // cukup untuk mengirim pesan bila providernya sudah dipasangkan.
         groupId: cfg.groupId ? `${cfg.groupId.slice(0, 4)}...@g.us` : null,
+        jumlahGrup: (cfg.daftarGrup || []).length,
         jumlahNomor: cfg.daftarNomor.length,
       },
       alert: { tujuan: tujuanAlert().length },

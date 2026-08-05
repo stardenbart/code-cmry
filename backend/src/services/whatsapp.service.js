@@ -45,7 +45,15 @@ export const TARGET_SAH = ["group", "individual"];
 export function konfigurasi() {
   const provider = String(process.env.WHATSAPP_PROVIDER || "dryrun").trim();
   const targetMode = String(process.env.WHATSAPP_TARGET_MODE || "group").trim();
-  const groupId = String(process.env.WHATSAPP_GROUP_ID || "").trim();
+  // Beberapa grup didukung, dipisah koma. Dinamis sejak awal supaya tidak perlu
+  // diubah lagi ketika grup kedua dipakai sungguhan, dan supaya pengujian ke
+  // grup coba-coba tidak menuntut mengedit kode.
+  const daftarGrup = String(process.env.WHATSAPP_GROUP_ID || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+  // Dipertahankan untuk pembaca yang hanya butuh satu, misalnya tampilan status.
+  const groupId = daftarGrup[0] || "";
   const daftarNomor = String(process.env.WHATSAPP_RECIPIENT_LIST || "")
     .split(",")
     .map((x) => x.trim())
@@ -56,7 +64,9 @@ export function konfigurasi() {
   if (!TARGET_SAH.includes(targetMode)) masalah.push(`WHATSAPP_TARGET_MODE "${targetMode}" tidak dikenal`);
 
   if (provider !== "dryrun") {
-    if (targetMode === "group" && !groupId) masalah.push("WHATSAPP_GROUP_ID wajib diisi untuk target group");
+    if (targetMode === "group" && !daftarGrup.length) {
+      masalah.push("WHATSAPP_GROUP_ID wajib diisi untuk target group");
+    }
     if (targetMode === "individual" && !daftarNomor.length) {
       masalah.push("WHATSAPP_RECIPIENT_LIST wajib diisi untuk target individual");
     }
@@ -66,17 +76,24 @@ export function konfigurasi() {
     if (provider === "cloud_api" && targetMode === "group") {
       masalah.push("cloud_api tidak mendukung target group, pakai individual atau ganti provider");
     }
-    if (targetMode === "group" && !/@g\.us$/.test(groupId)) {
-      masalah.push("WHATSAPP_GROUP_ID harus berakhiran @g.us");
+    // SETIAP grup diperiksa, bukan hanya yang pertama. Satu id salah tulis di
+    // tengah daftar akan membuat pengiriman ke grup itu gagal setiap hari
+    // sementara grup lain berhasil, dan kegagalan sebagian lebih sulit
+    // disadari daripada kegagalan total.
+    const grupSalah = daftarGrup.filter((g) => !/@g\.us$/.test(g));
+    if (targetMode === "group" && grupSalah.length) {
+      masalah.push(`WHATSAPP_GROUP_ID harus berakhiran @g.us: ${grupSalah.join(", ")}`);
     }
   }
 
-  return { provider, targetMode, groupId, daftarNomor, masalah, siap: masalah.length === 0 };
+  return { provider, targetMode, groupId, daftarGrup, daftarNomor, masalah, siap: masalah.length === 0 };
 }
 
 /** Tujuan pengiriman menurut konfigurasi. */
 function daftarTujuan(cfg) {
-  return cfg.targetMode === "group" ? [cfg.groupId] : cfg.daftarNomor.map((n) => `${n.replace(/\D/g, "")}@s.whatsapp.net`);
+  return cfg.targetMode === "group"
+    ? cfg.daftarGrup
+    : cfg.daftarNomor.map((n) => `${n.replace(/\D/g, "")}@s.whatsapp.net`);
 }
 
 // ── Provider: dryrun ────────────────────────────────────────────────────────

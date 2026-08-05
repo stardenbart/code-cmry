@@ -136,16 +136,54 @@ function bacaTeks(msg) {
   );
 }
 
-/** Apakah nomor bot disebut di pesan ini. */
-function disebut(msg, jidSendiri) {
-  const ctx = msg?.message?.extendedTextMessage?.contextInfo;
-  const daftar = ctx?.mentionedJid || [];
-  // Nomor dibandingkan tanpa bagian setelah tanda titik dua: Baileys kadang
-  // menyertakan penanda perangkat, misalnya 628xx:12@s.whatsapp.net, dan
-  // perbandingan mentah akan selalu gagal.
+/**
+ * Apakah nomor bot disebut di pesan ini.
+ *
+ * Dua hal yang membuat versi pertama bisa gagal total, dan keduanya senyap:
+ * botnya sekadar tidak pernah menjawab, tanpa error apa pun.
+ *
+ * 1. contextInfo TIDAK hanya ada di extendedTextMessage. Tag yang menyertai
+ *    gambar atau video membawa contextInfo di imageMessage atau videoMessage,
+ *    jadi membaca satu jenis saja melewatkan tag yang sah.
+ *
+ * 2. WhatsApp memakai LID di samping nomor telepon. mentionedJid bisa berisi
+ *    LID (@lid), sementara sock.user.id berisi nomor (@s.whatsapp.net), dan
+ *    membandingkan keduanya mentah akan selalu tidak cocok. Baileys v7
+ *    menyediakan isLidUser justru karena ini nyata.
+ */
+function daftarMention(msg) {
+  const m = msg?.message || {};
+  const semua = [
+    m.extendedTextMessage?.contextInfo,
+    m.imageMessage?.contextInfo,
+    m.videoMessage?.contextInfo,
+    m.documentMessage?.contextInfo,
+    m.audioMessage?.contextInfo,
+    msg?.message?.contextInfo,
+  ];
+  const keluar = [];
+  for (const ctx of semua) {
+    for (const j of ctx?.mentionedJid || []) keluar.push(j);
+  }
+  return keluar;
+}
+
+function disebut(msg, user) {
+  const daftar = daftarMention(msg);
+  if (!daftar.length) return false;
+
+  // Bagian setelah titik dua adalah penanda perangkat, misalnya
+  // 628xx:12@s.whatsapp.net, dan harus dibuang sebelum dibandingkan.
   const bersih = (j) => String(j || "").split(":")[0].split("@")[0];
-  const aku = bersih(jidSendiri);
-  return daftar.some((j) => bersih(j) === aku);
+
+  // Identitas sendiri dikumpulkan dari SEMUA bentuk yang mungkin: id nomor, lid,
+  // dan jid. Satu saja yang cocok sudah cukup.
+  const akuSemua = new Set(
+    [user?.id, user?.lid, user?.jid].filter(Boolean).map(bersih)
+  );
+  if (!akuSemua.size) return false;
+
+  return daftar.some((j) => akuSemua.has(bersih(j)));
 }
 
 /**
@@ -174,7 +212,7 @@ export function pasangListener(sock) {
         if (!jid.endsWith("@g.us")) continue; // hanya grup
 
         // Penjagaan 2.
-        if (!disebut(msg, sock.user?.id)) continue;
+        if (!disebut(msg, sock.user)) continue;
 
         const teks = bacaTeks(msg);
 
