@@ -101,6 +101,30 @@ pulihkan();
 ok("daftar provider memuat dryrun dan baileys",
   PROVIDER_SAH.includes("dryrun") && PROVIDER_SAH.includes("baileys"));
 
+section("Tanya jawab di grup: pengenalan jalur dan penjagaannya");
+
+const { kenaliPermintaan: kp } = await import("../src/services/whatsappListener.service.js");
+const { BATAS_JAWABAN } = await import("../src/services/whatsappQA.service.js");
+
+// Jawaban di grup terbaca sebagai fakta dan tidak ada yang memeriksanya, jadi
+// batasnya lebih pendek daripada laporan harian: ini balasan chat.
+ok("batas jawaban lebih pendek dari laporan", BATAS_JAWABAN < 2000, `dapat ${BATAS_JAWABAN}`);
+ok("batas jawaban masuk akal untuk chat", BATAS_JAWABAN >= 500, `dapat ${BATAS_JAWABAN}`);
+
+// Permintaan ringkasan dan pertanyaan harus terpisah jalurnya. Tanpa pemisahan,
+// "jelasin kenapa OEE turun" akan dijawab dengan laporan lengkap yang tidak
+// menjawab apa pun.
+for (const [teks, harapMinta] of [
+  ["update informasi terbaru dong", true],
+  ["minta rekap dong", true],
+  ["jangan update dulu", false],
+  ["makasih infonya", false],
+  ["halo semua", false],
+]) {
+  ok(`"${teks.slice(0, 30)}" minta ringkasan = ${harapMinta}`,
+    kp(teks).minta === harapMinta, JSON.stringify(kp(teks)));
+}
+
 section("Penilaian kegagalan membedakan yang perlu di-alert");
 
 const jendela = { mulaiTanggal: "2026-07-27", selesaiTanggal: "2026-08-02" };

@@ -196,10 +196,22 @@ export function pasangListener(sock) {
           }
           continue;
         }
+        // Pertanyaan yang tidak menunjuk mesin tertentu dijawab dari snapshot
+        // tersimpan lewat AI. Sebelumnya jalur ini hanya membalas "sebutkan nama
+        // mesinnya", padahal banyak pertanyaan yang sah memang bukan tentang satu
+        // mesin: berapa OEE minggu ini, gedung mana paling banyak downtime,
+        // deviasi CMD 2 berapa.
         if (pertanyaan.tanya) {
-          await balas(sock, jid, msg,
-            "Saya bisa menjelaskan detail downtime per mesin, tapi nama mesinnya belum jelas. " +
-            "Sebutkan lebih spesifik, misalnya Tetra Pak Line 3 atau Hassia S600 Line 2.");
+          if (sedangJalan.has(jid)) {
+            await balas(sock, jid, msg, "Masih mengerjakan permintaan sebelumnya. Mohon tunggu.");
+            continue;
+          }
+          sedangJalan.add(jid);
+          try {
+            await jawabPertanyaanUmum(sock, jid, msg, teks);
+          } finally {
+            sedangJalan.delete(jid);
+          }
           continue;
         }
 
@@ -363,6 +375,34 @@ async function jawabPertanyaanMesin(sock, jid, msg, mesin) {
   // ini pernah rusak sintaksnya karena skrip suntingan menerjemahkan escape-nya
   // menjadi baris baru sungguhan di tengah string.
   await balas(sock, jid, msg, baris.join(String.fromCharCode(10)));
+}
+
+/**
+ * Menjawab pertanyaan bebas dari snapshot tersimpan.
+ *
+ * Tidak menarik ulang dari Power BI: penarikan penuh butuh dua sampai tiga menit
+ * dan orang yang bertanya di grup menunggu jawaban, bukan laporan. Snapshot
+ * disegarkan tiap penarikan, jadi datanya sama dengan laporan terakhir.
+ */
+async function jawabPertanyaanUmum(sock, jid, msg, teks) {
+  const { jawabDariSnapshot } = await import("./whatsappQA.service.js");
+
+  await balas(sock, jid, msg, "Sebentar, saya cek datanya.");
+
+  const r = await jawabDariSnapshot({ pertanyaan: teks });
+
+  if (!r.berhasil) {
+    await balas(sock, jid, msg,
+      `Maaf, belum bisa saya jawab: ${r.alasan}. ` +
+      "Untuk laporan lengkap, tag saya dengan kata update atau ringkasan.");
+    return;
+  }
+
+  // Periode DISEBUT di setiap jawaban. Tanpa itu, angka minggu lalu bisa terbaca
+  // sebagai angka minggu ini, dan pembacanya tidak punya cara mengetahuinya.
+  await balas(sock, jid, msg, `${r.teks}
+
+_Berdasarkan data periode ${r.periode}._`);
 }
 
 /** Keadaan listener, untuk endpoint status. */
