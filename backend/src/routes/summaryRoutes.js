@@ -219,4 +219,123 @@ router.get("/harvest-status", requireAdmin, async (req, res) => {
   }
 });
 
+// ── Manual trigger dan dry-run (spec §15) ───────────────────────────────────
+//
+// dryRun BAWAANNYA true, dan itu keputusan sadar. Provider baileys sudah
+// dipasangkan ke grup manajemen, jadi satu panggilan tanpa penjagaan berarti
+// pesan sungguhan terkirim ke grup dan tidak bisa ditarik kembali. Untuk
+// mengirim sungguhan, pemanggil harus menulis dryRun: false secara eksplisit.
+
+/** Membaca dryRun dari body. Apa pun selain false eksplisit dianggap dry run. */
+function bacaDryRun(body) {
+  return body?.dryRun === false ? false : true;
+}
+
+/** Tanggal opsional, hanya menerima bentuk YYYY-MM-DD. */
+function bacaTanggal(body) {
+  const t = String(body?.tanggal || "").trim();
+  if (!t) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return "TIDAK_SAH";
+  return t;
+}
+
+/**
+ * POST /api/summary/run
+ * Menjalankan tahap pengumpulan. Bawaannya dry run.
+ */
+router.post("/run", requireAdmin, async (req, res) => {
+  const tanggal = bacaTanggal(req.body);
+  if (tanggal === "TIDAK_SAH") {
+    return res.status(400).json({ message: "tanggal harus berformat YYYY-MM-DD" });
+  }
+  const dryRun = bacaDryRun(req.body);
+
+  try {
+    const { kumpulkanTerkunci } = await import("../scheduler/dailySummaryJob.js");
+    const hasil = await kumpulkanTerkunci({ dryRun, tanggal, holder: `manual-${req.dbUser?.id ?? "?"}` });
+
+    if (!hasil.dijalankan) {
+      // 409, bukan 500: job lain sedang jalan adalah keadaan yang sah dan
+      // pemanggil hanya perlu menunggu, bukan melaporkan kerusakan.
+      return res.status(409).json({ message: "Job lain sedang berjalan", alasan: hasil.alasan });
+    }
+    res.json({ message: dryRun ? "Dry run selesai, tidak ada yang disimpan atau dikirim" : "Pengumpulan selesai", ...hasil.hasil });
+  } catch (err) {
+    console.error("summary run error:", err);
+    res.status(500).json({ message: "Gagal menjalankan pengumpulan", error: String(err.message).slice(0, 200) });
+  }
+});
+
+/**
+ * POST /api/summary/send
+ * Mengirim hasil yang sudah tervalidasi. Bawaannya dry run.
+ */
+router.post("/send", requireAdmin, async (req, res) => {
+  const tanggal = bacaTanggal(req.body);
+  if (tanggal === "TIDAK_SAH") {
+    return res.status(400).json({ message: "tanggal harus berformat YYYY-MM-DD" });
+  }
+  const dryRun = bacaDryRun(req.body);
+
+  try {
+    const { kirimTerkunci } = await import("../scheduler/dailySummaryJob.js");
+    const hasil = await kirimTerkunci({ dryRun, tanggal, holder: `manual-${req.dbUser?.id ?? "?"}` });
+
+    if (!hasil.dijalankan) {
+      return res.status(409).json({ message: "Job lain sedang berjalan", alasan: hasil.alasan });
+    }
+    res.json({
+      message: dryRun ? "Dry run selesai, pesan TIDAK dikirim" : "Pengiriman diproses",
+      ...hasil.hasil,
+    });
+  } catch (err) {
+    console.error("summary send error:", err);
+    res.status(500).json({ message: "Gagal menjalankan pengiriman", error: String(err.message).slice(0, 200) });
+  }
+});
+
+/**
+ * GET /api/summary/job-status
+ * Keadaan scheduler, kunci, konfigurasi pengiriman, dan hasil terakhir.
+ */
+router.get("/job-status", requireAdmin, async (req, res) => {
+  try {
+    const { statusScheduler } = await import("../config/scheduler.js");
+    const { statusKunci } = await import("../scheduler/jobLock.js");
+    const { JOB_KUMPUL, JOB_KIRIM } = await import("../scheduler/dailySummaryJob.js");
+    const { konfigurasi } = await import("../services/whatsapp.service.js");
+    const { ambilHasil, mingguBelumBeku } = await import("../services/historicalStore.service.js");
+    const { jendelaLaporan } = await import("../utils/dateWindow.util.js");
+    const { tujuanAlert } = await import("../services/alerting.service.js");
+
+    const tgl = jendelaLaporan().tanggal;
+    const cfg = konfigurasi();
+
+    res.json({
+      scheduler: statusScheduler(),
+      kunci: {
+        kumpul: await statusKunci(JOB_KUMPUL),
+        kirim: await statusKunci(JOB_KIRIM),
+      },
+      pengiriman: {
+        provider: cfg.provider,
+        targetMode: cfg.targetMode,
+        siap: cfg.siap,
+        masalah: cfg.masalah,
+        // Group id disamarkan: endpoint ini dibaca dari browser dan id grup
+        // cukup untuk mengirim pesan bila providernya sudah dipasangkan.
+        groupId: cfg.groupId ? `${cfg.groupId.slice(0, 4)}...@g.us` : null,
+        jumlahNomor: cfg.daftarNomor.length,
+      },
+      alert: { tujuan: tujuanAlert().length },
+      hariLaporan: tgl,
+      hasilTerakhir: await ambilHasil(tgl),
+      mingguBelumBeku: await mingguBelumBeku(),
+    });
+  } catch (err) {
+    console.error("job-status error:", err);
+    res.status(500).json({ message: "Gagal membaca status job" });
+  }
+});
+
 export default router;

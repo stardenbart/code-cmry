@@ -105,4 +105,10 @@ export const ROUTE_CLASSIFICATION = new Map([
   ["GET /api/summary/harvest-plan", "adminOnly"],
   ["POST /api/summary/visual-usage", "adminOnly"],
   ["GET /api/summary/harvest-status", "adminOnly"],
+
+  // Manual trigger dan status job. adminOnly: /run dan /send bisa mengirim pesan
+  // sungguhan ke grup manajemen, dan /job-status memuat konfigurasi pengiriman.
+  ["POST /api/summary/run", "adminOnly"],
+  ["POST /api/summary/send", "adminOnly"],
+  ["GET /api/summary/job-status", "adminOnly"],
 ]);

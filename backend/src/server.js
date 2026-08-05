@@ -12,6 +12,7 @@ import portalLinkRoutes from "./routes/portalLinkRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import summaryRoutes from "./routes/summaryRoutes.js";
+import { daftarkanScheduler } from "./config/scheduler.js";
 import perfRoutes from "./routes/perfRoutes.js";
 import { SERVER_CONFIG } from "./config/config.js";
 import { getEmbedConfig, getEmbedConfigByReportId } from "./config/powerbi.js";
@@ -678,7 +679,14 @@ const isDirectRun =
   Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isDirectRun) {
-  app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    // Didaftarkan setelah server siap, dan bawaannya MATI kecuali
+    // SCHEDULER_ENABLED diisi. Tanpa penjagaan itu, setiap laptop developer yang
+    // menjalankan backend akan ikut mengirim laporan ke grup manajemen.
+    const s = daftarkanScheduler();
+    console.log(`[cron] ${s.aktif ? `aktif: ${s.terdaftar.join(", ")}` : `tidak aktif (${s.alasan})`}`);
+  });
 }
 
 export { app };
