@@ -526,6 +526,15 @@ export const AiController = {
 
     let dashboard = null;
     let resolved = null;
+    // Dideklarasikan DI LUAR try, dan ini perbaikan bug, bukan soal gaya.
+    // Blok catch di bawah mencatat `lokal?.intent`, dan `const lokal` di dalam
+    // try TIDAK ada di scope catch. Setiap error Gemini, termasuk kuota habis,
+    // melempar ReferenceError DI DALAM penangan errornya sendiri, menjadi
+    // unhandled rejection, dan menjatuhkan SELURUH backend.
+    //
+    // `lokal?.intent` terlihat aman padahal optional chaining tidak menolong
+    // sama sekali ketika identifiernya sendiri yang tidak terdeklarasi.
+    let lokal = null;
 
     try {
       const user = await getUser(req.user.id);
@@ -561,7 +570,7 @@ export const AiController = {
       // mengisi API key mendapat 503 untuk pertanyaan yang sebenarnya bisa
       // dijawab tanpa key sama sekali. Rate limit pun memang dimaksudkan
       // menjaga kuota Gemini, seperti tertulis di komentarnya sendiri di bawah.
-      const lokal = paksaAI
+      lokal = paksaAI
         ? { answered: false, reason: "user meminta jawaban AI", intent: "ANALYTICAL" }
         : tryAnswerLocally({ question: q, snapshot, dashboard });
 
