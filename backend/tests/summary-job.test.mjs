@@ -1,6 +1,6 @@
 import { ok, section, req, tokenFor } from "./harness.mjs";
 import db from "../src/config/db.js";
-import { statusScheduler } from "../src/config/scheduler.js";
+import { statusScheduler, kebijakanCatchup } from "../src/config/scheduler.js";
 
 const ADMIN = tokenFor(4, "digital.transformation");
 const USER = tokenFor(36, "rasimin");
@@ -27,6 +27,26 @@ ok("jadwal kumpul 06:15", st.jadwal.kumpul === "15 6 * * *", st.jadwal.kumpul);
 ok("jadwal kirim 08:00", st.jadwal.kirim === "0 8 * * *", st.jadwal.kirim);
 ok("ada jadwal percobaan ulang sebelum jam kirim", st.jadwal.ulang === "45 7 * * *", st.jadwal.ulang);
 ok("catchup policy skip", st.catchupPolicy === "skip", st.catchupPolicy);
+
+// Cacat yang sempat ada: SCHEDULER_CATCHUP_POLICY hanya DILAPORKAN di status dan
+// tidak pernah dipakai, jadi mengisinya dengan run_immediately tidak melakukan
+// apa pun dan tidak memunculkan error. Konfigurasi yang berbohong lebih buruk
+// daripada konfigurasi yang tidak ada.
+const asliCatchup = process.env.SCHEDULER_CATCHUP_POLICY;
+process.env.SCHEDULER_CATCHUP_POLICY = "run_immediately";
+ok("run_immediately dikenali", kebijakanCatchup() === "run_immediately", kebijakanCatchup());
+process.env.SCHEDULER_CATCHUP_POLICY = "RUN_IMMEDIATELY";
+ok("huruf besar tetap dikenali", kebijakanCatchup() === "run_immediately", kebijakanCatchup());
+for (const ngawur of ["ngawur", "", "  ", "true", "1"]) {
+  process.env.SCHEDULER_CATCHUP_POLICY = ngawur;
+  // Nilai yang tidak dikenal HARUS jatuh ke skip, bukan diam-diam mengejar:
+  // mengirim laporan kemarin ke grup jam 11:00 tidak bisa ditarik kembali.
+  ok(`nilai ${JSON.stringify(ngawur)} jatuh ke skip`, kebijakanCatchup() === "skip", kebijakanCatchup());
+}
+if (asliCatchup === undefined) delete process.env.SCHEDULER_CATCHUP_POLICY;
+else process.env.SCHEDULER_CATCHUP_POLICY = asliCatchup;
+ok("status melaporkan kebijakan yang benar-benar dipakai",
+  statusScheduler().catchupPolicy === kebijakanCatchup(), statusScheduler().catchupPolicy);
 
 section("Status job dibaca admin dan tidak membocorkan group id");
 

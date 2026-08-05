@@ -100,7 +100,84 @@ export function daftarkanScheduler() {
     console.log(`[cron] ${nama} terdaftar: "${ekspresi}" zona ${ZONA}`);
   }
 
+  // Dijalankan di latar, TIDAK ditunggu: startup server tidak boleh tertahan
+  // sampai tarikan data 140 detik selesai, karena selama itu tidak ada satu pun
+  // permintaan yang dilayani.
+  kejarKetertinggalan()
+    .then((r) => {
+      if (r.dijalankan) console.log(`[cron] catchup: ${r.langkah.join("; ")}`);
+      else console.log(`[cron] catchup: ${r.alasan}`);
+    })
+    .catch((e) => console.error(`[cron] catchup gagal: ${e?.message || e}`));
+
   return { aktif: true, terdaftar: tugas.map((t) => `${t.nama} ${t.ekspresi}`), zona: ZONA };
+}
+
+/** Kebijakan bila jadwal terlewat karena proses mati. */
+export function kebijakanCatchup() {
+  const v = String(process.env.SCHEDULER_CATCHUP_POLICY || "skip").trim().toLowerCase();
+  return v === "run_immediately" ? "run_immediately" : "skip";
+}
+
+/**
+ * Menjalankan yang terlewat saat proses baru hidup.
+ *
+ * Ini yang sebelumnya TIDAK ADA. SCHEDULER_CATCHUP_POLICY hanya dilaporkan di
+ * endpoint status dan tidak pernah dipakai, jadi mengisinya dengan
+ * run_immediately tidak melakukan apa pun dan tidak memunculkan error: konfigurasi
+ * yang terlihat berfungsi padahal diam.
+ *
+ * Kenapa penting: node-cron hidup DI DALAM proses Node. Kalau prosesnya mati jam
+ * 06:15, jadwalnya tidak jalan dan tidak ada yang mencatat. Di server yang sering
+ * restart, itu berarti laporan hilang tanpa jejak.
+ *
+ * Bawaannya tetap `skip`, karena laporan yang datang jam 11:00 tidak berguna
+ * untuk morning meeting dan justru membingungkan: pembacanya tidak tahu itu
+ * laporan hari ini atau kemarin. Yang mengubah ke run_immediately harus sadar
+ * konsekuensinya.
+ *
+ * Aman dijalankan berkali-kali: keduanya bersandar pada kunci dan pada kolom
+ * whatsapp_sent di database, bukan pada state di memori.
+ */
+export async function kejarKetertinggalan() {
+  const kebijakan = kebijakanCatchup();
+  if (kebijakan === "skip") {
+    return { dijalankan: false, alasan: "kebijakan skip, jadwal terlewat tidak dikejar" };
+  }
+
+  const { jendelaLaporan, jamWib } = await import("../utils/dateWindow.util.js");
+  const { ambilHasil } = await import("../services/historicalStore.service.js");
+
+  const tgl = jendelaLaporan().tanggal;
+  const sekarang = jamWib(new Date());
+  const jamKumpul = (CRON_KUMPUL.split(" ")[1] || "6").padStart(2, "0");
+  const jamKirim = (CRON_KIRIM.split(" ")[1] || "8").padStart(2, "0");
+
+  const langkah = [];
+  const hasilAwal = await ambilHasil(tgl);
+
+  // Pengumpulan hanya dikejar bila jamnya sudah lewat DAN belum ada hasilnya.
+  // Tanpa syarat kedua, restart siang hari akan menimpa hasil yang sudah
+  // tervalidasi dengan hasil baru, dan laporan yang sudah dikirim jadi tidak
+  // cocok dengan yang tersimpan.
+  if (sekarang >= `${jamKumpul}:00` && !hasilAwal?.text) {
+    const r = await kumpulkanTerkunci({ holder: "catchup-kumpul" });
+    langkah.push(`kumpul ${r.dijalankan ? "dijalankan" : "dilewati: " + r.alasan}`);
+  }
+
+  const hasil = await ambilHasil(tgl);
+  if (sekarang >= `${jamKirim}:00` && hasil?.text && !hasil.whatsappSent) {
+    const r = await kirimTerkunci({ holder: "catchup-kirim" });
+    langkah.push(`kirim ${r.dijalankan ? "dijalankan" : "dilewati: " + r.alasan}`);
+  }
+
+  return {
+    dijalankan: langkah.length > 0,
+    tanggalLaporan: tgl,
+    jamSekarangWib: sekarang,
+    langkah,
+    alasan: langkah.length ? undefined : "tidak ada yang perlu dikejar",
+  };
 }
 
 /** Keadaan scheduler, untuk endpoint status. */
@@ -108,7 +185,7 @@ export function statusScheduler() {
   return {
     enabled: aktif(),
     zona: ZONA,
-    catchupPolicy: process.env.SCHEDULER_CATCHUP_POLICY || "skip",
+    catchupPolicy: kebijakanCatchup(),
     jadwal: {
       kumpul: CRON_KUMPUL,
       ulang: CRON_ULANG,
