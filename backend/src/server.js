@@ -686,6 +686,15 @@ if (isDirectRun) {
     // menjalankan backend akan ikut mengirim laporan ke grup manajemen.
     const s = daftarkanScheduler();
     console.log(`[cron] ${s.aktif ? `aktif: ${s.terdaftar.join(", ")}` : `tidak aktif (${s.alasan})`}`);
+
+    // Sesi WhatsApp dibuka lebih awal HANYA bila listener tag diaktifkan.
+    // Tanpa ini, sesi baru terbentuk saat pengiriman pertama, sehingga tag di
+    // grup tidak dibaca siapa pun setelah restart. Tidak di-await supaya
+    // pemindaian QR atau koneksi lambat tidak menahan server melayani HTTP.
+    import("./services/whatsapp.service.js")
+      .then(({ siapkanSesiListener }) => siapkanSesiListener())
+      .then((r) => console.log(`[WA] sesi awal: ${r.dibuka ? "terbuka" : `tidak dibuka (${r.alasan})`}`))
+      .catch((e) => console.error(`[WA] sesi awal gagal: ${e?.message || e}`));
   });
 }
 

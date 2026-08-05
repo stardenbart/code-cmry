@@ -308,6 +308,189 @@ export async function ambilBreakdown(entri, jendela) {
   }
 }
 
+/** Cache daftar nama mesin. Daftar mesin tidak berubah tiap menit. */
+let cacheMesin = null;
+let cacheMesinSaat = 0;
+
+/**
+ * Daftar nama mesin sebenarnya dari model.
+ *
+ * Dipakai mencocokkan mesin yang disebut orang di grup. Mengambil daftarnya dari
+ * model lebih baik daripada menebak dari pola kata: orang menulis "Tetra Line 3"
+ * sementara modelnya menyimpan "Tetra Pak Line 3 250ml", dan hanya daftar
+ * sebenarnya yang bisa menjembatani keduanya tanpa mengarang.
+ */
+export async function daftarMesin() {
+  if (cacheMesin && Date.now() - cacheMesinSaat < 6 * 60 * 60 * 1000) return cacheMesin;
+
+  const datasetId = await resolusiDatasetId("Dashboard DT ORS");
+  if (!datasetId) return [];
+
+  try {
+    const rows = await jalankanDax(
+      datasetId,
+      "EVALUATE SUMMARIZECOLUMNS('Dim_DBCatatan'[nama_mesin])",
+      { percobaan: 2 }
+    );
+    cacheMesin = rows
+      .map((r) => String(r["Dim_DBCatatan[nama_mesin]"] ?? "").trim())
+      .filter(Boolean);
+    cacheMesinSaat = Date.now();
+    return cacheMesin;
+  } catch {
+    return cacheMesin || [];
+  }
+}
+
+/**
+ * Mencocokkan mesin yang disebut dalam sebuah pertanyaan.
+ *
+ * Skornya jumlah kata nama mesin yang muncul di pertanyaan, jadi nama terpanjang
+ * yang cocok menang. Tanpa itu, "Line 3" akan cocok ke belasan mesin yang sama
+ * baiknya dan pilihannya jadi sembarang.
+ *
+ * Kata yang terlalu umum diabaikan supaya "line" sendiri tidak menjadikan setiap
+ * mesin ber-line sebagai kandidat.
+ */
+export async function cocokkanMesin(teks) {
+  const t = String(teks || "").toLowerCase();
+  if (!t.trim()) return null;
+
+  const daftar = await daftarMesin();
+  if (!daftar.length) return null;
+
+  const potong = (x) => x.toLowerCase().split(/[\s,()\-]+/).filter(Boolean);
+
+  // Arah pencocokan: token dari PERTANYAAN harus ada di nama mesin, bukan
+  // sebaliknya.
+  //
+  // Versi pertama menuntut setiap kata nama mesin muncul di pertanyaan, sehingga
+  // "Tetra Line 3" tidak cocok ke "Tetra Pak Line 3 250ml" hanya karena penanya
+  // tidak menyebut 250ml. Orang tidak menyebut nama mesin lengkap, dan menuntut
+  // itu membuat fitur ini menolak hampir semua pertanyaan yang wajar.
+  const kosakata = new Set(daftar.flatMap(potong));
+  const UMUM = new Set(["line", "mesin", "ml", "pak", "cmd"]);
+
+  // Hanya token yang memang bagian dari nama mesin mana pun yang dipakai, jadi
+  // kata biasa seperti "kenapa" dan "downtime" tidak ikut mempersempit.
+  const tokenTanya = [...new Set(potong(t))].filter((k) => kosakata.has(k));
+  const pembeda = tokenTanya.filter((k) => !UMUM.has(k));
+
+  // Tanpa satu pun token pembeda, yang tersisa cuma kata umum seperti "line".
+  // Itu tidak menunjuk mesin mana pun, jadi lebih baik menolak.
+  if (!pembeda.length) return null;
+
+  const punya = (nama, k) => {
+    const kt = potong(nama);
+    return /^\d+$/.test(k) ? kt.includes(k) : kt.some((x) => x.includes(k));
+  };
+
+  const kandidat = daftar.filter((nama) => tokenTanya.every((k) => punya(nama, k)));
+  if (!kandidat.length) return null;
+
+  // Skor: jumlah token pembeda yang cocok, lalu nama terpendek menang supaya
+  // "Serac" tidak kalah dari "Serac Line 4 CYD 65ml" ketika penanya hanya
+  // menyebut "serac".
+  const skor = (nama) => pembeda.filter((k) => punya(nama, k)).length;
+  const maks = Math.max(...kandidat.map(skor));
+  const teratas = kandidat.filter((n) => skor(n) === maks);
+
+  // AMBIGU BERARTI MENOLAK. "kenapa line 3 tinggi" cocok ke beberapa mesin yang
+  // sama baiknya, dan memilih salah satunya berarti menjawab tentang mesin yang
+  // belum tentu dimaksud. Salah mesin lebih buruk daripada minta diperjelas.
+  if (teratas.length > 1) return null;
+
+  return teratas[0];
+}
+
+/**
+ * Detail downtime satu mesin, dipakai menjawab pertanyaan lanjutan di grup.
+ *
+ * Pertanyaan seperti "kenapa Tetra Line 3 downtime-nya tinggi, nama downtime-nya
+ * apa, issue-nya apa, berapa durasinya" tidak bisa dijawab entri katalog: entri
+ * mengelompokkan seluruh mesin, sementara ini menuntut SATU mesin dipecah per
+ * sebab.
+ *
+ * Pencocokan nama mesin memakai CONTAINSSTRING, bukan sama dengan, karena orang
+ * menulis "Tetra Line 3" sementara modelnya menyimpan "Tetra Pak Line 3 250ml".
+ * Menuntut kecocokan persis akan menjawab "tidak ada data" untuk mesin yang
+ * jelas ada, dan itu lebih buruk daripada menjawab mendekati.
+ *
+ * @param {object} arg
+ * @param {string} arg.namaMesin  Potongan nama mesin dari pertanyaan.
+ * @param {object} arg.jendela
+ * @param {number} [arg.n]        Jumlah baris sebab teratas.
+ */
+export async function detailDowntimeMesin({ namaMesin, jendela, n = 6 }) {
+  const MODEL = "Dashboard DT ORS";
+  const datasetId = await resolusiDatasetId(MODEL);
+  if (!datasetId) return { berhasil: false, alasan: `model ${MODEL} tidak ditemukan` };
+
+  const cari = String(namaMesin || "").trim();
+  if (cari.length < 3) return { berhasil: false, alasan: "nama mesin terlalu pendek untuk dicari" };
+
+  const kolomTanggal = await temukanKolomTanggal(datasetId);
+  const T = "'Dim_DBCatatan'";
+  const mesin = `${T}[nama_mesin]`;
+
+  // Kutip ganda di dalam nilai digandakan supaya string DAX tidak pecah. Nama
+  // mesin berasal dari pesan WhatsApp, jadi ini masukan dari luar.
+  const nilai = cari.replace(/"/g, '""');
+
+  let sumber =
+    // SectionDowntime, BUKAN "Nama Downtime": kolom terakhir itu milik dashboard
+    // OEE, tidak ada di Dim_DBCatatan, dan memakainya membuat query gagal total
+    // dengan DatasetExecuteQueriesError tanpa menyebut kolom mana yang salah.
+    `SUMMARIZECOLUMNS(${T}[SectionDowntime], ${T}[Issue], ${T}[Action], ` +
+    `"durasi", [(M) DT Tech in Hour], "kejadian", [(M) Downtime Freq])`;
+
+  const filterMesin = `CONTAINSSTRING(${mesin}, "${nilai}")`;
+
+  if (kolomTanggal?.kolom) {
+    const kol = `${tabel(kolomTanggal.tabel)}${kurung(kolomTanggal.kolom)}`;
+    const mulaiTgl = jendela.mulaiTanggal || jendela.tanggal;
+    const selesaiTgl = jendela.selesaiTanggal || jendela.tanggal;
+    const [y, mo, d] = String(selesaiTgl).split("-").map(Number);
+    const setelah = new Date(Date.UTC(y, mo - 1, d + 1)).toISOString().slice(0, 10);
+    sumber = `CALCULATETABLE(${sumber}, FILTER(ALL(${mesin}), ${filterMesin}), ` +
+      `${kol} >= ${daxTanggal(mulaiTgl)}, ${kol} < ${daxTanggal(setelah)})`;
+  } else {
+    sumber = `CALCULATETABLE(${sumber}, FILTER(ALL(${mesin}), ${filterMesin}))`;
+  }
+
+  const dax = `EVALUATE TOPN(${Number(n) || 6}, FILTER(${sumber}, NOT ISBLANK([durasi])), [durasi], DESC)`;
+
+  try {
+    const rows = await jalankanDax(datasetId, dax);
+    const baris = rows
+      .map((r) => ({
+        section: r["Dim_DBCatatan[SectionDowntime]"] ?? null,
+        issue: r["Dim_DBCatatan[Issue]"] ?? null,
+        action: r["Dim_DBCatatan[Action]"] ?? null,
+        durasi: Number(r["[durasi]"]),
+        kejadian: Number(r["[kejadian]"]),
+      }))
+      .filter((b) => Number.isFinite(b.durasi))
+      .sort((a, b) => b.durasi - a.durasi);
+
+    return {
+      berhasil: true,
+      model: MODEL,
+      mesinDicari: cari,
+      dateFilterApplied: Boolean(kolomTanggal?.kolom),
+      // Satuannya belum dipastikan pemilik, dan itu ikut dikembalikan supaya
+      // penjawabnya tidak mengarang "jam" atau "menit".
+      satuanDurasi: "menit atau jam, belum dipastikan",
+      baris,
+    };
+  } catch (err) {
+    return {
+      berhasil: false,
+      alasan: String(err?.response?.data?.error?.code || err.message).slice(0, 140),
+    };
+  }
+}
+
 function bacaAngka(baris, i) {
   const v = baris?.[`[m${i}]`];
   if (v === null || v === undefined) return null;

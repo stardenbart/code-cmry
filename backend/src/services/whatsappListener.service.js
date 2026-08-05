@@ -77,6 +77,53 @@ export function kenaliPermintaan(teks) {
     : { minta: false, alasan: "tidak ada kata yang menandakan permintaan ringkasan" };
 }
 
+/**
+ * Kata yang menandakan pertanyaan, bukan permintaan ringkasan.
+ *
+ * Diperiksa SEBELUM pola ringkasan, karena "jelasin kenapa Tetra Line 3
+ * downtime-nya tinggi" memuat kata yang mirip permintaan laporan, tapi yang
+ * diminta penjelasan satu mesin bukan ringkasan seluruh plant.
+ */
+const POLA_TANYA = [
+  // Ditulis dengan batas kata. Versi sebelumnya rusak: skrip suntingan
+  // menerjemahkan escape-nya menjadi karakter BACKSPACE 0x08 sungguhan, jadi
+  // setiap pola menuntut karakter backspace di sekitar katanya dan tidak
+  // pernah cocok dengan teks manusia. Regexnya lolos parse, jadi tidak ada
+  // error, hanya pengenal yang diam-diam selalu menjawab tidak.
+  /\bkenapa\b/i,
+  /\bmengapa\b/i,
+  /\bjelas(?:in|kan)\b/i,
+  /\bdetail\b/i,
+  /\bpenyebab\b/i,
+  /\bdurasi\b/i,
+  /\brincian\b/i,
+  /\bbreakdown\b/i,
+  /\bissue\s*nya\b/i,
+  /\bapa\s+saja\b/i,
+];
+
+/**
+ * Apakah pesan menanyakan detail sebuah mesin.
+ *
+ * Mengembalikan nama mesin hanya bila BENAR-BENAR cocok ke daftar mesin di
+ * model. Pertanyaan yang menyebut mesin secara ambigu ditolak oleh
+ * cocokkanMesin(), dan di sini itu berarti botnya minta diperjelas alih-alih
+ * menjawab tentang mesin yang belum tentu dimaksud.
+ */
+export async function kenaliPertanyaanMesin(teks) {
+  const t = String(teks || "").trim();
+  if (!t) return { tanya: false, mesin: null };
+
+  const adaKataTanya = POLA_TANYA.some((p) => p.test(t));
+  const { cocokkanMesin } = await import("./powerbiSummary.service.js");
+  const mesin = await cocokkanMesin(t);
+
+  // Mesin dikenali sudah cukup walau tanpa kata tanya: "downtime hongju 2
+  // gimana" tidak memuat kata di POLA_TANYA tapi jelas menanyakan mesin itu.
+  if (mesin) return { tanya: true, mesin };
+  return { tanya: adaKataTanya, mesin: null };
+}
+
 /** Teks dari berbagai bentuk pesan WhatsApp. */
 function bacaTeks(msg) {
   const m = msg?.message || {};
@@ -130,12 +177,40 @@ export function pasangListener(sock) {
         if (!disebut(msg, sock.user?.id)) continue;
 
         const teks = bacaTeks(msg);
+
+        // Pertanyaan detail diperiksa LEBIH DULU. Kalimat seperti "jelasin
+        // kenapa Tetra Line 3 downtime-nya tinggi" memuat kata yang menyerupai
+        // permintaan laporan, dan tanpa urutan ini ia akan dijawab dengan
+        // ringkasan seluruh plant yang tidak menjawab apa pun.
+        const pertanyaan = await kenaliPertanyaanMesin(teks);
+        if (pertanyaan.mesin) {
+          if (sedangJalan.has(jid)) {
+            await balas(sock, jid, msg, "Masih mengerjakan permintaan sebelumnya. Mohon tunggu.");
+            continue;
+          }
+          sedangJalan.add(jid);
+          try {
+            await jawabPertanyaanMesin(sock, jid, msg, pertanyaan.mesin);
+          } finally {
+            sedangJalan.delete(jid);
+          }
+          continue;
+        }
+        if (pertanyaan.tanya) {
+          await balas(sock, jid, msg,
+            "Saya bisa menjelaskan detail downtime per mesin, tapi nama mesinnya belum jelas. " +
+            "Sebutkan lebih spesifik, misalnya Tetra Pak Line 3 atau Hassia S600 Line 2.");
+          continue;
+        }
+
         const { minta, alasan } = kenaliPermintaan(teks);
 
         if (!minta) {
           await balas(sock, jid, msg,
-            "Saya hanya bisa mengirim ringkasan operasional terbaru. " +
-            "Tag saya dengan kata seperti update, rekap, atau ringkasan.");
+            "Saya bisa dua hal. Pertama, mengirim ringkasan operasional terbaru: " +
+            "tag saya dengan kata seperti update, rekap, atau ringkasan. Kedua, " +
+            "menjelaskan detail downtime satu mesin: sebutkan nama mesinnya, " +
+            "misalnya kenapa Tetra Pak Line 3 downtime-nya tinggi.");
           console.log(`[WA] tag diabaikan: ${alasan}`);
           continue;
         }
@@ -229,6 +304,65 @@ async function layaniPermintaan(sock, jid, msg) {
   if (!kirim.hasil?.berhasil) {
     await balas(sock, jid, msg, `Maaf, pengirimannya gagal: ${kirim.hasil?.alasan || "sebab tidak diketahui"}`);
   }
+}
+
+/**
+ * Menjawab pertanyaan detail satu mesin.
+ *
+ * Jauh lebih ringan daripada pipeline ringkasan: satu query DAX, tanpa Gemini,
+ * tanpa menyentuh historical store. Karena itu ia TIDAK dibatasi jeda sepuluh
+ * menit seperti permintaan ringkasan; membatasinya sama beratnya akan membuat
+ * tanya jawab tidak berguna.
+ */
+async function jawabPertanyaanMesin(sock, jid, msg, mesin) {
+  const { detailDowntimeMesin } = await import("./powerbiSummary.service.js");
+  const { jendelaMinggu, jendelaLaporan } = await import("../utils/dateWindow.util.js");
+  const { sanitasiTeks } = await import("../utils/sanitizeText.util.js");
+
+  await balas(sock, jid, msg, `Sebentar, saya cek detail downtime ${mesin}.`);
+
+  const minggu = jendelaMinggu(jendelaLaporan().tanggal);
+  const r = await detailDowntimeMesin({ namaMesin: mesin, jendela: minggu, n: 6 });
+
+  if (!r.berhasil) {
+    await balas(sock, jid, msg, `Maaf, gagal mengambil datanya: ${r.alasan}`);
+    return;
+  }
+  if (!r.baris.length) {
+    await balas(sock, jid, msg,
+      `Tidak ada catatan downtime untuk ${mesin} pada periode ${minggu.mulaiTanggal} sampai ${minggu.selesaiTanggal}.`);
+    return;
+  }
+
+  const total = r.baris.reduce((n, b) => n + b.durasi, 0);
+  const baris = [
+    `*DETAIL DOWNTIME ${mesin.toUpperCase()}*`,
+    `Periode ${minggu.mulaiTanggal} sampai ${minggu.selesaiTanggal}`,
+    `Total ${total.toLocaleString("id-ID", { maximumFractionDigits: 0 })} dari ${r.baris.length} sebab teratas`,
+    "",
+  ];
+
+  for (const b of r.baris) {
+    // Teks Issue dan Action berasal dari entri operator, jadi disanitasi.
+    const section = sanitasiTeks(b.section, 40) || "(tanpa section)";
+    const issue = sanitasiTeks(b.issue, 120);
+    const action = sanitasiTeks(b.action, 120);
+    baris.push(
+      `- ${section}: ${b.durasi.toLocaleString("id-ID", { maximumFractionDigits: 0 })}` +
+      ` (${b.kejadian} kejadian)`
+    );
+    if (issue) baris.push(`  Issue: ${issue}`);
+    if (action) baris.push(`  Action: ${action}`);
+  }
+
+  // Satuannya belum dipastikan pemilik, jadi disebut apa adanya alih-alih
+  // menulis jam atau menit yang bisa salah 60 kali lipat.
+  baris.push("", `_Satuan durasi ${r.satuanDurasi}. Diambil langsung dari Dashboard DT ORS._`);
+
+  // String.fromCharCode(10) alih-alih menulis escape baris baru langsung: berkas
+  // ini pernah rusak sintaksnya karena skrip suntingan menerjemahkan escape-nya
+  // menjadi baris baru sungguhan di tengah string.
+  await balas(sock, jid, msg, baris.join(String.fromCharCode(10)));
 }
 
 /** Keadaan listener, untuk endpoint status. */

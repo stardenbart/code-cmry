@@ -273,6 +273,45 @@ export async function sendDailySummary(pesan) {
   }
 }
 
+/**
+ * Membuka sesi lebih awal supaya listener tag langsung hidup.
+ *
+ * Diperlukan karena sesi() hanya dipanggil dari jalur PENGIRIMAN. Tanpa fungsi
+ * ini, setelah server restart tidak ada socket WhatsApp sama sekali, jadi tag di
+ * grup tidak dibaca siapa pun sampai kebetulan ada laporan terkirim lebih dulu.
+ * Orang yang menge-tag akan menyimpulkan botnya mati, dan ia benar.
+ *
+ * Tidak melempar: kegagalan membuka sesi tidak boleh menghalangi server melayani
+ * permintaan HTTP biasa.
+ *
+ * @returns {Promise<{dibuka: boolean, alasan?: string}>}
+ */
+export async function siapkanSesiListener() {
+  const cfg = konfigurasi();
+
+  if (cfg.provider !== "baileys") {
+    return { dibuka: false, alasan: `provider ${cfg.provider} tidak butuh sesi tetap` };
+  }
+  if (!cfg.siap) {
+    return { dibuka: false, alasan: `konfigurasi tidak sah: ${cfg.masalah.join("; ")}` };
+  }
+
+  const { listenerAktif } = await import("./whatsappListener.service.js");
+  if (!listenerAktif()) {
+    // Sesi TIDAK dibuka bila listener mati. Membuka koneksi WhatsApp permanen
+    // tanpa ada yang mendengarkan hanya menambah risiko sesi terputus dan
+    // memancing pembatasan nomor, tanpa manfaat apa pun.
+    return { dibuka: false, alasan: "WHATSAPP_LISTENER_ENABLED belum diisi" };
+  }
+
+  try {
+    await sesi();
+    return { dibuka: true };
+  } catch (err) {
+    return { dibuka: false, alasan: String(err.message).slice(0, 160) };
+  }
+}
+
 /** Menutup sesi. Dipakai saat shutdown supaya proses tidak tertahan. */
 export async function tutupSesi() {
   if (!sesiBaileys) return;
