@@ -33,7 +33,11 @@ import {
   jendelaMinggu, jendelaLaporan, periodeLemburUntukTanggal,
 } from "../utils/dateWindow.util.js";
 
-export const MAKS_MODEL = 3;
+// DUA model, bukan tiga. Jalan pertama memilih tiga dan hasilnya tiga jawaban
+// yang saling bertentangan untuk pertanyaan yang sama, disajikan berdampingan
+// seolah semuanya benar. Bagi pembaca di grup, tiga angka berbeda untuk satu
+// mesin lebih buruk daripada satu angka disertai catatan.
+export const MAKS_MODEL = 2;
 export const BATAS_JAWABAN_AGEN = Number(process.env.DAX_AGENT_MAX_CHARS) || 1400;
 
 async function kunci() {
@@ -216,6 +220,23 @@ export async function jawabDenganDax({ pertanyaan }) {
       "Pakai HANYA tabel, kolom, dan measure yang ada di skema. Jangan mengarang nama.",
       "Batasi hasilnya dengan TOPN paling banyak 20 baris.",
       "Buang baris kosong dengan FILTER dan NOT ISBLANK sebelum TOPN.",
+      "",
+      "WAJIB DIFILTER PERIODE. Kecuali pertanyaannya jelas meminta sepanjang",
+      "masa, batasi dengan kolom tanggal ke periode yang disebut di bawah.",
+      "Tanpa filter, hasilnya akumulasi bertahun-tahun: jalan pertama sistem ini",
+      "mengembalikan running hours 1.356.159 jam, yang berarti 154 tahun.",
+      "",
+      "JANGAN MENGHITUNG RASIO ANTAR SATUAN YANG BERBEDA. Banyak measure durasi",
+      "di model ini bersatuan menit walau namanya menyebut hour. Membagi durasi",
+      "bersatuan menit dengan running time berjam menghasilkan angka yang",
+      "terlihat seperti persen padahal bukan. Kalau satuannya tidak bisa",
+      "dipastikan dari skema, JANGAN membuat kolom persentase; kembalikan saja",
+      "durasi dan running time sebagai dua kolom terpisah.",
+      "",
+      "PASTIKAN NILAINYA IKUT DIKELOMPOKKAN. Bila satu measure mengembalikan",
+      "angka yang sama persis untuk setiap baris, measure itu mengabaikan",
+      "konteks baris dan TIDAK boleh dipakai per mesin. Pakai SUM atas kolom",
+      "fakta, bukan measure semacam itu.",
       konteksPeriode(),
     ].join("\n");
 
@@ -279,12 +300,21 @@ export async function jawabDenganDax({ pertanyaan }) {
         "   yang tidak ada di sana, jangan menghitung ulang di luar yang tersedia.",
         "2. Kalau hasilnya tidak menjawab pertanyaannya, katakan terus terang",
         "   bagian mana yang tidak terjawab.",
-        "3. Tulis angka bergaya Indonesia: titik untuk ribuan, koma untuk desimal.",
+        "3. BILA DUA MODEL MEMBERI ANGKA YANG BERBEDA JAUH untuk hal yang sama,",
+        "   JANGAN menyajikan keduanya berdampingan seolah sama benar. Pilih",
+        "   satu yang paling masuk akal, sebut dari model mana, dan katakan",
+        "   bahwa model lain memberi angka berbeda sehingga perlu dipastikan.",
+        "   Tiga angka berbeda untuk satu mesin membuat pembacanya tidak bisa",
+        "   memakai satu pun.",
+        "4. TOLAK angka yang jelas tidak masuk akal alih-alih meneruskannya:",
+        "   running hours ratusan ribu jam, atau nilai yang sama persis untuk",
+        "   semua mesin. Sebut bahwa angkanya mencurigakan dan perlu diperiksa.",
+        "5. Tulis angka bergaya Indonesia: titik untuk ribuan, koma untuk desimal.",
         "   Persentase diberi tanda persen.",
-        "4. Jangan memakai emoji dan tanda pisah panjang.",
-        `5. Maksimum ${BATAS_JAWABAN_AGEN} karakter. Langsung ke jawabannya.`,
+        "6. Jangan memakai emoji dan tanda pisah panjang.",
+        `7. Maksimum ${BATAS_JAWABAN_AGEN} karakter. Langsung ke jawabannya.`,
         "   Pakai baris berawalan tanda hubung bila menyebut beberapa hal.",
-        "6. AKHIRI dengan satu baris saran: dua contoh pertanyaan lanjutan yang",
+        "8. AKHIRI dengan satu baris saran: dua contoh pertanyaan lanjutan yang",
         "   bisa ditanyakan dengan menandai CODE AI, dan yang BENAR-BENAR bisa",
         "   dijawab dari data yang baru saja kamu lihat. Sebutkan nama mesin,",
         "   CMD, atau periode yang nyata, karena pertanyaan yang menyebut nama",
