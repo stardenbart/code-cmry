@@ -85,3 +85,20 @@ const kotorAngka = bacaHasilPenyaring(JSON.stringify({
 // non-numerik akan merusak perbandingan di dashboard berikutnya.
 ok("hanya angka sah yang lolos", kotorAngka.angka.length === 1, JSON.stringify(kotorAngka.angka));
 ok("yang lolos measure A", kotorAngka.angka[0].measure === "A");
+
+section("Nilai coercion ke angka (null, false, array) ditolak");
+
+// Number(null) === 0, Number(false) === 0, Number([]) === 0. Jika model
+// menjawab nilai:null (artinya belum diketahui), jangan disimpan sebagai 0
+// yang akan dibaca dashboard lain sebagai fakta nyata.
+const coercionKotor = bacaHasilPenyaring(JSON.stringify({
+  ringkasan: "x",
+  angka: [
+    { measure: "Weight", nilai: null },
+    { measure: "Flag", nilai: false },
+    { measure: "Arr", nilai: [] },
+  ],
+}));
+ok("nilai null ditolak", coercionKotor.angka.length === 0, JSON.stringify(coercionKotor.angka));
+ok("nilai false ditolak", coercionKotor.angka.length === 0, JSON.stringify(coercionKotor.angka));
+ok("nilai array ditolak", coercionKotor.angka.length === 0, JSON.stringify(coercionKotor.angka));

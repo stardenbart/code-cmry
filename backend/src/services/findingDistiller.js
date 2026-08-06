@@ -102,7 +102,7 @@ export function bacaHasilPenyaring(teks) {
   // Angka tanpa nama measure tidak bisa dipakai mengorelasikan apa pun, dan
   // nilai non-numerik akan merusak perbandingan di dashboard berikutnya.
   const angka = (Array.isArray(obj.angka) ? obj.angka : [])
-    .filter((a) => a && String(a.measure || "").trim() && Number.isFinite(Number(a.nilai)))
+    .filter((a) => a && String(a.measure || "").trim() && typeof a.nilai === "number" && Number.isFinite(a.nilai))
     .map((a) => ({ measure: String(a.measure).trim().slice(0, 120), nilai: Number(a.nilai) }))
     .slice(0, 8);
 
