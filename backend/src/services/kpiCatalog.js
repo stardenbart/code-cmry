@@ -290,6 +290,10 @@ export const KATALOG_KPI = [
   {
     domain: "cost",
     kpi: "Jam lembur",
+    // Lembur dihitung per periode cut-off, 13 bulan sebelumnya sampai 12 bulan
+    // berjalan, dan capaiannya AKUMULASI sejak awal cut-off bukan angka satu
+    // minggu. Aturan pemilik 2026-08-06.
+    jendelaKhusus: "lembur",
     modelName: "Dashboard Overtime",
     measures: ["Total Jam Lembur"],
     unit: "jam",

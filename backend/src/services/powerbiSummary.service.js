@@ -19,6 +19,7 @@ import {
   resolusiDatasetId, jalankanDax, statusKesegaran,
 } from "./powerbiMeta.service.js";
 import { KATALOG_KPI, kpiDomain } from "./kpiCatalog.js";
+import { periodeLemburUntukTanggal } from "../utils/dateWindow.util.js";
 
 /**
  * Nama measure atau kolom di dalam kurung siku DAX.
@@ -130,8 +131,39 @@ export function perluFilterTanggal(entri) {
   return entri.filterTanggal === true;
 }
 
+/**
+ * Jendela yang benar untuk sebuah entri.
+ *
+ * Sebagian KPI TIDAK mengikuti jendela laporan. Lembur dihitung per periode
+ * cut-off, 13 bulan sebelumnya sampai 12 bulan berjalan, dan capaiannya adalah
+ * AKUMULASI sejak awal cut-off, bukan angka satu minggu. Memakai jendela
+ * mingguan untuk lembur menghasilkan angka yang jauh lebih kecil dari yang
+ * dilihat orang di dashboard, dan tidak ada error yang menandainya.
+ *
+ * Aturan ini datang dari pemilik 2026-08-06.
+ */
+function jendelaUntukEntri(entri, jendela) {
+  if (entri.jendelaKhusus !== "lembur") return jendela;
+
+  // Titik acuannya hari terakhir jendela laporan, supaya periode yang dipilih
+  // adalah periode yang sedang berjalan pada laporan itu, bukan hari ini.
+  const acuan = jendela.selesaiTanggal || jendela.tanggal;
+  const p = periodeLemburUntukTanggal(acuan);
+
+  // Akumulasi SAMPAI hari laporan, bukan sampai akhir periode: periode yang
+  // masih berjalan belum punya data setelah hari ini, dan menyertakannya
+  // membuat pembacanya mengira angkanya sudah final.
+  return {
+    mulaiTanggal: p.mulaiTanggal,
+    selesaiTanggal: acuan < p.selesaiTanggal ? acuan : p.selesaiTanggal,
+    labelPeriode: p.label,
+  };
+}
+
+
 /** Membangun DAX untuk satu entri katalog. */
 function bangunDax(entri, jendela, kolomTanggal) {
+  const jw = jendelaUntukEntri(entri, jendela);
   const daftar = entri.measures
     .map((m, i) => `"m${i}", ${kurung(m)}`)
     .join(", ");
@@ -145,8 +177,8 @@ function bangunDax(entri, jendela, kolomTanggal) {
   // `mulaiTanggal` dan `selesaiTanggal`. Bentuk rentang dipakai penarikan
   // mingguan, yang menyegarkan seluruh minggu berjalan karena datanya masih
   // bergerak beberapa hari setelah kejadiannya.
-  const mulaiTgl = jendela.mulaiTanggal || jendela.tanggal;
-  const selesaiTgl = jendela.selesaiTanggal || jendela.tanggal;
+  const mulaiTgl = jw.mulaiTanggal || jw.tanggal;
+  const selesaiTgl = jw.selesaiTanggal || jw.tanggal;
 
   // Batas atas eksklusif memakai hari SETELAH hari terakhir, bukan <= hari
   // terakhir: kolom dateTime yang membawa komponen jam akan terpotong oleh

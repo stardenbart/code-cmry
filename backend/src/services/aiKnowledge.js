@@ -29,14 +29,14 @@ const MODEL_ALIASES = {
   "utility failure": ["Dashboard Utility Failure"],
   "sparepart management": ["Dashboard Sparepart Management"],
   "cost repair & maintenance": ["Expenses - Cost, Repair, and Maintenance"],
-  "pm execution report": [],          // PM Execution model not in the registry sweep
+  "pm execution report": ["PM Execution Report"],          // PM Execution model not in the registry sweep
   "timeline project": ["Project Timeline DT"],
 
   // Production, losses & cost
-  "losses report": ["Dashboard Efis & Losses"],
+  "losses report": ["Dashboard Efis & Losses", "Variance & Losses"],
   "output report": ["Dashboard PPIC", "Dashboard Efis & Losses"],
   "production output": ["Dashboard PPIC", "Dashboard Efis & Losses"],
-  "variance & losses": ["Dashboard Efis & Losses"],  // "Dashboard Variance" never connected
+  "variance & losses": ["Dashboard Efis & Losses", "Variance & Losses"],  // "Dashboard Variance" never connected
   "cost savings & initiatives report": ["Dashboard Data Room Cost"],
   cost: ["Dashboard Data Room Cost"],
 
@@ -48,10 +48,10 @@ const MODEL_ALIASES = {
   "pyschem report": ["Pyschem"],
   "pqr report cmd 1": ["Pyschem"],
   "pqr report cmd 2": ["Dashboard PQR CMD 2"],
-  "pqr report cmd 3 filling": ["Dashboard PQR CMD 2"],
-  "pqr report cmd 3 process": ["Dashboard PQR CMD 2"],
-  "pqr report cmd 3 bossar & tunnel": ["Dashboard PQR CMD 2"],
-  "pqr lab micro": ["Pyschem"],
+  "pqr report cmd 3 filling": [],
+  "pqr report cmd 3 process": [],
+  "pqr report cmd 3 bossar & tunnel": [],
+  "pqr lab micro": ["Dashboard PQR Mikro"],
   "instrument calibration": ["Dashboard Kalibrasi Instrument"],
   quality: ["Dashboard Data Room Quality"],
 
