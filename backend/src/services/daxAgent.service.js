@@ -35,7 +35,8 @@ export const MAKS_MODEL = 3;
 export const BATAS_JAWABAN_AGEN = Number(process.env.DAX_AGENT_MAX_CHARS) || 1400;
 
 async function kunci() {
-  return (await aiSettings.getUniversalKey()) || getServerKey() || null;
+  const k = await aiSettings.kunciUntukJob();
+  return k?.apiKey || null;
 }
 
 async function tanya({ apiKey, instruksi, pertanyaan, maksToken = 4000 }) {

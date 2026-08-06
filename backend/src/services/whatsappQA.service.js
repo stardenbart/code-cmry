@@ -25,9 +25,8 @@ import { sanitasiTeks, mengandungPolaInstruksi } from "../utils/sanitizeText.uti
 export const BATAS_JAWABAN = Number(process.env.WHATSAPP_QA_MAX_CHARS) || 1200;
 
 async function kunci() {
-  const dariDb = await aiSettings.getUniversalKey();
-  if (dariDb) return dariDb;
-  return getServerKey() || null;
+  const k = await aiSettings.kunciUntukJob();
+  return k?.apiKey || null;
 }
 
 function instruksiTanyaJawab() {

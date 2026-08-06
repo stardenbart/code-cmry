@@ -38,11 +38,10 @@ export function modelCadangan() {
  * lewat UI tanpa restart server, sedangkan kunci env menuntut deploy.
  */
 async function kunciJob() {
-  const dariDb = await aiSettings.getUniversalKey();
-  if (dariDb) return { apiKey: dariDb, sumber: "database" };
-  const dariEnv = getServerKey();
-  if (dariEnv) return { apiKey: dariEnv, sumber: "env" };
-  return null;
+  // Dipusatkan di aiSettings supaya job, agen DAX, dan tanya jawab memakai
+  // urutan kunci yang SAMA. Tiga salinan berarti suatu hari salah satunya
+  // ketinggalan saat urutannya diubah.
+  return aiSettings.kunciUntukJob();
 }
 
 /**

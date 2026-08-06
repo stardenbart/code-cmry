@@ -90,3 +90,36 @@ export async function clearUniversalKey() {
 export function isAdminUser(user) {
   return user?.role === "admin";
 }
+
+/**
+ * Kunci untuk JOB dan AGEN, terpisah dari kunci chat user.
+ *
+ * Urutannya sengaja env lebih dulu, kebalikan dari jalur chat:
+ *
+ *   1. GEMINI_JOB_API_KEY   kunci khusus job, biasanya berbayar
+ *   2. kunci universal      dari ai_settings, dipakai bersama chat
+ *   3. kunci env lama       CODE_AI_UNIVERSAL_KEY atau GEMINI_API_KEY
+ *
+ * Alasannya kapasitas, bukan preferensi. Agen DAX memakai TIGA panggilan model
+ * per pertanyaan, ditambah job harian dan chat 57 user. Satu kunci free-tier
+ * tidak akan cukup, dan terbukti: kuota habis berkali-kali saat pengujian.
+ *
+ * Memisahkannya juga berarti kegagalan satu sisi tidak menjatuhkan sisi lain.
+ * Chat yang menghabiskan kuota tidak lagi membuat laporan pagi gagal.
+ *
+ * Perlu diketahui: kunci PRIBADI user di ai_user_keys TIDAK dipakai di sini.
+ * Job berjalan tanpa konteks user, jadi tidak ada pemilik yang kuotanya wajar
+ * dipakai.
+ */
+export async function kunciUntukJob() {
+  const dariEnvJob = (process.env.GEMINI_JOB_API_KEY || "").trim();
+  if (dariEnvJob) return { apiKey: dariEnvJob, sumber: "env job" };
+
+  const universal = await getUniversalKey();
+  if (universal) return { apiKey: universal, sumber: "universal database" };
+
+  const lama = (process.env.CODE_AI_UNIVERSAL_KEY || process.env.GEMINI_API_KEY || "").trim();
+  if (lama) return { apiKey: lama, sumber: "env lama" };
+
+  return null;
+}
