@@ -26,6 +26,8 @@ import { askGemini, GeminiError, normalizeModel, getServerKey } from "../config/
 import * as aiSettings from "./aiSettings.js";
 import { skemaModel, jalankanDaxAman, resolusiDatasetId } from "./powerbiMeta.service.js";
 import { KATALOG_KPI } from "./kpiCatalog.js";
+import db from "../config/db.js";
+const sql = db.promise();
 import { sanitasiTeks } from "../utils/sanitizeText.util.js";
 import {
   jendelaMinggu, jendelaLaporan, periodeLemburUntukTanggal,
@@ -69,6 +71,64 @@ export function daftarModelRingkas() {
   return [...peta.entries()].map(([model, isi]) => ({ model, cakupan: [...isi] }));
 }
 
+/**
+ * Daftar model LENGKAP, dari seluruh model yang measurenya sudah dipanen.
+ *
+ * Katalog hanya memuat 12 model yang KPI-nya sudah dikurasi, sementara
+ * model_measure memuat 25 model beserta nama measure sebenarnya. Membatasi
+ * pemilihan ke katalog berarti pertanyaan di luar KPI kurasi selalu dijawab
+ * "tidak ada dashboard yang relevan", padahal datanya ada.
+ *
+ * Nama measure ikut dikirim sebagai kosakata. Nama model saja tidak cukup:
+ * "Dashboard WWTP" tidak memberi tahu apa pun tentang isinya, sementara melihat
+ * measure seperti dosing PAC dan Polymer membuat pemilihannya beralasan.
+ *
+ * Jumlah measure per model dibatasi supaya daftarnya tetap muat di satu
+ * panggilan; yang dikirim adalah yang paling menggambarkan isinya, bukan semua.
+ */
+export async function daftarModelLengkap({ measurePerModel = 14 } = {}) {
+  const kurasi = new Map(daftarModelRingkas().map((d) => [d.model, d.cakupan]));
+
+  let baris = [];
+  try {
+    const [rows] = await sql.query(
+      `SELECT model_name, measure_name FROM model_measure
+        WHERE is_hidden = 0 ORDER BY model_name, measure_name`
+    );
+    baris = rows;
+  } catch {
+    // Tanpa tabel measure, katalog masih lebih baik daripada tidak ada apa-apa.
+    return daftarModelRingkas();
+  }
+
+  const perModel = new Map();
+  for (const r of baris) {
+    const m = String(r.model_name);
+    if (!perModel.has(m)) perModel.set(m, []);
+    perModel.get(m).push(String(r.measure_name));
+  }
+
+  // Measure yang jelas bukan KPI dibuang: pembantu format visual dan sisa
+  // percobaan hanya membuang ruang dan menyesatkan pemilihan.
+  const sampah = /color|warna|^desk |^label |debug|^test|dummy|^measure( \d+)?$|coba/i;
+
+  const hasil = [];
+  for (const [model, measures] of perModel) {
+    const bersih = measures.filter((x) => !sampah.test(x));
+    hasil.push({
+      model,
+      ...(kurasi.has(model) ? { kpiTerkurasi: kurasi.get(model) } : {}),
+      contohMeasure: bersih.slice(0, measurePerModel),
+      totalMeasure: bersih.length,
+    });
+  }
+
+  // Model yang ada di katalog didahulukan: KPI-nya sudah diverifikasi dua arah,
+  // jadi jawaban darinya lebih bisa dipertanggungjawabkan.
+  hasil.sort((a, b) => (b.kpiTerkurasi ? 1 : 0) - (a.kpiTerkurasi ? 1 : 0));
+  return hasil;
+}
+
 /** Mengambil blok kode pertama, atau seluruh teks bila tidak ada blok. */
 function ambilKode(teks) {
   const t = String(teks || "");
@@ -106,7 +166,7 @@ export async function jawabDenganDax({ pertanyaan }) {
   const jejak = { model: [], query: [], baris: 0 };
 
   // ── Langkah 1: pilih model ────────────────────────────────────────────────
-  const daftar = daftarModelRingkas();
+  const daftar = await daftarModelLengkap();
   let terpilih = [];
   try {
     const jawab = await tanya({
@@ -224,6 +284,11 @@ export async function jawabDenganDax({ pertanyaan }) {
         "4. Jangan memakai emoji dan tanda pisah panjang.",
         `5. Maksimum ${BATAS_JAWABAN_AGEN} karakter. Langsung ke jawabannya.`,
         "   Pakai baris berawalan tanda hubung bila menyebut beberapa hal.",
+        "6. AKHIRI dengan satu baris saran: dua contoh pertanyaan lanjutan yang",
+        "   bisa ditanyakan dengan menandai CODE AI, dan yang BENAR-BENAR bisa",
+        "   dijawab dari data yang baru saja kamu lihat. Sebutkan nama mesin,",
+        "   CMD, atau periode yang nyata, karena pertanyaan yang menyebut nama",
+        "   spesifik bisa dijawab langsung sementara pertanyaan umum tidak.",
         konteksPeriode(),
       ].join("\n"),
       pertanyaan: [

@@ -363,6 +363,15 @@ export function instruksiSistem() {
     "",
     "*RISIKO*  maksimum 3 butir. Risiko operasional hari ini, bukan pengulangan",
     "analisis di atas.",
+    "",
+    "*INGIN TAHU LEBIH LANJUT*  dua sampai tiga contoh pertanyaan yang bisa",
+    "ditanyakan pembaca dengan menandai CODE AI di grup, masing-masing diawali",
+    "tanda hubung. Pilih yang BENAR-BENAR menggali temuan di laporan ini, bukan",
+    "pertanyaan umum. Contoh bentuknya: tanya kenapa satu mesin tertentu",
+    "downtimenya tinggi, atau minta rincian satu CMD yang angkanya menonjol.",
+    "Sebutkan nama mesin atau CMD yang nyata dari data di atas, karena",
+    "pertanyaan yang menyebut nama spesifik bisa dijawab langsung sementara",
+    "pertanyaan umum tidak.",
   ].join("\n");
 }
 
@@ -527,14 +536,20 @@ export function pesanCadangan({ jendela, domains, alasan }) {
 }
 
 /** Catatan kaki yang ditempel ke pesan hasil AI. */
-export function catatanKaki({ modelVersion, jendela, adaAkumulatif }) {
+export function catatanKaki({ jendela, adaAkumulatif }) {
+  // Versi model TIDAK lagi disebut di pesan. Nama teknis seperti
+  // "gemini-3.6-flash" tidak berarti apa pun bagi manajemen, dan pesannya
+  // datang dari CODE AI, bukan dari vendor modelnya.
+  //
+  // Versinya tetap DISIMPAN di daily_summary_result: kalau suatu hari ada
+  // anomali, penelusuran tetap bisa menyebut model mana yang membuatnya. Yang
+  // dihapus tampilannya, bukan jejaknya.
   const b = [
     "",
-    `_Dibuat otomatis oleh CODE untuk periode ${judulPeriode(jendela)}._`,
-    `_Model ${modelVersion}, prompt ${PROMPT_VERSION}._`,
+    `_Dibuat otomatis oleh CODE AI untuk periode ${judulPeriode(jendela)}._`,
   ];
   if (adaAkumulatif) {
     b.push("_Sebagian angka bersifat akumulatif atau snapshot, bukan capaian periode ini._");
   }
-  return b.join("\n");
+  return b.join(String.fromCharCode(10));
 }

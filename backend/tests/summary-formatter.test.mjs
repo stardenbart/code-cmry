@@ -252,13 +252,19 @@ ok("KPI tanpa angka tidak muncul", !cadangan.includes("Tidak ada angka"));
 
 section("Catatan kaki menyebut versi model dan sifat angkanya");
 
-const kaki = catatanKaki({ modelVersion: "gemini-3.6-flash", jendela: JENDELA_MINGGU, adaAkumulatif: true });
-ok("menyebut versi model", kaki.includes("gemini-3.6-flash"));
-ok("menyebut versi prompt", kaki.includes(PROMPT_VERSION));
+const kaki = catatanKaki({ jendela: JENDELA_MINGGU, adaAkumulatif: true });
+
+// Versi model SENGAJA tidak disebut di pesan. Nama teknis seperti
+// "gemini-3.6-flash" tidak berarti apa pun bagi manajemen, dan pesannya datang
+// dari CODE AI bukan dari vendor modelnya. Versinya tetap tersimpan di
+// daily_summary_result, jadi penelusuran anomali tidak kehilangan jejak.
+ok("menyebut CODE AI", kaki.includes("CODE AI"), kaki);
+ok("TIDAK menyebut nama model vendor", !/gemini/i.test(kaki), kaki);
+ok("TIDAK menyebut versi prompt", !kaki.includes(PROMPT_VERSION), kaki);
 ok("menyebut rentang mingguan", kaki.includes("2026-07-27") && kaki.includes("2026-08-02"));
 ok("memperingatkan angka akumulatif", /akumulatif/.test(kaki));
 ok("tanpa akumulatif tidak memperingatkan",
-  !/akumulatif/.test(catatanKaki({ modelVersion: "x", jendela: JENDELA_HARI, adaAkumulatif: false })));
+  !/akumulatif/.test(catatanKaki({ jendela: JENDELA_HARI, adaAkumulatif: false })));
 
 section("Tidak ada emoji dan tanda pisah panjang di teks yang dibaca user");
 

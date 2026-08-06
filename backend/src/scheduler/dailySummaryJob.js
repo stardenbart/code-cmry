@@ -157,7 +157,7 @@ export async function jalankanPengumpulan({ dryRun = false, tanggal = null, onPr
   const adaAkumulatif = domains.some((d) => (d.kpi || []).some((k) => k.dateFilterApplied !== true));
 
   const pesan = ai.berhasil
-    ? ai.teks + catatanKaki({ modelVersion: ai.modelVersion, jendela: mingguBerjalan, adaAkumulatif })
+    ? ai.teks + catatanKaki({ jendela: mingguBerjalan, adaAkumulatif })
     : pesanCadangan({ jendela: mingguBerjalan, domains, alasan: ai.alasan });
 
   if (!dryRun) {

@@ -51,6 +51,10 @@ function instruksiTanyaJawab() {
     `PANJANG: maksimum ${BATAS_JAWABAN} karakter. Ini balasan chat, bukan laporan.`,
     "Langsung ke jawabannya, tanpa kalimat pembuka seperti baik atau tentu.",
     "Pakai baris berawalan tanda hubung bila menyebut beberapa hal.",
+    "AKHIRI dengan satu baris saran berisi dua contoh pertanyaan lanjutan yang",
+    "bisa dijawab dari data yang sama. Sebutkan nama mesin, CMD, atau periode",
+    "yang nyata: pertanyaan yang menyebut nama spesifik bisa dijawab langsung,",
+    "sementara pertanyaan umum tidak.",
   ].join("\n");
 }
 
