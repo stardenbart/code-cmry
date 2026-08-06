@@ -142,6 +142,49 @@ function loggerBisu() {
  * seluruh berkas ini gagal dimuat bila paketnya belum dipasang, dan itu akan
  * menjatuhkan mode dry-run yang justru harus jalan tanpa paket apa pun.
  */
+/** Berapa kali berturut-turut sambung ulang gagal. Dipakai untuk backoff. */
+let percobaanSambung = 0;
+let sambungTertunda = null;
+
+/**
+ * Menjadwalkan sambung ulang dengan jeda menaik.
+ *
+ * Jeda menaik penting: nomor yang menyambung puluhan kali per menit adalah pola
+ * yang membuat WhatsApp curiga, dan koneksi yang ditolak berulang justru
+ * memburuk bila dicoba tanpa jeda.
+ *
+ * Konflik 440 diberi jeda paling panjang karena penyebabnya proses LAIN yang
+ * masih memegang sesi. Menyambung cepat berarti dua proses saling menendang
+ * tanpa henti.
+ *
+ * Hanya dilakukan bila listener aktif. Kalau listener mati, sesi memang hanya
+ * dibutuhkan saat mengirim.
+ */
+function jadwalkanSambungUlang(kodeAlasan) {
+  if (sambungTertunda) return;
+
+  import("./whatsappListener.service.js")
+    .then(({ listenerAktif }) => {
+      if (!listenerAktif()) return;
+
+      percobaanSambung += 1;
+      const dasar = kodeAlasan === 440 ? 60_000 : 5_000;
+      const jeda = Math.min(dasar * 2 ** Math.min(percobaanSambung - 1, 4), 300_000);
+
+      console.warn(`[WA] menyambung ulang dalam ${Math.round(jeda / 1000)} detik (percobaan ${percobaanSambung})`);
+      sambungTertunda = setTimeout(() => {
+        sambungTertunda = null;
+        sesi()
+          .then(() => console.log("[WA] tersambung ulang"))
+          .catch((e) => console.error("[WA] sambung ulang gagal:", e?.message || e));
+      }, jeda);
+      // Timer tidak menahan proses keluar: skrip sekali jalan tidak boleh
+      // menggantung hanya karena ada jadwal sambung ulang.
+      sambungTertunda.unref?.();
+    })
+    .catch(() => {});
+}
+
 async function sesi() {
   if (sesiBaileys) return sesiBaileys;
 
@@ -211,7 +254,17 @@ async function sesi() {
       }
       if (alasan === DisconnectReason?.loggedOut) {
         console.warn("[WA] sesi sudah logout, hapus WHATSAPP_SESSION_DIR dan pindai QR lagi");
-      }
+          return; // percuma menyambung ulang: kredensialnya sudah dicabut
+        }
+
+        // MENYAMBUNG ULANG SENDIRI.
+        //
+        // Tanpa ini, sesi yang tertutup TIDAK PERNAH kembali: listener menempel
+        // di socket yang sudah mati, jadi tag di grup berhenti dibaca sampai
+        // kebetulan ada pengiriman yang memaksa sesi baru. Terlihat 2026-08-06
+        // sebagai "koneksi tertutup, kode 428" beberapa detik setelah startup,
+        // dan sesudah itu botnya diam tanpa ada yang tahu kenapa.
+        jadwalkanSambungUlang(alasan);
     }
   });
 
@@ -224,6 +277,7 @@ async function sesi() {
     );
     sock.ev.on("connection.update", (u) => {
       if (u.connection === "open") {
+        percobaanSambung = 0;
         clearTimeout(batas);
         resolve();
       }
