@@ -64,6 +64,11 @@ export const ROUTE_CLASSIFICATION = new Map([
   ["PUT /api/ai/model", "authenticated"],
   ["POST /api/ai/ask", "authenticated"],
   ["POST /api/ai/navigate", "authenticated"],
+  // Memori temuan lintas dashboard. authenticated, bukan selfOrAdmin: identitas
+  // diambil dari token dan TIDAK pernah dari parameter, jadi tidak ada id user
+  // yang bisa dipalsukan. Pola yang sama dipakai POST /api/ai/ask.
+  ["GET /api/ai/finding", "authenticated"],
+  ["POST /api/ai/finding/distill", "authenticated"],
   ["GET /api/ai/history/:dashboardId", "authenticated"],
   ["POST /api/perf/", "authenticated"],
   ["DELETE /api/ai/history/:dashboardId", "authenticated"],

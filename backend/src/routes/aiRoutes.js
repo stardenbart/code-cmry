@@ -23,6 +23,8 @@ router.put("/model", AiController.saveModel);
 
 router.post("/ask", AiController.ask);
 router.post("/navigate", AiController.navigate);
+router.get("/finding", AiController.findings);
+router.post("/finding/distill", AiController.distillFindings);
 
 router.get("/history/:dashboardId", AiController.history);
 router.delete("/history/:dashboardId", AiController.clearHistory);

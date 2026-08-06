@@ -25,6 +25,11 @@ import * as aiCache from "../services/aiCache.js";
 import {
   buildCatalog, buildNavigatorPrompt, parseNavigatorReply, resolveDashboardRefs,
 } from "../services/aiNavigator.js";
+import { simpanTemuan, temuanAktif, turnTerakhirTersaring, JAM_JENDELA }
+  from "../models/findingModel.js";
+import {
+  instruksiPenyaring, susunPermintaanPenyaring, bacaHasilPenyaring,
+} from "../services/findingDistiller.js";
 import * as aiSettings from "../services/aiSettings.js";
 import { buildKnowledgeBlock, isUnmappedModel, getGlossaryRows } from "../services/aiKnowledge.js";
 import { tryAnswerLocally, AMBANG_KEYAKINAN } from "../services/aiLocalAnswer.js";
@@ -476,6 +481,125 @@ export const AiController = {
       res.status(status).json({
         message: err instanceof GeminiError ? err.message : "Gagal menghubungi CODE AI Navigator",
       });
+    }
+  },
+
+  /**
+   * GET /api/ai/finding — apa yang diingat CODE AI tentang analisa user.
+   *
+   * Ada karena memori yang tidak terlihat tidak bisa dipercaya. Kalau CODE AI
+   * mengingat sesuatu yang salah, user harus bisa melihat dan mengoreksinya.
+   */
+  findings: async (req, res) => {
+    try {
+      const temuan = await temuanAktif(req.user.id);
+      res.json({ temuan, jendelaJam: JAM_JENDELA });
+    } catch (err) {
+      console.error("❌ AI findings error:", err);
+      res.status(500).json({ message: "Gagal membaca temuan" });
+    }
+  },
+
+  /**
+   * POST /api/ai/finding/distill — menyaring percakapan dashboard LAIN.
+   *
+   * Dipanggil frontend saat panel CODE AI dibuka, bukan disisipkan ke /ask,
+   * supaya latensinya tidak terasa di pertanyaan pertama setiap dashboard baru.
+   *
+   * Kegagalan penyaringan TIDAK dilaporkan sebagai error ke user: dia tidak
+   * meminta penyaringan itu, dan chat tetap bisa jalan tanpa memori.
+   */
+  distillFindings: async (req, res) => {
+    const dashboardId = Number(req.body?.dashboardId);
+    if (!Number.isInteger(dashboardId) || dashboardId <= 0) {
+      return res.status(400).json({ message: "dashboardId wajib berupa angka positif" });
+    }
+
+    try {
+      const user = await getUser(req.user.id);
+      if (!user || !user.approved) return res.status(403).json({ message: "Akun tidak aktif" });
+
+      // Dashboard LAIN yang punya percakapan. Dashboard yang sedang dibuka
+      // sengaja dilewati: percakapannya belum selesai.
+      const [baris] = await sql.query(
+        `SELECT dashboard_id, MAX(id) AS turn_terakhir
+           FROM ai_chat_logs
+          WHERE user_id = ? AND dashboard_id IS NOT NULL AND dashboard_id <> ?
+            AND answer IS NOT NULL AND error IS NULL
+            AND created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
+          GROUP BY dashboard_id
+          ORDER BY turn_terakhir DESC
+          LIMIT 4`,
+        [user.id, dashboardId, JAM_JENDELA]
+      );
+
+      if (!baris.length) return res.json({ tersaring: 0, dilewati: 0 });
+
+      const resolved = await resolveKey(user.id);
+      if (!resolved) {
+        // Tanpa kunci, penyaringan tidak bisa jalan. Bukan error: chat tetap
+        // berjalan tanpa memori.
+        return res.json({ tersaring: 0, dilewati: baris.length, alasan: "belum ada kunci akses" });
+      }
+
+      let tersaring = 0;
+      let dilewati = 0;
+
+      for (const b of baris) {
+        const sudah = await turnTerakhirTersaring(user.id, b.dashboard_id);
+        if (Number(b.turn_terakhir) <= sudah) {
+          dilewati += 1;
+          continue;
+        }
+
+        const putaran = await AiModel.getHistory(user.id, b.dashboard_id, 6);
+        if (!putaran.length) {
+          dilewati += 1;
+          continue;
+        }
+
+        const [[d]] = await sql.query("SELECT title FROM dashboards WHERE id = ?", [b.dashboard_id]);
+
+        try {
+          const hasil = await askGemini({
+            apiKey: resolved.apiKey,
+            model: resolved.model,
+            systemInstruction: instruksiPenyaring(),
+            question: susunPermintaanPenyaring({
+              dashboardTitle: d?.title || `Dashboard #${b.dashboard_id}`,
+              putaran,
+            }),
+            maxOutputTokens: Number(process.env.AI_FINDING_MAX_TOKENS) || 2048,
+            thinkingLevel: "low",
+          });
+
+          const temuan = bacaHasilPenyaring(hasil?.text);
+          if (!temuan) {
+            dilewati += 1;
+            continue;
+          }
+
+          await simpanTemuan({
+            userId: user.id,
+            dashboardId: b.dashboard_id,
+            ringkasan: temuan.ringkasan,
+            angka: temuan.angka,
+            belumTerjawab: temuan.belumTerjawab,
+            turnTerakhir: Number(b.turn_terakhir),
+          });
+          tersaring += 1;
+        } catch (err) {
+          // Satu dashboard yang gagal disaring tidak menghentikan sisanya, dan
+          // tidak menggagalkan permintaan.
+          console.warn(`[ai] penyaringan dashboard ${b.dashboard_id} gagal:`, err?.message || err);
+          dilewati += 1;
+        }
+      }
+
+      res.json({ tersaring, dilewati });
+    } catch (err) {
+      console.error("❌ AI distill error:", err);
+      res.status(500).json({ message: "Gagal menyaring temuan" });
     }
   },
 
