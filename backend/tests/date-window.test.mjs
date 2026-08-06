@@ -1,6 +1,7 @@
 import { ok, section } from "./harness.mjs";
 import {
   tanggalWib, jamWib, awalHariWibUtc, jendelaLaporan, nilaiCakupan,
+  periodeLembur, periodeLemburUntukTanggal, tanggalCutoffLembur,
 } from "../src/utils/dateWindow.util.js";
 
 // Semua instant di uji ini ditulis dalam UTC eksplisit, jadi hasilnya tidak
@@ -72,3 +73,31 @@ for (const [label, nilai] of [["null", null], ["undefined", undefined], ["string
   const r = nilaiCakupan(nilai, jendela);
   ok(`${label} -> unavailable`, r.freshness === "unavailable", `dapat ${r.freshness}`);
 }
+
+section("Periode lembur memakai cut-off tanggal 13, bukan bulan kalender");
+
+// Aturan pemilik 2026-08-06: lembur bulan Juni berjalan 13 Juni sampai 12 Juli.
+// Memakai bulan kalender akan menggeser hampir separuh kejadian ke bulan yang
+// salah, dan angkanya tetap keluar tanpa error apa pun.
+ok("cut-off bawaan tanggal 13", tanggalCutoffLembur() === 13, String(tanggalCutoffLembur()));
+
+const juni = periodeLembur(2026, 6);
+ok("Juni mulai 2026-06-13", juni.mulaiTanggal === "2026-06-13", juni.mulaiTanggal);
+ok("Juni selesai 2026-07-12", juni.selesaiTanggal === "2026-07-12", juni.selesaiTanggal);
+ok("labelnya menyebut bulannya", juni.label === "Juni 2026", juni.label);
+
+// Desember menyeberang tahun. Tanpa penanganan ini, periodenya jadi
+// 2026-12-13 sampai 2026-01-12 yang mundur ke belakang.
+const des = periodeLembur(2026, 12);
+ok("Desember selesai di tahun berikutnya", des.selesaiTanggal === "2027-01-12", des.selesaiTanggal);
+
+// Batas yang paling mudah salah: tanggal 12 dan 13.
+ok("tanggal 12 masih periode bulan sebelumnya",
+  periodeLemburUntukTanggal("2026-08-12").label === "Juli 2026",
+  periodeLemburUntukTanggal("2026-08-12").label);
+ok("tanggal 13 sudah periode bulan berjalan",
+  periodeLemburUntukTanggal("2026-08-13").label === "Agustus 2026",
+  periodeLemburUntukTanggal("2026-08-13").label);
+ok("awal Januari masuk periode Desember tahun lalu",
+  periodeLemburUntukTanggal("2026-01-05").label === "Desember 2025",
+  periodeLemburUntukTanggal("2026-01-05").label);

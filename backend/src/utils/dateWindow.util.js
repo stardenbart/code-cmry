@@ -186,3 +186,61 @@ export function nilaiCakupan(refreshTerakhirSelesai, jendela) {
   // Refresh terakhir bahkan mendahului hari laporan: tidak ada data hari itu.
   return { freshness: "unavailable", cutoffWib: null };
 }
+
+// ── Periode cut-off lembur ──────────────────────────────────────────────────
+//
+// Lembur TIDAK dihitung per bulan kalender. Periodenya tanggal 13 bulan
+// sebelumnya sampai tanggal 12 bulan berjalan: 13 Juni sampai 12 Juli adalah
+// lembur bulan JUNI.
+//
+// Aturan ini datang dari pemilik 2026-08-06 dan wajib ada di kode, bukan di
+// ingatan orang. Memakai bulan kalender akan menggeser hampir separuh
+// kejadian ke bulan yang salah, dan angkanya tetap keluar tanpa error apa pun.
+
+/** Tanggal cut-off. Bisa diubah lewat env bila kebijakan payroll berubah. */
+export function tanggalCutoffLembur() {
+  const n = Number(process.env.OVERTIME_CUTOFF_DAY);
+  return Number.isInteger(n) && n >= 1 && n <= 28 ? n : 13;
+}
+
+/**
+ * Periode lembur untuk sebuah bulan.
+ *
+ * @param {number} tahun
+ * @param {number} bulan  1 sampai 12, bulan yang DILAPORKAN
+ * @returns {{label: string, mulaiTanggal: string, selesaiTanggal: string}}
+ */
+export function periodeLembur(tahun, bulan, hariCutoff = tanggalCutoffLembur()) {
+  const pad = (n) => String(n).padStart(2, "0");
+
+  // Mulai: tanggal cut-off di bulan yang dilaporkan.
+  const mulai = `${tahun}-${pad(bulan)}-${pad(hariCutoff)}`;
+
+  // Selesai: sehari sebelum cut-off di bulan berikutnya.
+  const b2 = bulan === 12 ? 1 : bulan + 1;
+  const t2 = bulan === 12 ? tahun + 1 : tahun;
+  const selesai = `${t2}-${pad(b2)}-${pad(hariCutoff - 1)}`;
+
+  const namaBulan = [
+    "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+    "Juli", "Agustus", "September", "Oktober", "November", "Desember",
+  ][bulan - 1];
+
+  return { label: `${namaBulan} ${tahun}`, mulaiTanggal: mulai, selesaiTanggal: selesai };
+}
+
+/**
+ * Periode lembur yang MEMUAT sebuah tanggal.
+ *
+ * Dipakai menjawab "lembur bulan ini berapa": tanggal 5 Agustus masih masuk
+ * periode Juli, karena periode Juli berjalan 13 Juli sampai 12 Agustus.
+ */
+export function periodeLemburUntukTanggal(tanggal, hariCutoff = tanggalCutoffLembur()) {
+  const [y, m, d] = String(tanggal).split("-").map(Number);
+  // Sebelum tanggal cut-off berarti masih periode bulan sebelumnya.
+  return d >= hariCutoff ? periodeLembur(y, m, hariCutoff) : periodeLembur(
+    m === 1 ? y - 1 : y,
+    m === 1 ? 12 : m - 1,
+    hariCutoff
+  );
+}

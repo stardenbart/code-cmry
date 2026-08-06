@@ -186,6 +186,6 @@ PENTING: keluaran sebelumnya DITOLAK karena melebihi ${BATAS_PESAN_KARAKTER} kar
     berhasil: false,
     promptVersion: PROMPT_VERSION,
     muatanByte,
-    alasan: galatTerakhir || "Gemini tidak mengembalikan keluaran yang sah",
+    alasan: galatTerakhir || "CIA tidak mengembalikan keluaran yang sah",
   };
 }
