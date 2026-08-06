@@ -424,8 +424,24 @@ async function jawabPertanyaanMesin(sock, jid, msg, mesin) {
  */
 async function jawabPertanyaanUmum(sock, jid, msg, teks) {
   const { jawabDariSnapshot } = await import("./whatsappQA.service.js");
+  const { jawabDenganDax } = await import("./daxAgent.service.js");
 
   await balas(sock, jid, msg, "Sebentar, saya cek datanya.");
+
+  // AGEN DAX DICOBA LEBIH DULU. Ia memilih dashboard, menyusun query sendiri,
+  // menjalankannya, lalu menganalisis hasilnya, jadi bisa menjawab pertanyaan
+  // yang datanya tidak ada di snapshot: durasi satu mesin, persentase terhadap
+  // running hours, capaian per hari tertentu.
+  //
+  // Snapshot tetap jadi cadangan. Agen memakai tiga panggilan model per
+  // pertanyaan, jadi kuota habis atau query gagal harus tetap menghasilkan
+  // jawaban, bukan diam.
+  const agen = await jawabDenganDax({ pertanyaan: teks });
+  if (agen.berhasil) {
+    await balas(sock, jid, msg, agen.teks);
+    return;
+  }
+  console.warn("[WA] agen DAX gagal, memakai snapshot:", agen.alasan);
 
   const r = await jawabDariSnapshot({ pertanyaan: teks });
 
