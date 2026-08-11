@@ -593,6 +593,14 @@ export const AiController = {
             continue;
           }
 
+          // Penjagaan pola nama di bacaHasilPenyaring menandai, bukan diam-diam
+          // membuang. Kalau instruksi sistem sudah melarang nama tapi model
+          // masih menuliskannya cukup sering untuk kena pola, itu sinyal bagi
+          // ops bahwa instruksinya perlu dipertegas atau modelnya diganti.
+          if (temuan.namaTersensor) {
+            console.warn(`[ai] pola nama tersensor pada temuan dashboard ${b.dashboard_id}`);
+          }
+
           // Yang tersimpan harus berisi nilai asli, bukan token: temuan ini
           // nanti ditampilkan ke user dan disanitasi ulang saat dipakai lagi.
           // Hanya bagian teksnya yang dipulihkan; nilai angka tidak pernah
