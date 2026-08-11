@@ -174,6 +174,7 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
   const [autoSwitch, setAutoSwitch] = useState(true);
   const [quota, setQuota]         = useState(null);
   const [tier, setTier]           = useState("auto");
+  const [temuanLain, setTemuanLain] = useState([]);
 
   const scrollRef = useRef(null);
   const inputRef  = useRef(null);
@@ -215,6 +216,31 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
         setMessages(restored);
       })
       .catch(() => {});
+  }, [dashboard?.id]);
+
+  // Penyaringan temuan dashboard lain dipicu saat panel dibuka, bukan saat user
+  // bertanya, supaya latensinya tidak terasa di pertanyaan pertama.
+  //
+  // Kegagalannya DIABAIKAN dengan sengaja: user tidak meminta penyaringan ini,
+  // dan chat tetap jalan tanpa memori. Menampilkan error di sini hanya
+  // membingungkan.
+  useEffect(() => {
+    if (!dashboard?.id) return;
+    let batal = false;
+
+    API.post("/api/ai/finding/distill", { dashboardId: dashboard.id })
+      .then(() => (batal ? null : API.get("/api/ai/finding")))
+      .then((res) => {
+        if (batal || !res) return;
+        setTemuanLain(
+          (res.data?.temuan || []).filter((t) => Number(t.dashboardId) !== Number(dashboard.id))
+        );
+      })
+      .catch(() => {});
+
+    return () => {
+      batal = true;
+    };
   }, [dashboard?.id]);
 
   // ── Page list (for the picker) ──────────────────────────────────────────────
@@ -635,6 +661,26 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
 
       {/* ── Messages ── */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3 min-h-0">
+        {temuanLain.length > 0 && (
+          <div className="mb-3 rounded-lg border border-cimoryBlue/20 bg-cimoryBlue/5 p-2">
+            <p className="text-[11px] font-medium text-cimoryBlue">
+              Yang saya ingat dari dashboard lain
+            </p>
+            <ul className="mt-1 space-y-0.5 text-[11px] text-gray-600">
+              {temuanLain.map((t) => (
+                <li key={t.dashboardId}>
+                  <span className="font-medium">{t.dashboardTitle}</span> ({t.umurJam} jam lalu):{" "}
+                  {t.ringkasan}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1 text-[11px] text-gray-500">
+              Ini dipakai untuk mengaitkan analisa antar dashboard. Kalau ada yang keliru,
+              sebutkan saja di pertanyaan berikutnya.
+            </p>
+          </div>
+        )}
+
         {messages.length === 0 && !asking && (
           <div className="text-center py-6">
             <Sparkles size={26} className="mx-auto text-cimoryBlue/40 mb-2" />
