@@ -21,8 +21,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { jendelaLaporan } from "../utils/dateWindow.util.js";
-import db from "../config/db.js";
 import { getCiaIdentityText } from "./ciaIdentity.js";
+import { sudahDisapa, tandaiSudahDisapa } from "../models/waGroupIntroModel.js";
 
 /** Jeda minimum antar permintaan per grup. */
 const JEDA_MS = Number(process.env.WHATSAPP_LISTENER_COOLDOWN_MS) || 10 * 60 * 1000;
@@ -189,6 +189,26 @@ function disebut(msg, user) {
 }
 
 /**
+ * Apakah bot boleh mengirim perkenalan ke grup ini.
+ *
+ * Fungsi murni, diekstrak dari handler group-participants.update supaya bisa
+ * diuji tanpa menyalakan socket WhatsApp. Menolak secara default: JID kosong,
+ * JID perorangan (berakhiran @s.whatsapp.net, bukan @g.us), daftar grup yang
+ * bukan array, atau grup yang tidak terdaftar semuanya ditolak. Perkenalan ini
+ * hanya untuk grup yang eksplisit didaftarkan lewat WHATSAPP_GROUP_ID, supaya
+ * bot tidak memperkenalkan diri di grup sembarang yang kebetulan memasukkannya.
+ *
+ * @param {{jidGrup: string, daftarGrup: string[]}} arg
+ * @returns {boolean}
+ */
+export function bolehDisapa({ jidGrup, daftarGrup } = {}) {
+  if (!jidGrup || typeof jidGrup !== "string") return false;
+  if (!jidGrup.endsWith("@g.us")) return false; // JID perorangan, bukan grup
+  if (!Array.isArray(daftarGrup)) return false;
+  return daftarGrup.includes(jidGrup);
+}
+
+/**
  * Memasang listener pada socket Baileys.
  *
  * Dipanggil dari whatsapp.service.js setelah sesi terbuka. Aman dipanggil dua
@@ -331,26 +351,19 @@ export function pasangListener(sock) {
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
-      if (!daftarGrup.includes(grupJid)) {
+      if (!bolehDisapa({ jidGrup: grupJid, daftarGrup })) {
         console.warn(`[WA] bot ditambahkan ke grup ${grupJid} yang TIDAK terdaftar, tidak menyapa`);
         return;
       }
 
       // Penjaga persistent: cek apakah sudah pernah disapa.
-      const [rows] = await db.promise().query(
-        "SELECT group_jid FROM wa_group_intro WHERE group_jid = ?",
-        [grupJid]
-      );
-      if (rows.length > 0) {
+      if (await sudahDisapa(grupJid)) {
         console.log(`[WA] grup ${grupJid} sudah pernah disapa, lewati`);
         return;
       }
 
       // Catat lalu kirim perkenalan.
-      await db.promise().query(
-        "INSERT INTO wa_group_intro (group_jid) VALUES (?)",
-        [grupJid]
-      );
+      await tandaiSudahDisapa(grupJid);
       await sock.sendMessage(grupJid, { text: getCiaIdentityText() });
       console.log(`[WA] perkenalan CIA terkirim ke grup ${grupJid}`);
     } catch (err) {
