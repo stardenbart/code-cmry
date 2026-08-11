@@ -31,6 +31,8 @@ import {
   instruksiPenyaring, susunPermintaanPenyaring, bacaHasilPenyaring,
 } from "../services/findingDistiller.js";
 import { susunKonteksTemuan, aturanTemuanUntukInstruksi } from "../services/findingContext.js";
+import { ringkasKatalogUntukPengalihan, aturanPengalihanUntukInstruksi }
+  from "../services/dashboardRedirect.js";
 import * as aiSettings from "../services/aiSettings.js";
 import { buildKnowledgeBlock, isUnmappedModel, getGlossaryRows } from "../services/aiKnowledge.js";
 import { tryAnswerLocally, AMBANG_KEYAKINAN } from "../services/aiLocalAnswer.js";
@@ -886,6 +888,14 @@ export const AiController = {
       // dengan instance sanitizer yang sama supaya tokennya bisa dipulihkan.
       const konteksTemuan = sanitizer.sanitizeText(konteksTemuanMentah);
 
+      // Katalog pengalihan. getCatalogForUser sudah menyaring hak akses, dan
+      // penyaringan itu TIDAK diulang di prompt: menyerahkan penyaringan akses
+      // ke model berarti satu instruksi terlewat sudah cukup untuk
+      // membocorkan nama dashboard yang tidak boleh dilihat.
+      const katalogPengalihan = await getCatalogForUser(user)
+        .then((d) => ringkasKatalogUntukPengalihan(d))
+        .catch(() => []);
+
       const systemInstruction = buildSystemPrompt({
         userName: user.nama,
         userDept: user.departemen,
@@ -893,10 +903,16 @@ export const AiController = {
         knowledge: knowledge.text,
         sanitized: sanitizer.enabled,
       });
-      // Aturan menyebut sumber angka hanya ditambahkan bila ada temuan, supaya
-      // prompt tidak membawa aturan tentang sesuatu yang tidak ada.
-      const systemInstructionFinal = konteksTemuan
-        ? `${systemInstruction}\n\n${aturanTemuanUntukInstruksi()}`
+      // Aturan menyebut sumber angka dan aturan pengalihan hanya ditambahkan
+      // bila relevan, supaya prompt tidak membawa aturan tentang sesuatu yang
+      // tidak ada.
+      const tambahan = [
+        konteksTemuan ? aturanTemuanUntukInstruksi() : "",
+        katalogPengalihan.length ? aturanPengalihanUntukInstruksi(katalogPengalihan) : "",
+      ].filter(Boolean);
+
+      const systemInstructionFinal = tambahan.length
+        ? `${systemInstruction}\n\n${tambahan.join("\n\n")}`
         : systemInstruction;
       const userMessage = buildUserMessage({
         dataContext,
