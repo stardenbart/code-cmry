@@ -346,14 +346,26 @@ export function answerNeedsMoreData(answer, snapshot) {
   };
 }
 
-export function buildUserMessage({ dataContext, question }) {
-  return [
+/**
+ * @param {object} arg
+ * @param {string} arg.dataContext    snapshot dashboard yang sedang dibuka
+ * @param {string} arg.question
+ * @param {string} [arg.konteksTemuan] blok temuan dari dashboard lain, boleh kosong
+ */
+export function buildUserMessage({ dataContext, question, konteksTemuan }) {
+  const baris = [
     "DATA SNAPSHOT DASHBOARD:",
     "```",
     dataContext,
     "```",
-    "",
-    "PERTANYAAN USER:",
-    question,
-  ].join("\n");
+  ];
+
+  // Urutannya disengaja: snapshot dashboard sekarang lebih dulu supaya itu yang
+  // jadi rujukan utama, temuan dashboard lain sebagai konteks tambahan, lalu
+  // pertanyaan paling akhir supaya paling dekat dengan jawaban.
+  const temuan = String(konteksTemuan || "").trim();
+  if (temuan) baris.push("", temuan);
+
+  baris.push("", "PERTANYAAN USER:", question);
+  return baris.join("\n");
 }

@@ -30,6 +30,7 @@ import { simpanTemuan, temuanAktif, turnTerakhirTersaring, JAM_JENDELA }
 import {
   instruksiPenyaring, susunPermintaanPenyaring, bacaHasilPenyaring,
 } from "../services/findingDistiller.js";
+import { susunKonteksTemuan, aturanTemuanUntukInstruksi } from "../services/findingContext.js";
 import * as aiSettings from "../services/aiSettings.js";
 import { buildKnowledgeBlock, isUnmappedModel, getGlossaryRows } from "../services/aiKnowledge.js";
 import { tryAnswerLocally, AMBANG_KEYAKINAN } from "../services/aiLocalAnswer.js";
@@ -772,6 +773,13 @@ export const AiController = {
         ? await AiModel.getHistory(user.id, dashboard.id, HISTORY_TURNS)
         : [];
 
+      // Temuan dari dashboard LAIN. Gagal membacanya tidak boleh menggagalkan
+      // jawaban: memori adalah tambahan, menjawab adalah tugas utamanya.
+      const temuanLain = await temuanAktif(user.id)
+        .then((t) => t.filter((x) => Number(x.dashboardId) !== Number(dashboard.id)))
+        .catch(() => []);
+      const konteksTemuanMentah = susunKonteksTemuan(temuanLain);
+
       const classified = classify({
         question: q,
         snapshot,
@@ -858,6 +866,8 @@ export const AiController = {
       // product spec bands — scrub those before they cross the boundary.
       knowledge.text = sanitizer.sanitizeKnowledge(knowledge.text);
 
+      const konteksTemuan = konteksTemuanMentah;
+
       const systemInstruction = buildSystemPrompt({
         userName: user.nama,
         userDept: user.departemen,
@@ -865,7 +875,16 @@ export const AiController = {
         knowledge: knowledge.text,
         sanitized: sanitizer.enabled,
       });
-      const userMessage = buildUserMessage({ dataContext, question: safeQuestion });
+      // Aturan menyebut sumber angka hanya ditambahkan bila ada temuan, supaya
+      // prompt tidak membawa aturan tentang sesuatu yang tidak ada.
+      const systemInstructionFinal = konteksTemuan
+        ? `${systemInstruction}\n\n${aturanTemuanUntukInstruksi()}`
+        : systemInstruction;
+      const userMessage = buildUserMessage({
+        dataContext,
+        question: safeQuestion,
+        konteksTemuan,
+      });
 
       // Chat memory: previous Q&A only (the snapshot is always re-sent fresh).
       // History is stored de-tokenized, so it must be re-sanitized on the way out.
@@ -880,7 +899,7 @@ export const AiController = {
           tier: useTier,
           apiKey: resolved.apiKey,
           queueKey: user.id,
-          systemInstruction,
+          systemInstruction: systemInstructionFinal,
           history,
           question: userMessage,
           onRetry: (info) => retries.push(info),
