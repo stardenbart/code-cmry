@@ -841,10 +841,13 @@ export const AiController = {
         ? await AiModel.getHistory(user.id, dashboard.id, HISTORY_TURNS)
         : [];
 
-      // Temuan dari dashboard LAIN. Gagal membacanya tidak boleh menggagalkan
-      // jawaban: memori adalah tambahan, menjawab adalah tugas utamanya.
-      const temuanLain = await temuanAktif(user.id)
-        .then((t) => t.filter((x) => Number(x.dashboardId) !== Number(dashboard.id)))
+      // Temuan dari dashboard LAIN. Dashboard yang sedang dibuka dikecualikan
+      // DI SQL (bukan dibuang sesudahnya di sini): pengecualian di JavaScript
+      // sesudah SQL menerapkan LIMIT bisa menyisakan lebih sedikit temuan dari
+      // yang seharusnya walau masih ada temuan dashboard lain yang segar.
+      // Gagal membacanya tidak boleh menggagalkan jawaban: memori adalah
+      // tambahan, menjawab adalah tugas utamanya.
+      const temuanLain = await temuanAktif(user.id, { kecualikanDashboardId: dashboard.id })
         .catch(() => []);
       const konteksTemuanMentah = susunKonteksTemuan(temuanLain);
 

@@ -68,10 +68,18 @@ export async function simpanTemuan({
  * Umur dihitung di SQL lewat TIMESTAMPDIFF, bukan di JavaScript dari kolom
  * DATETIME. Kolom DATETIME yang dibaca driver lalu dibandingkan dengan waktu
  * proses sudah dua kali menggeser hasil sehari di proyek ini.
+ *
+ * @param {number} [opts.kecualikanDashboardId] Dashboard yang dikecualikan
+ *   dari hasil, misalnya dashboard yang sedang dibuka. Dikecualikan di WHERE,
+ *   BUKAN dibuang sesudahnya di JavaScript: LIMIT sudah menerapkan potongan di
+ *   SQL, jadi membuang satu baris SESUDAH itu di JavaScript bisa menyisakan
+ *   lebih sedikit dari maksDashboard walau masih ada temuan lain yang segar.
+ *   Dibiarkan kosong (default), GET /api/ai/finding memakainya tanpa
+ *   pengecualian karena endpoint itu memang menampilkan semua temuan aktif.
  */
 export async function temuanAktif(
   userId,
-  { jamKebelakang = JAM_JENDELA, maksDashboard = MAKS_DASHBOARD } = {}
+  { jamKebelakang = JAM_JENDELA, maksDashboard = MAKS_DASHBOARD, kecualikanDashboardId = null } = {}
 ) {
   const [rows] = await sql.query(
     `SELECT f.dashboard_id, f.ringkasan, f.angka_json, f.belum_terjawab,
@@ -81,9 +89,15 @@ export async function temuanAktif(
        LEFT JOIN dashboards d ON d.id = f.dashboard_id
       WHERE f.user_id = ?
         AND f.disegarkan_pada >= DATE_SUB(NOW(), INTERVAL ? HOUR)
-      ORDER BY f.disegarkan_pada DESC
+        AND (? IS NULL OR f.dashboard_id <> ?)
+      ORDER BY f.disegarkan_pada DESC, f.dashboard_id DESC
       LIMIT ?`,
-    [Number(userId), Number(jamKebelakang), Number(maksDashboard)]
+    [
+      Number(userId), Number(jamKebelakang),
+      kecualikanDashboardId === null || kecualikanDashboardId === undefined ? null : Number(kecualikanDashboardId),
+      kecualikanDashboardId === null || kecualikanDashboardId === undefined ? null : Number(kecualikanDashboardId),
+      Number(maksDashboard),
+    ]
   );
 
   return rows.map((r) => ({
