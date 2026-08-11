@@ -25,12 +25,17 @@ const buangHtml = (s) =>
  *
  * `getCatalogForUser` (sumber di produksi) menandai hak akses lewat
  * `hasAccess`, sementara pemanggil lain (dan uji ini) memakai `canOpen`.
- * Keduanya diperiksa: dashboard hanya lolos bila TIDAK ADA properti yang
- * secara eksplisit bernilai `false`.
+ * Keduanya diperiksa, tapi dengan default menolak: dashboard hanya lolos bila
+ * ADA properti akses yang bernilai eksplisit `true`. Default menolak dipilih
+ * karena kode ini satu-satunya penjaga sebelum nama dashboard terlarang
+ * disebut ke user. Kalau bentuk objeknya berubah lagi di kemudian hari
+ * seperti yang sudah terjadi pada `canOpen`, default menolak membuat
+ * dashboard baru itu tersaring sampai properti aksesnya dikenali, bukan
+ * diam-diam meloloskan semua dashboard tanpa terdeteksi.
  */
 export function ringkasKatalogUntukPengalihan(dashboards, { maks = 40 } = {}) {
   return (dashboards || [])
-    .filter((d) => d && d.canOpen !== false && d.hasAccess !== false)
+    .filter((d) => d && (d.canOpen === true || d.hasAccess === true))
     .slice(0, maks)
     .map((d) => ({
       id: d.id,

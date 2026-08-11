@@ -24,6 +24,20 @@ section("HTML di deskripsi dibuang");
 ok("tag html hilang", !/[<>]/.test(ringkas[0].ringkas), ringkas[0].ringkas);
 ok("isi deskripsi tetap ada", /Losses RM/.test(ringkas[0].ringkas), ringkas[0].ringkas);
 
+section("Penyaringan pada bentuk data NYATA dari getCatalogForUser (hasAccess, tanpa canOpen)");
+
+const BENTUK_NYATA = [
+  { id: 10, title: "Dashboard Boleh", department: "Ops", description: "isi", hasAccess: true },
+  { id: 11, title: "Dashboard Terlarang", department: "Ops", description: "isi", hasAccess: false },
+  { id: 12, title: "Dashboard Tanpa Properti Akses", department: "Ops", description: "isi" },
+];
+
+const ringkasNyata = ringkasKatalogUntukPengalihan(BENTUK_NYATA);
+ok("hasAccess true lolos", ringkasNyata.some((r) => r.id === 10), JSON.stringify(ringkasNyata));
+ok("hasAccess false tersaring", !ringkasNyata.some((r) => r.id === 11), JSON.stringify(ringkasNyata));
+ok("tanpa properti akses tersaring", !ringkasNyata.some((r) => r.id === 12), JSON.stringify(ringkasNyata));
+ok("hanya satu yang lolos", ringkasNyata.length === 1, JSON.stringify(ringkasNyata));
+
 section("Katalog dibatasi jumlahnya");
 
 const banyak = Array.from({ length: 60 }, (_, i) => ({
