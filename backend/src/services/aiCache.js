@@ -6,9 +6,17 @@
 // numbers to someone who has since moved the slicer to August — exactly the
 // failure the "data berubah, klik Refresh" indicator exists to prevent.
 //
-// Entries are shared per dashboard, not per user: the same question from two
-// managers should not be paid for twice. The caller re-checks dashboard access
-// before serving, so sharing never widens who can see what.
+// Entries default to shared per dashboard, not per user: the same question from
+// two managers should not be paid for twice, dan pemanggil memeriksa ulang akses
+// ke dashboard yang sedang dibuka sebelum menyajikan cache.
+//
+// TAPI itu TIDAK cukup lagi sejak jawaban bisa memuat konteks temuan dari
+// dashboard LAIN milik user itu sendiri (memori lintas dashboard). Pemanggil
+// hanya memeriksa akses ke dashboard yang dibuka, bukan ke dashboard asal
+// temuan, jadi jawaban semacam itu WAJIB diberi `userScope` (id user) supaya
+// tidak dibagi ke user lain yang mungkin tidak berhak melihat dashboard sumber
+// temuannya. Pertanyaan biasa tanpa konteks temuan tetap boleh dibagi lintas
+// user seperti sebelumnya dengan membiarkan `userScope` kosong.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import crypto from "crypto";
@@ -101,8 +109,15 @@ export function snapshotFingerprint(snapshot) {
   return sha(parts.join("\n"));
 }
 
-export function cacheKey({ dashboardId, question, snapshot, tier }) {
-  return sha([dashboardId, normalizeQuestion(question), snapshotFingerprint(snapshot), tier].join("::"));
+/**
+ * @param {string|number} [userScope] Isi dengan id user KETIKA jawabannya memuat
+ *   data pribadi user itu (misalnya konteks temuan dari dashboard lain). Kosong
+ *   berarti entri boleh dibagi ke user lain yang lulus pemeriksaan akses dashboard.
+ */
+export function cacheKey({ dashboardId, question, snapshot, tier, userScope }) {
+  return sha(
+    [dashboardId, normalizeQuestion(question), snapshotFingerprint(snapshot), tier, userScope || ""].join("::")
+  );
 }
 
 export function get(key) {

@@ -805,11 +805,18 @@ export const AiController = {
       const routing = resolveTier({ requested: tier, classified, quota });
 
       // ── Cache lookup (Fase 5) — before spending any quota ────────────────────
+      // userScope WAJIB diisi ketika jawabannya akan memuat konteks temuan: itu
+      // analisa PRIBADI user ini atas dashboard lain, dan pemanggil hanya
+      // memeriksa akses ke dashboard yang sedang dibuka, bukan ke dashboard asal
+      // temuan. Tanpa userScope, user lain yang tidak berhak melihat dashboard
+      // sumber temuan bisa menerima isinya lewat cache. Pertanyaan tanpa temuan
+      // tetap dibiarkan kosong supaya cache-nya masih bisa dibagi lintas user.
       const key = aiCache.cacheKey({
         dashboardId: dashboard.id,
         question: q,
         snapshot,
         tier: routing.tier,
+        userScope: konteksTemuanMentah ? user.id : undefined,
       });
       const cached = aiCache.get(key);
       if (cached) {
