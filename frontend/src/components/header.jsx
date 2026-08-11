@@ -107,7 +107,7 @@ export default function Header({
 
             {onAISettingsClick && (
               <IconButton onClick={onAISettingsClick} icon={Sparkles}
-                color="bg-indigo-500 hover:bg-indigo-600" tooltip="Pengaturan CODE AI" />
+                color="bg-indigo-500 hover:bg-indigo-600" tooltip="Pengaturan CIA" />
             )}
 
             <IconButton onClick={onChangePasswordClick} icon={KeyRound}
@@ -154,7 +154,7 @@ export default function Header({
 
                 {onAISettingsClick && (
                   <MobileAction onClick={onAISettingsClick} icon={Sparkles}
-                    label="Pengaturan CODE AI" color="hover:bg-indigo-600/60" />
+                    label="Pengaturan CIA" color="hover:bg-indigo-600/60" />
                 )}
 
                 <MobileAction onClick={onChangePasswordClick} icon={KeyRound}

@@ -4,7 +4,7 @@
 // Berkas ini sendirian membawa `powerbi-client` — 355 KB ter-minify, sepertiga
 // dari seluruh bundle. Ia sengaja dipisahkan dari jalur iframe: 44 dari 46
 // dashboard memakai iframe dan tidak pernah menyentuh SDK ini. Jalur token
-// hanya menyala saat user menghidupkan Export Mode atau membuka CODE AI.
+// hanya menyala saat user menghidupkan Export Mode atau membuka CIA.
 //
 // Konsekuensinya berkas ini HANYA boleh diimpor secara lazy. Satu impor statis
 // dari mana pun akan menyeret SDK-nya kembali ke chunk utama.

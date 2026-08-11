@@ -100,7 +100,7 @@ export default function CodeAINavigator({ user, onOpenDashboard, onRequestAccess
       setMessages((prev) => [...prev, {
         role: "ai",
         error: true,
-        text: err?.response?.data?.message || "Gagal menghubungi CODE AI Navigator.",
+        text: err?.response?.data?.message || "Gagal menghubungi CIA Navigator.",
       }]);
     } finally {
       setAsking(false);
@@ -115,10 +115,10 @@ export default function CodeAINavigator({ user, onOpenDashboard, onRequestAccess
         <button
           onClick={() => setOpen(true)}
           className="fixed bottom-6 right-6 z-40 flex items-center gap-2 bg-gradient-to-r from-cimoryBlue to-cimoryRed text-white pl-3 pr-4 py-3 rounded-full shadow-lg hover:shadow-2xl hover:-translate-y-0.5 transition-all group"
-          title="Tanya CODE AI: dashboard mana yang saya butuhkan?"
+          title="Tanya CIA: dashboard mana yang saya butuhkan?"
         >
           <Sparkles size={18} className="shrink-0" />
-          <span className="text-sm font-medium hidden sm:inline">Tanya CODE AI</span>
+          <span className="text-sm font-medium hidden sm:inline">Tanya CIA</span>
         </button>
       )}
 
@@ -129,7 +129,7 @@ export default function CodeAINavigator({ user, onOpenDashboard, onRequestAccess
           <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-cimoryBlue to-cimoryRed text-white shrink-0">
             <Compass size={16} className="shrink-0" />
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold leading-tight">CODE AI</p>
+              <p className="text-sm font-semibold leading-tight">CIA</p>
               <p className="text-[10.5px] text-white/70 leading-tight">Cari dashboard &amp; istilah</p>
             </div>
             <button onClick={() => setOpen(false)} className="p-1.5 rounded-lg hover:bg-white/20">
@@ -141,7 +141,7 @@ export default function CodeAINavigator({ user, onOpenDashboard, onRequestAccess
             <div className="m-3 p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11.5px] text-amber-800 shrink-0">
               <p className="flex items-start gap-1.5">
                 <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-                CODE AI belum aktif. Simpan kunci akses lewat menu Pengaturan CODE AI di header.
+                CIA belum aktif. Simpan kunci akses lewat menu Pengaturan CIA di header.
               </p>
             </div>
           )}
@@ -152,7 +152,7 @@ export default function CodeAINavigator({ user, onOpenDashboard, onRequestAccess
                 <Compass size={24} className="mx-auto text-cimoryBlue/40 mb-2" />
                 <p className="text-[12.5px] font-medium text-gray-600">Bingung buka dashboard yang mana?</p>
                 <p className="text-[10.5px] text-gray-400 mt-1 px-2">
-                  Tanya di sini. Untuk analisa angkanya, buka dashboard-nya lalu pakai tombol CODE AI di dalamnya.
+                  Tanya di sini. Untuk analisa angkanya, buka dashboard-nya lalu pakai tombol CIA di dalamnya.
                 </p>
                 <div className="mt-3 flex flex-col gap-1.5">
                   {STARTERS.map((s) => (
@@ -208,7 +208,7 @@ export default function CodeAINavigator({ user, onOpenDashboard, onRequestAccess
                                 <button
                                   onClick={() => {
                                     // One tap does the whole journey: open the dashboard, expand the
-                                    // CODE AI panel, and re-ask the question the user already typed
+                                    // CIA panel, and re-ask the question the user already typed
                                     // here — the navigator cannot see data, the panel can.
                                     const lastUser = [...messages].reverse().find((x) => x.role === "user");
                                     onOpenDashboard?.(d, {
@@ -218,8 +218,8 @@ export default function CodeAINavigator({ user, onOpenDashboard, onRequestAccess
                                     setOpen(false);
                                   }}
                                   title={d.canAskAI
-                                    ? "Buka dashboard, panel CODE AI langsung terbuka dan pertanyaanmu diproses"
-                                    : "Buka dashboard (dashboard ini belum mendukung analisa CODE AI)"}
+                                    ? "Buka dashboard, panel CIA langsung terbuka dan pertanyaanmu diproses"
+                                    : "Buka dashboard (dashboard ini belum mendukung analisa CIA)"}
                                   className="flex-1 flex items-center justify-center gap-1 bg-cimoryBlue text-white text-[10.5px] font-medium py-1.5 rounded-lg hover:bg-cimoryRed transition"
                                 >
                                   {d.canAskAI && <Sparkles size={11} />}
@@ -228,7 +228,7 @@ export default function CodeAINavigator({ user, onOpenDashboard, onRequestAccess
                                 {d.canAskAI && (
                                   <button
                                     onClick={() => { onOpenDashboard?.(d, { withAI: false }); setOpen(false); }}
-                                    title="Buka dashboard saja, tanpa memanggil CODE AI (hemat kuota)"
+                                    title="Buka dashboard saja, tanpa memanggil CIA (hemat kuota)"
                                     className="flex items-center justify-center bg-white border border-gray-300 text-gray-600 text-[10.5px] font-medium px-2 py-1.5 rounded-lg hover:bg-gray-100 transition"
                                   >
                                     Lihat saja

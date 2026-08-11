@@ -137,7 +137,7 @@ function QuotaBar({ quota }) {
       {quota.shared && (
         <p className="mt-1 text-[9.5px] text-gray-400">
           Memakai kunci bersama, kuota ini dibagi dengan semua user. Simpan kunci
-          pribadi di Pengaturan CODE AI untuk jatah sendiri.
+          pribadi di Pengaturan CIA untuk jatah sendiri.
         </p>
       )}
     </div>
@@ -149,7 +149,7 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
   report,             // powerbi-client Report instance (embed-token mode)
   reportReady,        // boolean — report finished rendering
   renderNonce,        // increments on every Power BI "rendered" event
-  initialQuestion,    // carried over from the CODE AI Navigator
+  initialQuestion,    // carried over from the CIA Navigator
   hideHeader,         // parent renders the header (unified with the site header)
   onClose,
   onOpenSettings,
@@ -396,7 +396,7 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
           role: "ai",
           error: true,
           sourceQuestion: q,
-          text: payload?.message || err.message || "Gagal menghubungi CODE AI.",
+          text: payload?.message || err.message || "Gagal menghubungi CIA.",
         },
       ]);
     } finally {
@@ -408,7 +408,7 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
   const clearChat = async () => {
     const setuju = await confirm({
       judul: "Hapus riwayat chat",
-      pesan: "Seluruh percakapan CODE AI untuk dashboard ini akan dihapus.",
+      pesan: "Seluruh percakapan CIA untuk dashboard ini akan dihapus.",
       labelKonfirmasi: "Hapus",
       destruktif: true,
     });
@@ -456,11 +456,11 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
         <div className={`${hideHeader ? "sm:hidden " : ""}flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-cimoryBlue to-cimoryRed text-white shrink-0`}>
           <Sparkles size={17} className="shrink-0" />
           <div className="min-w-0">
-            <p className="text-sm font-semibold leading-tight truncate">CODE AI</p>
+            <p className="text-sm font-semibold leading-tight truncate">CIA (Cimory Intelligence Assistant)</p>
             <p className="text-[11px] text-white/70 truncate">{dashboard?.title}</p>
           </div>
           <div className="ml-auto flex items-center gap-1">
-            <button onClick={onOpenSettings} title="Pengaturan CODE AI" className="p-1.5 rounded-lg hover:bg-white/20">
+            <button onClick={onOpenSettings} title="Pengaturan CIA" className="p-1.5 rounded-lg hover:bg-white/20">
               <KeyRound size={15} />
             </button>
             <button onClick={clearChat} title="Hapus riwayat" className="p-1.5 rounded-lg hover:bg-white/20">
@@ -651,10 +651,10 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
             <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="underline font-medium">
               Google AI Studio
             </a>
-            , lalu simpan di Pengaturan CODE AI.
+            , lalu simpan di Pengaturan CIA.
           </p>
           <button onClick={onOpenSettings} className="px-3 py-1.5 rounded-lg bg-amber-600 text-white font-medium hover:bg-amber-700">
-            Buka Pengaturan CODE AI
+            Buka Pengaturan CIA
           </button>
         </div>
       )}
@@ -784,7 +784,7 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
                     {m.meta && !m.meta.restored && (
                       <p className="mt-2 pt-1.5 border-t border-gray-200 text-[10px] text-gray-400">
                         <span className="font-medium text-gray-500">
-                          {m.meta.tierLabel || "CODE AI"}
+                          {m.meta.tierLabel || "CIA"}
                         </span>
                         {m.meta.routing?.reasons?.length > 0 && m.meta.routing.auto && (
                           <span title={`Skor kompleksitas ${m.meta.routing.score}`}>
@@ -899,7 +899,7 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
         </div>
 
         <p className="mt-1 text-[10px] text-gray-400">
-          Jawaban CODE AI berdasarkan data yang tampil. Selalu verifikasi angka penting di dashboard.
+          Jawaban CIA berdasarkan data yang tampil. Selalu verifikasi angka penting di dashboard.
         </p>
       </div>
     </div>

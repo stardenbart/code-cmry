@@ -39,7 +39,7 @@ export default function AISettingsModal({ onClose }) {
         setStatus(data);
         setModel(data.model || "gemini-3.6-flash");
       })
-      .catch(() => setMsg({ type: "err", text: "Gagal memuat status CODE AI" }));
+      .catch(() => setMsg({ type: "err", text: "Gagal memuat status CIA" }));
 
   useEffect(() => { loadStatus(); }, []);
 
@@ -70,7 +70,7 @@ export default function AISettingsModal({ onClose }) {
   const removeKey = async () => {
     const setuju = await confirm({
       judul: "Hapus kunci pribadi",
-      pesan: "Setelah dihapus, CODE AI akan memakai kunci universal yang kuotanya dibagi dengan semua user.",
+      pesan: "Setelah dihapus, CIA akan memakai kunci universal yang kuotanya dibagi dengan semua user.",
       labelKonfirmasi: "Hapus",
       destruktif: true,
     });
@@ -106,7 +106,7 @@ export default function AISettingsModal({ onClose }) {
   const removeUniversal = async () => {
     const setuju = await confirm({
       judul: "Hapus kunci universal",
-      pesan: "User yang tidak punya kunci pribadi tidak akan bisa memakai CODE AI setelah ini.",
+      pesan: "User yang tidak punya kunci pribadi tidak akan bisa memakai CIA setelah ini.",
       labelKonfirmasi: "Hapus",
       destruktif: true,
     });
@@ -128,7 +128,7 @@ export default function AISettingsModal({ onClose }) {
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 z-50 p-4">
       <div className="bg-white p-6 w-[440px] max-h-[90vh] overflow-y-auto shadow-xl">
-        <h2 className="text-lg font-semibold mb-4 text-cimoryBlue">Pengaturan CODE AI</h2>
+        <h2 className="text-lg font-semibold mb-4 text-cimoryBlue">Pengaturan CIA (Cimory Intelligence Assistant)</h2>
 
         {/* Status */}
         {!status ? (
@@ -138,7 +138,7 @@ export default function AISettingsModal({ onClose }) {
         ) : (
           <div className="mb-4 border rounded-lg p-3 text-sm">
             <p className={`font-medium mb-1 ${status.enabled ? "text-green-700" : "text-amber-700"}`}>
-              {status.enabled ? "CODE AI aktif" : "CODE AI belum aktif"}
+              {status.enabled ? "CIA aktif" : "CIA belum aktif"}
             </p>
             <ul className="space-y-0.5 text-gray-600 text-[13px]">
               <li>Kunci pribadi: {status.hasUserKey

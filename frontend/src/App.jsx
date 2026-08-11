@@ -54,7 +54,7 @@ function DashboardCard({
   const [cardRef, visible] = useInViewport();
 
   // Hanya kartu dengan report GUID yang bisa memakai embed token, jadi hanya
-  // itu yang layak di-prefetch. Yang ditolong adalah tombol CODE AI dan Export
+  // itu yang layak di-prefetch. Yang ditolong adalah tombol CIA dan Export
   // Mode di kartu ini — bukan tampilan iframe-nya, yang tidak memakai token.
   const guid = allowed ? extractReportGuid(dash.report_id) : null;
 
@@ -75,9 +75,9 @@ function DashboardCard({
             <button
               onClick={() => onAskAI({ ...dash, department })}
               className="flex items-center gap-1.5 text-xs text-cimoryBlue hover:text-cimoryRed transition px-2 py-1 rounded-lg hover:bg-cimoryBlue/10"
-              title="Tanya CODE AI tentang dashboard ini"
+              title="Tanya CIA tentang dashboard ini"
             >
-              <Sparkles size={14} /> CODE AI
+              <Sparkles size={14} /> CIA
             </button>
           )}
           <button
@@ -202,7 +202,7 @@ function FullscreenDash({ dash, accessStatus, user, onClose, onRequestAccess, on
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-gray-900 overscroll-contain">
-      {/* One continuous gradient bar: dashboard controls on the left, the CODE AI
+      {/* One continuous gradient bar: dashboard controls on the left, the CIA
           panel header on the right. The left side simply narrows when the panel
           opens, so there is no second bar and no colour seam. */}
       <div className="flex items-stretch bg-gradient-to-r from-cimoryBlue to-cimoryRed text-white shrink-0">
@@ -223,9 +223,9 @@ function FullscreenDash({ dash, accessStatus, user, onClose, onRequestAccess, on
                     ? "bg-white text-cimoryBlue"
                     : "bg-white/20 text-white hover:bg-white/30"
                 }`}
-                title="Tanya CODE AI tentang data dashboard ini"
+                title="Tanya CIA tentang data dashboard ini"
               >
-                <Sparkles size={13} /> CODE AI
+                <Sparkles size={13} /> CIA
               </button>
             )}
             {allowed && hasTokenEmbed && (
@@ -250,10 +250,10 @@ function FullscreenDash({ dash, accessStatus, user, onClose, onRequestAccess, on
           <div className="hidden sm:flex items-center gap-2 px-4 py-3 w-[420px] shrink-0 border-l border-white/25">
             <Sparkles size={16} className="shrink-0" />
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold leading-tight">CODE AI</p>
+              <p className="text-sm font-semibold leading-tight">CIA</p>
               <p className="text-[10.5px] text-white/70 leading-tight truncate">{dash.title}</p>
             </div>
-            <button onClick={onOpenAISettings} title="Pengaturan CODE AI" className="p-1.5 rounded-lg hover:bg-white/20">
+            <button onClick={onOpenAISettings} title="Pengaturan CIA" className="p-1.5 rounded-lg hover:bg-white/20">
               <KeyRound size={15} />
             </button>
             <button onClick={() => panelRef.current?.clearChat()} title="Hapus riwayat" className="p-1.5 rounded-lg hover:bg-white/20">
@@ -540,7 +540,7 @@ function Dashboard({ user, onLogout }) {
         <span className="font-medium text-cimoryBlue">Digital Transformation Plant Sentul</span>
       </footer>
 
-      {/* Sits ABOVE the CODE AI launcher, which owns the bottom-right corner */}
+      {/* Sits ABOVE the CIA launcher, which owns the bottom-right corner */}
       {showScrollTop && (
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}

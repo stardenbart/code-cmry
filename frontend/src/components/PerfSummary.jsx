@@ -100,7 +100,7 @@ export default function PerfSummary() {
 
       {cakupan && cakupan.total > 0 && (
         <>
-          <h4 className="text-sm font-semibold text-gray-700 mt-5 mb-1">Pertanyaan CODE AI</h4>
+          <h4 className="text-sm font-semibold text-gray-700 mt-5 mb-1">Pertanyaan CIA</h4>
 
           {cakupan.tercatat > 0 ? (
             <p className="text-sm text-gray-700">

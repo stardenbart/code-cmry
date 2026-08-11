@@ -70,8 +70,8 @@ const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const reportIdState = (value) => {
   const raw = (value || "").trim();
-  if (!raw) return { level: "empty", message: "Kosong. Export Mode dan CODE AI tidak aktif untuk dashboard ini." };
-  if (GUID_RE.test(raw)) return { level: "ok", message: "Report GUID valid. Export Mode dan CODE AI aktif." };
+  if (!raw) return { level: "empty", message: "Kosong. Export Mode dan CIA tidak aktif untuk dashboard ini." };
+  if (GUID_RE.test(raw)) return { level: "ok", message: "Report GUID valid. Export Mode dan CIA aktif." };
   if (/[?&]reportId=([0-9a-f-]{36})/i.test(raw)) {
     const guid = raw.match(/[?&]reportId=([0-9a-f-]{36})/i)[1];
     return { level: "warn", message: `Terdeteksi URL. GUID-nya: ${guid}. Sebaiknya isi GUID-nya saja.` };
@@ -209,7 +209,7 @@ const DashboardManager = () => {
 	          className={inputCls} />
 	      </Field>
 
-	      <Field label="Report ID (Export Mode & CODE AI)">
+	      <Field label="Report ID (Export Mode & CIA)">
 	        <input type="text" placeholder="contoh: 60f4984e-db53-4948-8bb3-0f6b932958c3"
 	          value={newDashboard.report_id}
 	          onChange={(e) => setNewDashboard({ ...newDashboard, report_id: e.target.value })}
@@ -268,7 +268,7 @@ const DashboardManager = () => {
 	          className={inputCls} />
 	      </Field>
 
-              <Field label="Report ID (Export Mode & CODE AI)">
+              <Field label="Report ID (Export Mode & CIA)">
 	        <input type="text" placeholder="contoh: 60f4984e-db53-4948-8bb3-0f6b932958c3"
 	          value={editingDashboard.report_id || ""}
 	          onChange={(e) => setEditingDashboard({ ...editingDashboard, report_id: e.target.value })}

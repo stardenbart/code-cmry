@@ -376,7 +376,7 @@ import { useConfirm } from "./ConfirmProvider";
                     className="absolute right-3 top-9 text-gray-500 pointer-events-none"
                   />
                   <p className="mt-1 text-xs text-gray-500">
-                    Admin bisa mengelola user, dashboard, dan kunci universal CODE AI.
+                    Admin bisa mengelola user, dashboard, dan kunci universal CIA.
                     Access Type di atas mengatur dashboard yang terlihat, bukan hak kelola ini.
                   </p>
                 </div>

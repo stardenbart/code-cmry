@@ -3,7 +3,7 @@
 //
 // Cakupannya sempit dan itu disengaja. Pengukuran menunjukkan jalur default
 // (iframe) tidak memakai token sama sekali — tokenMs-nya 0. Yang ditolong di
-// sini adalah jalur embed token, yaitu saat user menekan CODE AI atau
+// sini adalah jalur embed token, yaitu saat user menekan CIA atau
 // menyalakan Export Mode dari kartu yang sedang ia arahkan kursornya. Di sana
 // pengambilan token dingin terukur 1.395 ms.
 //
