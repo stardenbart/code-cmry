@@ -93,14 +93,25 @@ function ambilJson(teks) {
 // Penopengan penuh menunggu pendeteksi entitas dari teks bebas yang belum ada
 // di proyek ini.
 const POLA_ORGANISASI_SRC = "\\b(?:PT|CV|UD)\\.?\\s+[A-Z][\\w.'-]*(?:\\s+[A-Z][\\w.'-]*){0,4}";
-const POLA_SAPAAN_SRC = "\\b(?:Bpk|Ibu|Sdri?)\\.?\\s+[A-Z][\\w.'-]*(?:\\s+[A-Z][\\w.'-]*){0,3}";
+// Pak/Bu ditambahkan di samping Bpk/Ibu/Sdr: sumber jalur ini adalah percakapan
+// chat kasual, dan di register itu "Pak"/"Bu" justru bentuk yang paling umum
+// dipakai, bukan "Bpk"/"Ibu" yang lebih formal.
+const POLA_SAPAAN_SRC = "\\b(?:Bpk|Ibu|Sdri?|Pak|Bu)\\.?\\s+[A-Z][\\w.'-]*(?:\\s+[A-Z][\\w.'-]*){0,3}";
 
 // TANPA flag "i": kalau dibuat case-insensitive, [A-Z] jadi cocok dengan huruf
 // kecil juga, dan kata sambung tak berhuruf besar seperti "pada" ikut tersedot
 // ke dalam satu kecocokan bersama kata berikutnya yang memang berhuruf besar
 // ("...Jaya pada CMD" bisa lenyap seluruhnya). Gelar (PT/CV/UD) dan sapaan
-// (Bpk/Ibu/Sdr) memang lazim ditulis dengan huruf besar, jadi case-sensitive
-// tidak kehilangan kasus nyata dan menghindari bug itu.
+// (Bpk/Ibu/Sdr/Pak/Bu) memang lazim ditulis dengan huruf besar, jadi
+// case-sensitive tidak kehilangan kasus nyata dan menghindari bug itu.
+//
+// Case-sensitivity ini JUGA yang mencegah "Bu"/"Pak" mencocoki kata biasa:
+// "buat"/"pakai" ditulis huruf kecil di awalnya ('b'/'p'), jadi tidak pernah
+// cocok dengan alternation berhuruf besar ('Bu'/'Pak'). Bahkan bila kata itu
+// mengawali kalimat dan huruf pertamanya jadi besar ("Buat laporan...",
+// "Pakai filter..."), \s+ yang WAJIB langsung sesudah token sapaan tetap
+// menahannya: sesudah "Bu"/"Pak" di kata itu langsung disusul huruf lain
+// ('a'/'a'), bukan spasi, jadi keseluruhan tidak pernah cocok.
 
 /** True bila teks memuat pola nama organisasi atau sapaan orang. */
 function memuatPolaNama(teks) {
