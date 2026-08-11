@@ -256,11 +256,27 @@ export function pasangListener(sock) {
         const { minta, alasan } = kenaliPermintaan(teks);
 
         if (!minta) {
-          await balas(sock, jid, msg,
-            "Saya bisa dua hal. Pertama, mengirim ringkasan operasional terbaru: " +
-            "tag saya dengan kata seperti update, rekap, atau ringkasan. Kedua, " +
-            "menjelaskan detail downtime satu mesin: sebutkan nama mesinnya, " +
-            "misalnya kenapa Tetra Pak Line 3 downtime-nya tinggi.");
+          // Contoh diambil dari daftar sebenarnya, bukan ditulis tangan. Contoh
+          // yang ditulis tangan akan basi begitu daftar mesin berubah, dan tidak
+          // ada yang tahu.
+          const { susunBalasanDiLuarKonteks } = await import("./gayaBahasa.js");
+          const { daftarMesin } = await import("./powerbiSummary.service.js");
+          const { periodeLemburUntukTanggal, jendelaLaporan } =
+            await import("../utils/dateWindow.util.js");
+
+          const mesin = await daftarMesin().catch(() => []);
+          const periode = (() => {
+            try {
+              return periodeLemburUntukTanggal(jendelaLaporan().tanggal).label;
+            } catch {
+              return null;
+            }
+          })();
+
+          await balas(sock, jid, msg, susunBalasanDiLuarKonteks({
+            contohMesin: mesin.slice(0, 2),
+            labelPeriodeLembur: periode,
+          }));
           console.log(`[WA] tag diabaikan: ${alasan}`);
           continue;
         }

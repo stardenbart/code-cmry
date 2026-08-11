@@ -32,6 +32,7 @@ import { sanitasiTeks } from "../utils/sanitizeText.util.js";
 import {
   jendelaMinggu, jendelaLaporan, periodeLemburUntukTanggal,
 } from "../utils/dateWindow.util.js";
+import { aturanGayaSantai } from "./gayaBahasa.js";
 
 // DUA model, bukan tiga. Jalan pertama memilih tiga dan hasilnya tiga jawaban
 // yang saling bertentangan untuk pertanyaan yang sama, disajikan berdampingan
@@ -320,6 +321,8 @@ export async function jawabDenganDax({ pertanyaan }) {
         "   CMD, atau periode yang nyata, karena pertanyaan yang menyebut nama",
         "   spesifik bisa dijawab langsung sementara pertanyaan umum tidak.",
         konteksPeriode(),
+        "",
+        aturanGayaSantai(),
       ].join("\n"),
       pertanyaan: [
         "Hasil query:",

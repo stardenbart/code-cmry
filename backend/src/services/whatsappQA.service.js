@@ -20,6 +20,7 @@ import { susunMuatan } from "./summaryFormatter.js";
 import { ambilSnapshotMingguan } from "./historicalStore.service.js";
 import { jendelaMinggu, jendelaLaporan } from "../utils/dateWindow.util.js";
 import { sanitasiTeks, mengandungPolaInstruksi } from "../utils/sanitizeText.util.js";
+import { aturanGayaSantai } from "./gayaBahasa.js";
 
 /** Batas panjang jawaban di grup. Lebih pendek dari laporan: ini balasan chat. */
 export const BATAS_JAWABAN = Number(process.env.WHATSAPP_QA_MAX_CHARS) || 1200;
@@ -55,6 +56,8 @@ function instruksiTanyaJawab() {
     "bisa dijawab dari data yang sama. Sebutkan nama mesin, CMD, atau periode",
     "yang nyata: pertanyaan yang menyebut nama spesifik bisa dijawab langsung,",
     "sementara pertanyaan umum tidak.",
+    "",
+    aturanGayaSantai(),
   ].join("\n");
 }
 
