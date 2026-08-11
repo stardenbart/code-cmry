@@ -13,6 +13,7 @@
 import { classifyIntent } from "./aiIntent.js";
 import { columnStats, detectNumericColumns, parseNumber } from "./tabular.js";
 import { getGlossaryRows } from "./aiKnowledge.js";
+import { getCiaIdentityText, isCiaIdentityQuestion } from "./ciaIdentity.js";
 
 const AMBANG = 0.7;
 
@@ -174,6 +175,15 @@ function barisTerurut(visual, valueIdx, arah) {
  *          |{answered: false, reason: string, intent: string}}
  */
 export function tryAnswerLocally({ question, snapshot, dashboard }) {
+  if (isCiaIdentityQuestion(question)) {
+    return {
+      answered: true,
+      intent: "IDENTITY",
+      confidence: 1.0,
+      text: getCiaIdentityText(),
+    };
+  }
+
   const { intent, arah, n, entitas, kolomDiminta } = classifyIntent(question);
 
   if (intent === "ANALYTICAL") return tolak("pertanyaan meminta interpretasi", intent);

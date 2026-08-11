@@ -21,6 +21,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { jendelaLaporan } from "../utils/dateWindow.util.js";
+import db from "../config/db.js";
+import { getCiaIdentityText } from "./ciaIdentity.js";
 
 /** Jeda minimum antar permintaan per grup. */
 const JEDA_MS = Number(process.env.WHATSAPP_LISTENER_COOLDOWN_MS) || 10 * 60 * 1000;
@@ -304,6 +306,55 @@ export function pasangListener(sock) {
       } catch (err) {
         console.error("[WA] listener gagal memproses pesan:", err?.message || err);
       }
+    }
+  });
+
+  // ── Perkenalan CIA saat bot dimasukkan ke grup ────────────────────────────
+  //
+  // Langganan baru: group-participants.update. Hanya menyapa sekali per grup
+  // (dijaga oleh tabel wa_group_intro), dan hanya di grup yang terdaftar pada
+  // WHATSAPP_GROUP_ID supaya bot tidak memperkenalkan diri di grup sembarang.
+  sock.ev.on("group-participants.update", async ({ id: grupJid, participants, action }) => {
+    try {
+      if (action !== "add") return;
+
+      // Apakah yang ditambahkan adalah bot ini sendiri?
+      const bersih = (j) => String(j || "").split(":")[0].split("@")[0];
+      const akuSemua = new Set(
+        [sock.user?.id, sock.user?.lid, sock.user?.jid].filter(Boolean).map(bersih)
+      );
+      const botDitambahkan = (participants || []).some((p) => akuSemua.has(bersih(p)));
+      if (!botDitambahkan) return;
+
+      // Hanya sapa di grup yang terdaftar pada WHATSAPP_GROUP_ID.
+      const daftarGrup = (process.env.WHATSAPP_GROUP_ID || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (!daftarGrup.includes(grupJid)) {
+        console.warn(`[WA] bot ditambahkan ke grup ${grupJid} yang TIDAK terdaftar, tidak menyapa`);
+        return;
+      }
+
+      // Penjaga persistent: cek apakah sudah pernah disapa.
+      const [rows] = await db.promise().query(
+        "SELECT group_jid FROM wa_group_intro WHERE group_jid = ?",
+        [grupJid]
+      );
+      if (rows.length > 0) {
+        console.log(`[WA] grup ${grupJid} sudah pernah disapa, lewati`);
+        return;
+      }
+
+      // Catat lalu kirim perkenalan.
+      await db.promise().query(
+        "INSERT INTO wa_group_intro (group_jid) VALUES (?)",
+        [grupJid]
+      );
+      await sock.sendMessage(grupJid, { text: getCiaIdentityText() });
+      console.log(`[WA] perkenalan CIA terkirim ke grup ${grupJid}`);
+    } catch (err) {
+      console.error("[WA] gagal memproses group-participants.update:", err?.message || err);
     }
   });
 
