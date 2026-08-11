@@ -71,3 +71,59 @@ for (const [label, nilai] of [
   ok(`${label} -> tidak melempar`, melempar === false, String(hasil));
   ok(`${label} -> false`, hasil === false, String(hasil));
 }
+
+section("Pertanyaan identitas dalam bentuk lain juga dikenali");
+
+// Kejadian nyata: user mencoba "siapa kamu", "perkenalkan diri kamu", dan
+// "apa cia", lalu ketiganya dijawab "pertanyaan ini belum bisa saya jawab".
+// Dua sebabnya: polanya hanya memuat "cia itu apa", dan jalur WhatsApp tidak
+// pernah memanggil pemeriksaan ini sama sekali.
+const IDENTITAS = [
+  "siapa kamu",
+  "kamu siapa",
+  "@CODE AI siapa kamu",
+  "@6281234567890 kamu siapa",
+  "perkenalkan diri kamu",
+  "perkenalan dong",
+  "kenalan dong",
+  "apa cia",
+  "apa itu cia",
+  "cia itu apa",
+  "cia apaan",
+  "bisa bantu apa aja",
+  "kamu bisa apa",
+  "fungsinya apa",
+  "apa tugas kamu",
+  "tugasmu apa",
+  "gunanya apa",
+];
+for (const t of IDENTITAS) {
+  ok(`identitas: ${t}`, isCiaIdentityQuestion(t) === true, "tidak dikenali");
+}
+
+section("Pertanyaan data TIDAK boleh dibajak jalur identitas");
+
+// Ini bagian yang menahan perbaikan di atas supaya tidak jadi masalah baru.
+// Pola yang terlalu lebar akan menjawab perkenalan untuk pertanyaan yang
+// seharusnya menarik angka, dan user akan mengira botnya rusak.
+const DATA = [
+  "apa penyebab downtime tetra pak line 3",
+  "apa saja kendala produksi hari ini",
+  "apa yang terjadi di cmd 3",
+  "berapa output uht milk 250 ml kemarin",
+  "siapa PIC dashboard OEE",
+  "bandingkan downtime minggu ini",
+  "jelaskan deviasi cmd 3",
+  "apa deviasi paling tinggi di cmd 3",
+  "rekap overtime hari sabtu",
+];
+for (const t of DATA) {
+  ok(`bukan identitas: ${t.slice(0, 40)}`, isCiaIdentityQuestion(t) === false, "dibajak jalur identitas");
+}
+
+section("Masukan rusak tidak melempar");
+
+ok("kosong", isCiaIdentityQuestion("") === false, "true atau melempar");
+ok("null", isCiaIdentityQuestion(null) === false, "true atau melempar");
+ok("angka", isCiaIdentityQuestion(123) === false, "true atau melempar");
+ok("hanya mention", isCiaIdentityQuestion("@CODE AI") === false, "true atau melempar");

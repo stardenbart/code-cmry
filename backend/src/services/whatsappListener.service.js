@@ -21,7 +21,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { jendelaLaporan } from "../utils/dateWindow.util.js";
-import { getCiaIdentityText } from "./ciaIdentity.js";
+import { getCiaIdentityText, isCiaIdentityQuestion } from "./ciaIdentity.js";
 import { sudahDisapa, tandaiSudahDisapa } from "../models/waGroupIntroModel.js";
 
 // ── Topik terakhir per grup ───────────────────────────────────────────────────
@@ -274,6 +274,22 @@ export function pasangListener(sock) {
         if (!disebut(msg, sock.user)) continue;
 
         const teks = bacaTeks(msg);
+
+        // Pertanyaan identitas dijawab PALING AWAL, dari kode, tanpa memanggil
+        // model dan tanpa menyentuh Power BI. Nol kuota, nol latensi, dan
+        // jawabannya tidak mungkin dikarang karena diambil dari sumber teks yang
+        // sama dengan perkenalan saat bot masuk grup.
+        //
+        // Sebelumnya pemeriksaan ini hanya terpasang di tryAnswerLocally, yaitu
+        // jalur web. Di WhatsApp "siapa kamu" tidak pernah sampai ke sana dan
+        // jatuh ke cabang di luar konteks, sehingga dijawab "pertanyaan ini
+        // belum bisa saya jawab" untuk pertanyaan yang justru paling bisa
+        // dijawab sendiri.
+        if (isCiaIdentityQuestion(teks)) {
+          await balas(sock, jid, msg, getCiaIdentityText());
+          console.log("[WA] pertanyaan identitas dijawab lokal");
+          continue;
+        }
 
         // Pertanyaan detail diperiksa LEBIH DULU. Kalimat seperti "jelasin
         // kenapa Tetra Line 3 downtime-nya tinggi" memuat kata yang menyerupai
