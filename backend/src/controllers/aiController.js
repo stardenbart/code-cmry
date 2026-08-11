@@ -561,6 +561,17 @@ export const AiController = {
 
         const [[d]] = await sql.query("SELECT title FROM dashboards WHERE id = ?", [b.dashboard_id]);
 
+        // Riwayat disimpan de-tokenized, sama seperti jalur menjawab, jadi
+        // wajib disanitasi ulang sebelum menyeberang ke model penyaring. Satu
+        // instance dipakai untuk seluruh putaran ini karena hanya instance
+        // itu yang bisa memulihkan tokennya sesudah hasil penyaringan pulang.
+        const sanitizer = getSanitizer();
+        const putaranAman = putaran.map((p) => ({
+          ...p,
+          question: sanitizer.sanitizeText(p.question),
+          answer: sanitizer.sanitizeText(p.answer),
+        }));
+
         try {
           const hasil = await askGemini({
             apiKey: resolved.apiKey,
@@ -568,7 +579,7 @@ export const AiController = {
             systemInstruction: instruksiPenyaring(),
             question: susunPermintaanPenyaring({
               dashboardTitle: d?.title || `Dashboard #${b.dashboard_id}`,
-              putaran,
+              putaran: putaranAman,
             }),
             maxOutputTokens: Number(process.env.AI_FINDING_MAX_TOKENS) || 2048,
             thinkingLevel: "low",
@@ -580,12 +591,16 @@ export const AiController = {
             continue;
           }
 
+          // Yang tersimpan harus berisi nilai asli, bukan token: temuan ini
+          // nanti ditampilkan ke user dan disanitasi ulang saat dipakai lagi.
+          // Hanya bagian teksnya yang dipulihkan; nilai angka tidak pernah
+          // ditokenisasi jadi tidak perlu dipulihkan.
           await simpanTemuan({
             userId: user.id,
             dashboardId: b.dashboard_id,
-            ringkasan: temuan.ringkasan,
-            angka: temuan.angka,
-            belumTerjawab: temuan.belumTerjawab,
+            ringkasan: sanitizer.restore(temuan.ringkasan),
+            angka: temuan.angka.map((a) => ({ ...a, measure: sanitizer.restore(a.measure) })),
+            belumTerjawab: temuan.belumTerjawab ? sanitizer.restore(temuan.belumTerjawab) : null,
             turnTerakhir: Number(b.turn_terakhir),
           });
           tersaring += 1;
@@ -866,7 +881,10 @@ export const AiController = {
       // product spec bands — scrub those before they cross the boundary.
       knowledge.text = sanitizer.sanitizeKnowledge(knowledge.text);
 
-      const konteksTemuan = konteksTemuanMentah;
+      // Temuan berasal dari jawaban tersimpan dashboard lain, sama seperti
+      // riwayat: disimpan de-tokenized, jadi wajib disanitasi ulang di sini
+      // dengan instance sanitizer yang sama supaya tokennya bisa dipulihkan.
+      const konteksTemuan = sanitizer.sanitizeText(konteksTemuanMentah);
 
       const systemInstruction = buildSystemPrompt({
         userName: user.nama,

@@ -1,5 +1,6 @@
 import { ok, section } from "./harness.mjs";
 import { buildUserMessage } from "../src/services/aiContext.js";
+import { createSanitizer } from "../src/services/aiSanitizer.js";
 
 section("buildUserMessage tanpa temuan tetap seperti sebelumnya");
 
@@ -35,4 +36,34 @@ for (const kosong of ["", "   ", null, undefined]) {
   ok(`konteks ${JSON.stringify(kosong)} tidak memunculkan blok`,
     !/TEMUAN DARI DASHBOARD LAIN/i.test(m));
 }
+
+section("Blok temuan disanitasi sebelum masuk userMessage (batas privasi)");
+
+// Meniru urutan di handler ask: snapshot dashboard yang sedang dibuka
+// mendaftarkan identitas dulu, lalu blok temuan (yang berasal dari jawaban
+// tersimpan dashboard lain) disanitasi dengan INSTANCE sanitizer yang sama
+// sebelum dirangkai jadi userMessage.
+const sanitizer = createSanitizer({ secret: "test-secret" });
+const snapshotDenganNama = {
+  visuals: [
+    {
+      columns: ["Nama Operator", "Downtime"],
+      rows: [["Budi Santoso", 12]],
+    },
+  ],
+};
+sanitizer.sanitizeSnapshot(snapshotDenganNama);
+
+const konteksMentah =
+  "=== TEMUAN DARI DASHBOARD LAIN ===\n- Losses Report (1 jam lalu): downtime Budi Santoso naik";
+const konteksAman = sanitizer.sanitizeText(konteksMentah);
+ok("nama tersamar di blok temuan", !konteksAman.includes("Budi Santoso"), konteksAman);
+
+const userMessage = buildUserMessage({
+  dataContext: "DATA",
+  question: "kenapa downtime naik?",
+  konteksTemuan: konteksAman,
+});
+ok("nama tidak lolos apa adanya ke userMessage", !userMessage.includes("Budi Santoso"), userMessage);
+ok("token pengganti muncul di userMessage", /ORANG_[0-9a-f]+/.test(userMessage), userMessage);
 
