@@ -7,13 +7,17 @@
 // punya cara mengetahuinya.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { formatNumber } from "./tabular.js";
+
 /** Batas total blok temuan. Muatan prompt sudah padat oleh snapshot dashboard. */
 export const BATAS_KONTEKS_TEMUAN = Number(process.env.AI_FINDING_CONTEXT_CHARS) || 1200;
 
-const fmt = (v) =>
-  typeof v === "number" && Number.isFinite(v)
-    ? v.toLocaleString("id-ID", { maximumFractionDigits: Math.abs(v) < 10 ? 3 : 0 })
-    : String(v);
+// Dulu ada fmt lokal dengan aturan pembulatan sendiri, berbeda dari formatter
+// kanonik di tabular.js untuk rentang 10 sampai 1000 — angka yang sama bisa
+// disebut berbeda antara blok temuan dan dashboard sumbernya, padahal seluruh
+// alasan fitur ini ada supaya angka yang sama disebut sama. Dipakai formatter
+// kanonik langsung, bukan menduplikasi aturannya.
+const fmt = (v) => (typeof v === "number" && Number.isFinite(v) ? formatNumber(v) : String(v));
 
 /** Satu temuan menjadi beberapa baris teks. */
 function satuTemuan(t) {
