@@ -24,6 +24,43 @@ import { jendelaLaporan } from "../utils/dateWindow.util.js";
 import { getCiaIdentityText } from "./ciaIdentity.js";
 import { sudahDisapa, tandaiSudahDisapa } from "../models/waGroupIntroModel.js";
 
+// ── Topik terakhir per grup ───────────────────────────────────────────────────
+//
+// Dipakai supaya perintah lanjutan seperti "detailkan" bisa dijawab dengan
+// menyebut topik yang baru dibahas, bukan ditolak.
+//
+// SENGAJA di memori, bukan di database. Konteks percakapan lanjutan memang wajar
+// hilang ketika proses restart: user tinggal menyebut ulang subjeknya. Ini beda
+// dari penjaga perkenalan grup, yang harus bertahan justru karena bot ini sering
+// reconnect. Masa berlakunya pendek karena "detailkan" tiga jam kemudian hampir
+// pasti bukan lanjutan dari topik tadi.
+const topikGrup = new Map(); // jid -> { topik, waktu }
+const TOPIK_BERLAKU_MS = Number(process.env.WA_TOPIK_TTL_MS) || 30 * 60 * 1000;
+
+/** Menyimpan topik yang baru dijawab di sebuah grup. */
+export function catatTopikGrup(jid, topik) {
+  const t = String(topik || "").trim();
+  if (!jid || !t) return;
+  topikGrup.set(String(jid), { topik: t.slice(0, 120), waktu: Date.now() });
+}
+
+/** Topik terakhir di grup itu, atau null bila tidak ada atau sudah kedaluwarsa. */
+export function topikTerakhirGrup(jid, sekarang = Date.now()) {
+  const entri = topikGrup.get(String(jid || ""));
+  if (!entri) return null;
+  if (sekarang - entri.waktu > TOPIK_BERLAKU_MS) {
+    topikGrup.delete(String(jid));
+    return null;
+  }
+  return entri.topik;
+}
+
+/** Membuang ingatan topik. Dipakai uji supaya tidak saling mempengaruhi. */
+export function lupakanTopikGrup(jid) {
+  if (jid === undefined) topikGrup.clear();
+  else topikGrup.delete(String(jid));
+}
+
 /** Jeda minimum antar permintaan per grup. */
 const JEDA_MS = Number(process.env.WHATSAPP_LISTENER_COOLDOWN_MS) || 10 * 60 * 1000;
 
@@ -251,6 +288,9 @@ export function pasangListener(sock) {
           sedangJalan.add(jid);
           try {
             await jawabPertanyaanMesin(sock, jid, msg, pertanyaan.mesin);
+            // Dicatat SESUDAH dijawab, supaya "detailkan" berikutnya menyebut
+            // topik yang benar-benar sudah dibahas, bukan yang gagal dijawab.
+            catatTopikGrup(jid, pertanyaan.mesin);
           } finally {
             sedangJalan.delete(jid);
           }
@@ -281,12 +321,30 @@ export function pasangListener(sock) {
           // Contoh diambil dari daftar sebenarnya, bukan ditulis tangan. Contoh
           // yang ditulis tangan akan basi begitu daftar mesin berubah, dan tidak
           // ada yang tahu.
-          const { susunBalasanDiLuarKonteks } = await import("./gayaBahasa.js");
+          const { susunBalasanDiLuarKonteks, susunBalasanTidakLengkap, tanyaTidakLengkap } =
+            await import("./gayaBahasa.js");
           const { daftarMesin } = await import("./powerbiSummary.service.js");
           const { periodeLemburUntukTanggal, jendelaLaporan } =
             await import("../utils/dateWindow.util.js");
+          const { catatPertanyaan } = await import("../models/ciaPertanyaanModel.js");
 
           const mesin = await daftarMesin().catch(() => []);
+
+          // Perintah tanpa subjek, misalnya "bandingkan" atau "detailkan",
+          // ditangani TERPISAH. Itu pertanyaan lanjutan yang subjeknya ada di
+          // pesan sebelumnya, bukan pertanyaan di luar data. Menjawabnya dengan
+          // penolakan generik membuat user mengulang lalu ditolak lagi.
+          if (tanyaTidakLengkap(teks)) {
+            await catatPertanyaan({ groupJid: jid, pertanyaan: teks, jenis: "tidak_lengkap" });
+            await balas(sock, jid, msg, susunBalasanTidakLengkap({
+              perintah: String(teks || "").replace(/@[\w\s.]{1,24}?(?=\s|$)/g, " ").trim(),
+              topikTerakhir: topikTerakhirGrup(jid),
+              contohMesin: mesin,
+            }));
+            console.log(`[WA] perintah tanpa subjek: ${String(teks || "").slice(0, 60)}`);
+            continue;
+          }
+
           const periode = (() => {
             try {
               return periodeLemburUntukTanggal(jendelaLaporan().tanggal).label;
@@ -295,9 +353,14 @@ export function pasangListener(sock) {
             }
           })();
 
+          // Janji perbaikan hanya diucapkan bila pencatatannya benar-benar
+          // berhasil, supaya bot tidak menjanjikan sesuatu yang tidak terjadi.
+          const catat = await catatPertanyaan({ groupJid: jid, pertanyaan: teks });
+
           await balas(sock, jid, msg, susunBalasanDiLuarKonteks({
             contohMesin: mesin.slice(0, 2),
             labelPeriodeLembur: periode,
+            dicatat: catat.dicatat,
           }));
           console.log(`[WA] tag diabaikan: ${alasan}`);
           continue;
