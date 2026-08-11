@@ -65,9 +65,16 @@ export function susunKonteksTemuan(temuan) {
   }
 
   // Bila bahkan satu temuan tidak muat, ringkasan pertama dipotong keras: lebih
-  // baik satu temuan terpotong daripada tidak ada konteks sama sekali.
-  if (!dipakai.length && daftar.length) {
-    dipakai.push(satuTemuan(daftar[0]).slice(0, Math.max(40, ruang)));
+  // baik satu temuan terpotong daripada tidak ada konteks sama sekali. TAPI
+  // potongannya TIDAK PERNAH boleh melampaui ruang sendiri — versi lama memakai
+  // Math.max(40, ruang), memaksa panjang minimum 40 karakter walau ruang lebih
+  // kecil, dan itu persis melanggar batas yang baru saja ditegakkan. Bila
+  // ruang tidak positif sama sekali, tidak ada yang cukup aman untuk
+  // ditambahkan, jadi tidak ditambahkan apa pun.
+  if (!dipakai.length && daftar.length && ruang > 0) {
+    dipakai.push(satuTemuan(daftar[0]).slice(0, ruang));
+    dipangkas = true;
+  } else if (!dipakai.length && daftar.length) {
     dipangkas = true;
   }
 
