@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Single entry point for every CODE AI model call.
+// Single entry point for every CIA model call.
 //
 // Everything above this layer speaks in TIERS ("cepat" / "standar" / "mendalam").
 // Only this file knows which vendor model backs a tier — so switching to a paid
@@ -14,9 +14,9 @@ import { askGemini, GeminiError, normalizeModel } from "../config/gemini.js";
 export const TIERS = ["cepat", "standar", "mendalam"];
 
 export const TIER_LABELS = {
-  cepat:    "CODE AI Cepat",
-  standar:  "CODE AI Standar",
-  mendalam: "CODE AI Mendalam",
+  cepat:    "CIA Cepat",
+  standar:  "CIA Standar",
+  mendalam: "CIA Mendalam",
 };
 
 /**

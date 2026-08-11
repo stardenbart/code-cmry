@@ -166,7 +166,7 @@ export async function jawabDenganDax({ pertanyaan }) {
   if (!tanyaBersih) return { berhasil: false, alasan: "pertanyaan kosong" };
 
   const apiKey = await kunci();
-  if (!apiKey) return { berhasil: false, alasan: "kunci universal CODE AI belum diatur" };
+  if (!apiKey) return { berhasil: false, alasan: "kunci universal CIA belum diatur" };
 
   const jejak = { model: [], query: [], baris: 0 };
 
@@ -316,7 +316,7 @@ export async function jawabDenganDax({ pertanyaan }) {
         `7. Maksimum ${BATAS_JAWABAN_AGEN} karakter. Langsung ke jawabannya.`,
         "   Pakai baris berawalan tanda hubung bila menyebut beberapa hal.",
         "8. AKHIRI dengan satu baris saran: dua contoh pertanyaan lanjutan yang",
-        "   bisa ditanyakan dengan menandai CODE AI, dan yang BENAR-BENAR bisa",
+        "   bisa ditanyakan dengan menandai CIA, dan yang BENAR-BENAR bisa",
         "   dijawab dari data yang baru saja kamu lihat. Sebutkan nama mesin,",
         "   CMD, atau periode yang nyata, karena pertanyaan yang menyebut nama",
         "   spesifik bisa dijawab langsung sementara pertanyaan umum tidak.",

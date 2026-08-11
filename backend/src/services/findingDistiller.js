@@ -47,7 +47,7 @@ export function susunPermintaanPenyaring({ dashboardTitle, putaran }) {
 
   for (const p of putaran || []) {
     baris.push(`User: ${sanitasiTeks(p.question, 400)}`);
-    baris.push(`CODE AI: ${sanitasiTeks(p.answer, 900)}`);
+    baris.push(`CIA: ${sanitasiTeks(p.answer, 900)}`);
     baris.push("");
   }
 

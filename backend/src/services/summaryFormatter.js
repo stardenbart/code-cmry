@@ -365,7 +365,7 @@ export function instruksiSistem() {
     "analisis di atas.",
     "",
     "*INGIN TAHU LEBIH LANJUT*  dua sampai tiga contoh pertanyaan yang bisa",
-    "ditanyakan pembaca dengan menandai CODE AI di grup, masing-masing diawali",
+    "ditanyakan pembaca dengan menandai CIA di grup, masing-masing diawali",
     "tanda hubung. Pilih yang BENAR-BENAR menggali temuan di laporan ini, bukan",
     "pertanyaan umum. Contoh bentuknya: tanya kenapa satu mesin tertentu",
     "downtimenya tinggi, atau minta rincian satu CMD yang angkanya menonjol.",
@@ -539,14 +539,14 @@ export function pesanCadangan({ jendela, domains, alasan }) {
 export function catatanKaki({ jendela, adaAkumulatif }) {
   // Versi model TIDAK lagi disebut di pesan. Nama teknis seperti
   // "gemini-3.6-flash" tidak berarti apa pun bagi manajemen, dan pesannya
-  // datang dari CODE AI, bukan dari vendor modelnya.
+  // datang dari CIA, bukan dari vendor modelnya.
   //
   // Versinya tetap DISIMPAN di daily_summary_result: kalau suatu hari ada
   // anomali, penelusuran tetap bisa menyebut model mana yang membuatnya. Yang
   // dihapus tampilannya, bukan jejaknya.
   const b = [
     "",
-    `_Dibuat otomatis oleh CODE AI untuk periode ${judulPeriode(jendela)}._`,
+    `_Dibuat otomatis oleh CIA untuk periode ${judulPeriode(jendela)}._`,
   ];
   if (adaAkumulatif) {
     b.push("_Sebagian angka bersifat akumulatif atau snapshot, bukan capaian periode ini._");

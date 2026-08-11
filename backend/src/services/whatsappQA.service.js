@@ -214,7 +214,7 @@ async function tanyakanKeModel({ tanya, dicurigai, jendela, domains, sumber }) {
   const muatan = susunMuatan({ jendela, domains });
 
   const apiKey = await kunci();
-  if (!apiKey) return { berhasil: false, alasan: "kunci universal CODE AI belum diatur" };
+  if (!apiKey) return { berhasil: false, alasan: "kunci universal CIA belum diatur" };
 
   const isi = [
     "Data operasional plant dalam JSON:",

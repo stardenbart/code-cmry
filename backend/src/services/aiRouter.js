@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Chooses which CODE AI tier answers a question.
+// Chooses which CIA tier answers a question.
 //
 // Deliberately deterministic: asking a model to rate complexity would spend the
 // quota this routing exists to protect, and would be impossible to audit when a

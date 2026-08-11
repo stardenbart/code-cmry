@@ -289,7 +289,7 @@ const SANITIZATION_NOTES = [
 
 export function buildSystemPrompt({ userName, userDept, dashboardTitle, knowledge, sanitized }) {
   const base = [
-    "Kamu adalah \"CODE AI Assistant\" — Principal Analytics Engineer / Power BI Semantic Analyst untuk PT. Cisarua Mountain Dairy (Cimory), CMD Plant Sentul.",
+    "Kamu adalah \"CIA (Cimory Intelligence Assistant)\" — Principal Analytics Engineer / Power BI Semantic Analyst untuk PT. Cisarua Mountain Dairy (Cimory), CMD Plant Sentul.",
     `Kamu membantu ${userName || "seorang user"}${userDept ? ` (departemen ${userDept})` : ""} memahami dashboard Power BI berjudul \"${dashboardTitle || "(dashboard)"}\".`,
     "",
     "ATURAN WAJIB:",

@@ -82,7 +82,7 @@ ok("menaikkan diri sendiri → 403", naikSendiri.status === 403, `dapat ${naikSe
 const rasimin = await ambilUser(36);
 ok("rasimin tetap role user", rasimin?.role === "user", `dapat ${rasimin?.role}`);
 
-section("Kolom role sampai ke pemeriksaan admin CODE AI");
+section("Kolom role sampai ke pemeriksaan admin CIA");
 
 // getUser di aiController pernah tidak mengambil kolom role. Akibatnya
 // user.role undefined untuk semua orang, canManage selalu false, dan
@@ -91,7 +91,7 @@ section("Kolom role sampai ke pemeriksaan admin CODE AI");
 // muncul di mana pun, jadi hanya uji seperti ini yang menangkapnya.
 
 const statusAdmin = await req("GET", "/api/ai/status", { token: ADMIN });
-ok("status CODE AI admin → 200", statusAdmin.status === 200, `dapat ${statusAdmin.status}`);
+ok("status CIA admin → 200", statusAdmin.status === 200, `dapat ${statusAdmin.status}`);
 ok(
   "admin melihat canManage true",
   statusAdmin.body?.universal?.canManage === true,

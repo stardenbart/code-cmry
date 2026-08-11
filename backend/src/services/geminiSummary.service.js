@@ -69,7 +69,7 @@ export async function ringkasDenganAI({ jendela, domains, banding }) {
       berhasil: false,
       promptVersion: PROMPT_VERSION,
       muatanByte,
-      alasan: "kunci universal CODE AI belum diatur, jadi analisis tidak bisa dibuat",
+      alasan: "kunci universal CIA belum diatur, jadi analisis tidak bisa dibuat",
     };
   }
 

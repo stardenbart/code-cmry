@@ -1,9 +1,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Platform-wide CODE AI settings, editable by an admin from the UI.
+// Platform-wide CIA settings, editable by an admin from the UI.
 //
 // The universal key used to be env-only, which meant rotating it required SSH +
 // a restart. Storing it here (encrypted, same scheme as personal keys) lets an
-// admin manage it from Pengaturan CODE AI. The env var still works as a fallback
+// admin manage it from Pengaturan CIA. The env var still works as a fallback
 // so existing deployments keep running.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -42,7 +42,7 @@ async function loadUniversal() {
     }
   } catch (err) {
     // Missing table (migration not run yet) must not break the AI feature
-    if (err?.code !== "ER_NO_SUCH_TABLE") console.error("[CODE AI] gagal baca ai_settings:", err.message);
+    if (err?.code !== "ER_NO_SUCH_TABLE") console.error("[CIA] gagal baca ai_settings:", err.message);
   }
 
   if (!value) {

@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Answer cache for CODE AI.
+// Answer cache for CIA.
 //
 // The non-negotiable rule: a cache key MUST include a fingerprint of the data the
 // answer was derived from. Keying on the question text alone would serve July's

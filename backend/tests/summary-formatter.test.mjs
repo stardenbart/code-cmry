@@ -256,9 +256,9 @@ const kaki = catatanKaki({ jendela: JENDELA_MINGGU, adaAkumulatif: true });
 
 // Versi model SENGAJA tidak disebut di pesan. Nama teknis seperti
 // "gemini-3.6-flash" tidak berarti apa pun bagi manajemen, dan pesannya datang
-// dari CODE AI bukan dari vendor modelnya. Versinya tetap tersimpan di
+// dari CIA bukan dari vendor modelnya. Versinya tetap tersimpan di
 // daily_summary_result, jadi penelusuran anomali tidak kehilangan jejak.
-ok("menyebut CODE AI", kaki.includes("CODE AI"), kaki);
+ok("menyebut CIA", kaki.includes("CIA"), kaki);
 ok("TIDAK menyebut nama model vendor", !/gemini/i.test(kaki), kaki);
 ok("TIDAK menyebut versi prompt", !kaki.includes(PROMPT_VERSION), kaki);
 ok("menyebut rentang mingguan", kaki.includes("2026-07-27") && kaki.includes("2026-08-02"));

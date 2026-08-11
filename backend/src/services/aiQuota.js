@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// CODE AI quota estimation.
+// CIA quota estimation.
 //
 // HONEST LIMITATION: the Gemini API returns no remaining-quota header. Every
 // percentage here is computed from OUR OWN counters compared against limits an
@@ -222,7 +222,7 @@ export async function recordRateLimitHit({ userId, model, tier }) {
     if (requestsToday > 0 && requestsToday < configured) {
       observedCeiling.set(model, requestsToday);
       console.warn(
-        `[CODE AI] 429 pada ${model} setelah ${requestsToday} request, padahal limit dikonfigurasi ${configured}. ` +
+        `[CIA] 429 pada ${model} setelah ${requestsToday} request, padahal limit dikonfigurasi ${configured}. ` +
         `Limit efektif diturunkan ke ${requestsToday}. Perbarui AI_RPD_* di .env (Fase 0.1).`
       );
     }
@@ -233,14 +233,14 @@ export async function recordRateLimitHit({ userId, model, tier }) {
       [userId, model, tier || null, requestsToday, tokensToday, configured]
     );
   } catch (err) {
-    console.error("[CODE AI] gagal mencatat quota event:", err.message);
+    console.error("[CIA] gagal mencatat quota event:", err.message);
   }
 }
 
 /** Circuit-breaker state derived from the quota summary. */
 export function breakerState(quota) {
   const pct = quota?.overall?.remainingPct ?? 100;
-  if (pct < 5) return { level: "open", message: "Kuota CODE AI hari ini habis. Jawaban baru dihentikan sampai kuota reset; pertanyaan yang pernah dijawab masih bisa diambil dari cache." };
+  if (pct < 5) return { level: "open", message: "Kuota CIA hari ini habis. Jawaban baru dihentikan sampai kuota reset; pertanyaan yang pernah dijawab masih bisa diambil dari cache." };
   if (pct < 15) return { level: "restricted", message: "Kuota menipis — semua pertanyaan dialihkan ke tier hemat." };
   if (pct < 40) return { level: "watch", message: null };
   return { level: "ok", message: null };

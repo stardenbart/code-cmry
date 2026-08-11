@@ -69,7 +69,7 @@ await AiModel.logChat({
   user_id: u.id,
   dashboard_id: DASH_LAIN,
   dashboard_title: "Dashboard Uji Rate Limit",
-  question: "(CODE AI Distill: Dashboard Uji Rate Limit)",
+  question: "(CIA Distill: Dashboard Uji Rate Limit)",
   answer: "ringkasan hasil penyaringan",
   model: "gemini-3.5-flash-lite",
   key_source: "user",

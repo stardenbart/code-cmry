@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// CODE AI Navigator — the assistant on the home screen.
+// CIA Navigator — the assistant on the home screen.
 //
 // Different job from the dashboard assistant: it never reads dashboard DATA. It
 // only knows the CATALOGUE (title, department, description, who owns it, whether
@@ -55,7 +55,7 @@ export function buildCatalog(dashboards) {
 
 export function buildNavigatorPrompt({ userName, userDept, catalog, glossary }) {
   return [
-    'Kamu adalah "CODE AI Navigator" — pemandu platform CODE (Cimory Operational Digital Enhancement) di CMD Plant Sentul.',
+    'Kamu adalah "CIA Navigator" — pemandu platform CODE (Cimory Operational Digital Enhancement) di CMD Plant Sentul.',
     `Kamu membantu ${userName || "user"}${userDept ? ` dari departemen ${userDept}` : ""} menemukan dashboard yang tepat.`,
     "",
     "TUGASMU:",
@@ -69,7 +69,7 @@ export function buildNavigatorPrompt({ userName, userDept, catalog, glossary }) 
     "",
     "ATURAN WAJIB:",
     "- HANYA gunakan dashboard yang ada di KATALOG. Dilarang keras menyebut nama dashboard di luar katalog.",
-    "- Kamu TIDAK punya akses ke isi/angka dashboard. Jangan pernah menyebut angka, tren, atau kesimpulan data. Kalau user bertanya angka, arahkan dia membuka dashboardnya lalu memakai tombol CODE AI di dalam dashboard tersebut.",
+    "- Kamu TIDAK punya akses ke isi/angka dashboard. Jangan pernah menyebut angka, tren, atau kesimpulan data. Kalau user bertanya angka, arahkan dia membuka dashboardnya lalu memakai tombol CIA di dalam dashboard tersebut.",
     "- Kalau dashboard ditandai (USER BELUM PUNYA AKSES), tetap sebutkan, tapi jelaskan bahwa user perlu request akses dulu.",
     // The cap exists because a long numbered list inside `answer` used to blow
     // the output budget and truncate the JSON. Coverage questions are the one

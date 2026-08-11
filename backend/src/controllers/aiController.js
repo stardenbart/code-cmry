@@ -259,7 +259,7 @@ export const AiController = {
       }
 
       // Verify against Google before storing — a broken universal key would
-      // silently break CODE AI for every user without a personal key.
+      // silently break CIA for every user without a personal key.
       try {
         await validateKey(trimmed);
       } catch (err) {
@@ -392,7 +392,7 @@ export const AiController = {
       resolved = await resolveKey(user.id);
       if (!resolved) {
         return res.status(503).json({
-          message: "CODE AI belum aktif: belum ada kunci akses. Simpan kunci pribadi di menu Pengaturan CODE AI.",
+          message: "CIA belum aktif: belum ada kunci akses. Simpan kunci pribadi di menu Pengaturan CIA.",
         });
       }
 
@@ -442,7 +442,7 @@ export const AiController = {
       const parsed = parseNavigatorReply(result.text);
       if (result.finishReason === "MAX_TOKENS") {
         console.warn(
-          `[CODE AI] Navigator terpotong (MAX_TOKENS) untuk pertanyaan: "${q.slice(0, 60)}". ` +
+          `[CIA] Navigator terpotong (MAX_TOKENS) untuk pertanyaan: "${q.slice(0, 60)}". ` +
           `Naikkan AI_NAV_OUTPUT_TOKENS bila sering terjadi.`
         );
       }
@@ -469,7 +469,7 @@ export const AiController = {
 
       await AiModel.logChat({
         user_id: user.id,
-        dashboard_title: "(CODE AI Navigator)",
+        dashboard_title: "(CIA Navigator)",
         question: q,
         answer: parsed.answer,
         model: result.model,
@@ -488,15 +488,15 @@ export const AiController = {
         aiQuota.recordRateLimitHit({ userId: req.user.id, model: resolved?.model, tier: "cepat" }).catch(() => {});
       }
       res.status(status).json({
-        message: err instanceof GeminiError ? err.message : "Gagal menghubungi CODE AI Navigator",
+        message: err instanceof GeminiError ? err.message : "Gagal menghubungi CIA Navigator",
       });
     }
   },
 
   /**
-   * GET /api/ai/finding — apa yang diingat CODE AI tentang analisa user.
+   * GET /api/ai/finding — apa yang diingat CIA tentang analisa user.
    *
-   * Ada karena memori yang tidak terlihat tidak bisa dipercaya. Kalau CODE AI
+   * Ada karena memori yang tidak terlihat tidak bisa dipercaya. Kalau CIA
    * mengingat sesuatu yang salah, user harus bisa melihat dan mengoreksinya.
    */
   findings: async (req, res) => {
@@ -512,7 +512,7 @@ export const AiController = {
   /**
    * POST /api/ai/finding/distill — menyaring percakapan dashboard LAIN.
    *
-   * Dipanggil frontend saat panel CODE AI dibuka, bukan disisipkan ke /ask,
+   * Dipanggil frontend saat panel CIA dibuka, bukan disisipkan ke /ask,
    * supaya latensinya tidak terasa di pertanyaan pertama setiap dashboard baru.
    *
    * Kegagalan penyaringan TIDAK dilaporkan sebagai error ke user: dia tidak
@@ -620,7 +620,7 @@ export const AiController = {
             user_id: user.id,
             dashboard_id: b.dashboard_id,
             dashboard_title: d?.title || null,
-            question: `(CODE AI Distill: ${d?.title || `Dashboard #${b.dashboard_id}`})`,
+            question: `(CIA Distill: ${d?.title || `Dashboard #${b.dashboard_id}`})`,
             answer: hasil?.text || null,
             model: hasil?.model || resolved.model,
             key_source: resolved.source,
