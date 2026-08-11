@@ -33,6 +33,7 @@ import {
   jendelaMinggu, jendelaLaporan, periodeLemburUntukTanggal,
 } from "../utils/dateWindow.util.js";
 import { aturanGayaSantai } from "./gayaBahasa.js";
+import { kamusNilai, aturanKomparasi } from "./aiKnowledge.js";
 
 // DUA model, bukan tiga. Jalan pertama memilih tiga dan hasilnya tiga jawaban
 // yang saling bertentangan untuk pertanyaan yang sama, disajikan berdampingan
@@ -238,6 +239,14 @@ export async function jawabDenganDax({ pertanyaan }) {
       "angka yang sama persis untuk setiap baris, measure itu mengabaikan",
       "konteks baris dan TIDAK boleh dipakai per mesin. Pakai SUM atas kolom",
       "fakta, bukan measure semacam itu.",
+      "",
+      "PAKAI NILAI YANG TERSIMPAN, BUKAN KATA YANG DIPAKAI USER. Skema di bawah",
+      "memberi nama tabel dan kolom, tapi TIDAK memberi isi kolomnya. Kamus di",
+      "bawah berisi nilai yang sudah diukur langsung dari model. Memfilter dengan",
+      "kata user, misalnya \"Pasuruan\" padahal tersimpan \"CMDPSR\", menghasilkan",
+      "nol baris, dan nol baris bukan berarti angkanya nol.",
+      kamusNilai(tanyaBersih),
+      aturanKomparasi(tanyaBersih),
       konteksPeriode(),
     ].join("\n");
 

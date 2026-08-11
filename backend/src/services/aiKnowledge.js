@@ -25,7 +25,12 @@ const MODEL_ALIASES = {
   // Maintenance & downtime
   "oee & downtime": ["Maintenance Downtime", "Dashboard Daily Meeting untuk OEE"],
   "technical downtime report": ["Maintenance Downtime"],
-  "technical downtime ors": ["Maintenance Downtime", "Dashboard Utility (Energy)"],
+  // Diukur 2026-08-11: model di belakang dashboard ini adalah "Dashboard DT ORS",
+  // satu-satunya model yang memuat Issue, Action, dan Status penanganan. Alias
+  // lama mengarah ke Maintenance Downtime dan Utility (Energy), sehingga
+  // pertanyaan "kenapa downtime mesin ini tinggi" diarahkan ke model yang tidak
+  // punya jawabannya, dan salah satunya soal energi, bukan downtime mesin.
+  "technical downtime ors": ["Dashboard DT ORS", "Maintenance Downtime"],
   "utility failure": ["Dashboard Utility Failure"],
   "sparepart management": ["Dashboard Sparepart Management"],
   "cost repair & maintenance": ["Expenses - Cost, Repair, and Maintenance"],
@@ -323,6 +328,127 @@ function relevantAcronyms(table, haystack) {
  * @param {string} [opts.dataText]  rendered snapshot, used to keep only relevant legends
  * @returns {{ text: string, models: string[], rcaTriggered: boolean }}
  */
+// ── Kamus nilai ──────────────────────────────────────────────────────────────
+//
+// Skema hidup dari Power BI memberi nama TABEL dan KOLOM, tapi tidak memberi ISI
+// kolomnya. Itu celah yang menghasilkan jawaban kosong yang terdengar pasti:
+// user menyebut "Pasuruan" sementara data menyimpan "CMDPSR", filternya tidak
+// cocok, hasilnya nol baris, dan nol baris mudah dilaporkan sebagai "tidak ada
+// downtime" padahal artinya "filternya salah".
+//
+// Sumbernya satu, yaitu bagian "Value vocabulary" di data-dictionary.md, supaya
+// jalur web dan jalur DAX tidak pernah memakai kamus yang berbeda.
+
+// Subbagian yang SELALU dikirim. Keduanya murah dan menutup kekeliruan paling
+// mahal, yaitu menukar gedung dengan plant.
+const KAMUS_WAJIB = ["building codes", "plant codes"];
+
+// Pemicu per subbagian, ditulis eksplisit dan bukan diturunkan dari judulnya,
+// karena kata yang dipakai user jarang sama dengan judul subbagiannya.
+const KAMUS_PEMICU = [
+  { cocok: "product subgroups", kata: ["uht", "milk", "yd", "fresh", "squeeze", "stick", "polybag", "frutas", "produk", "product", "sku", "material", "ml", "liter", "output"] },
+  { cocok: "production record type", kata: ["hold", "delay", "planning", "plan", "po", "achievement", "fulfillment", "output", "produksi"] },
+  { cocok: "downtime handling status", kata: ["status", "perbaikan", "closed", "open", "monitoring", "penanganan", "tindakan", "action"] },
+  { cocok: "machine names", kata: ["mesin", "machine", "line", "tetra", "serac", "evergreen", "blow", "moulding", "filler", "esl", "sbl"] },
+  { cocok: "downtime issue detail", kata: ["issue", "kendala", "masalah", "penyebab", "kenapa", "mengapa", "detail", "rincian", "pemicu"] },
+  { cocok: "plantname is a measure", kata: ["plant", "plantname", "pasuruan", "semarang", "sentul", "psr", "smg", "stl"] },
+];
+
+/**
+ * Kamus nilai yang relevan dengan satu pertanyaan.
+ *
+ * @param {string} pertanyaan
+ * @param {{maks?: number}} [opsi] maks membatasi karakter supaya anggaran token aman
+ * @returns {string} blok siap tempel, atau string kosong bila tidak ada yang relevan
+ */
+export function kamusNilai(pertanyaan = "", { maks = 3000 } = {}) {
+  const bagian = extractSection(read("data-dictionary.md"), "Value vocabulary");
+  if (!bagian) return "";
+
+  const t = String(pertanyaan == null ? "" : pertanyaan).toLowerCase();
+  const sub = splitSections(bagian, 3);
+  if (!sub.length) return bagian.slice(0, maks);
+
+  const dipakai = sub.filter((s) => {
+    const h = s.heading.toLowerCase();
+    if (KAMUS_WAJIB.some((w) => h.startsWith(w))) return true;
+    const aturan = KAMUS_PEMICU.find((p) => h.startsWith(p.cocok));
+    return aturan ? aturan.kata.some((k) => t.includes(k)) : false;
+  });
+
+  if (!dipakai.length) return "";
+
+  let teks = dipakai.map((s) => s.text).join("\n\n");
+  if (teks.length > maks) {
+    teks = `${teks.slice(0, maks)}\n(kamus nilai dipotong karena batas ukuran)`;
+  }
+  return teks;
+}
+
+// Kata yang menandakan pertanyaan membawa perbandingan atau periode khusus.
+// Sengaja memuat kata Indonesia sehari-hari, karena pertanyaan datang lewat
+// WhatsApp dan hampir tidak pernah memakai istilah teknis.
+const PEMICU_KOMPARASI = [
+  "kemarin", "minggu lalu", "bulan lalu", "tahun lalu", "pekan lalu",
+  "dibanding", "dibandingkan", "banding", "versus", " vs ", "komparasi",
+  "naik", "turun", "growth", "tren", "trend", "lebih tinggi", "lebih rendah",
+  "quarter", "kuartal", "q1", "q2", "q3", "q4",
+  "cutoff", "cut off", "cut-off",
+  "jenis hari", "hari libur", "libur", "sabtu", "minggu", "weekend", "lembur",
+  "hari ini", "week ini", "minggu ini", "bulan ini", "mtd", "ytd",
+];
+
+/**
+ * Aturan periode dan perbandingan, hanya bila pertanyaannya memang membutuhkan.
+ *
+ * Dikirim terpisah dari kamus nilai karena pemicunya berbeda: pertanyaan bisa
+ * butuh kamus tanpa butuh perbandingan, dan sebaliknya.
+ *
+ * @param {string} pertanyaan
+ * @param {{maks?: number}} [opsi]
+ * @returns {string} blok siap tempel, atau string kosong bila tidak relevan
+ */
+// Batasnya longgar KARENA bagiannya sudah disaring per pemicu: paling banyak
+// tiga bagian yang terkirim, jadi memotong di sini hanya akan membuang fakta
+// yang justru diminta pertanyaannya. Penanda pemangkasan tetap dipertahankan
+// sebagai jaring terakhir kalau berkasnya kelak membengkak.
+export function aturanKomparasi(pertanyaan = "", { maks = 5200 } = {}) {
+  const t = String(pertanyaan == null ? "" : pertanyaan).toLowerCase();
+  if (!PEMICU_KOMPARASI.some((k) => t.includes(k))) return "";
+
+  const md = read("comparison-periods.md");
+  if (!md) return "";
+
+  // Tiap bagian digerbangi pemicunya SENDIRI, bukan semuanya dikirim lalu
+  // dipotong batas ukuran. Memotong di akhir berarti bagian terakhir berkas
+  // selalu hilang lebih dulu, dan bagian cut-off lembur kebetulan ada di sana:
+  // pertanyaan lembur akan kehilangan justru aturan yang paling dibutuhkannya.
+  const KATA_PERIODE = ["cutoff", "cut off", "cut-off", "lembur", "overtime", "libur", "sabtu", "jenis hari", "weekend"];
+  const KATA_KUARTAL = ["quarter", "kuartal", "q1", "q2", "q3", "q4"];
+
+  const bagian = splitSections(md, 2).filter((s) => {
+    const h = s.heading.toLowerCase();
+    // Selalu: mewajibkan basis perbandingan disebut, dan mengarahkan ke measure
+    // Prev milik model alih-alih aritmetika tanggal buatan sendiri.
+    if (h.startsWith("rule zero")) return true;
+    if (h.startsWith("prefer the model")) return true;
+    // Aritmetika tanggal hanya perlu kalau memang tidak ada measure siap pakai,
+    // dan yang paling sering butuh itu pertanyaan kuartal.
+    if (h.startsWith("when no prior-period")) return KATA_KUARTAL.some((k) => t.includes(k));
+    // Definisi periode: cut-off lembur, jenis hari, kalender libur.
+    if (h.startsWith("comparisons that need")) return KATA_PERIODE.some((k) => t.includes(k));
+    return false;
+  });
+
+  if (!bagian.length) return "";
+
+  let teks = bagian.map((s) => s.text).join("\n\n");
+  if (teks.length > maks) {
+    teks = `${teks.slice(0, maks)}\n(aturan komparasi dipotong karena batas ukuran)`;
+  }
+  return teks;
+}
+
 export function buildKnowledgeBlock({ dashboardTitle, department, question, tier = "standar", dataText = "" }) {
   if (!isKnowledgeAvailable()) {
     return { text: "", models: [], rcaTriggered: false };
