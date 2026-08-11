@@ -43,6 +43,12 @@ const sql = db.promise();
 
 const RATE_WINDOW_SECONDS = Number(process.env.AI_RATE_WINDOW_SECONDS ?? 60);
 const RATE_MAX_REQUESTS = Number(process.env.AI_RATE_MAX_REQUESTS ?? 10);
+// Penyaringan memanggil Gemini sampai 4 kali per permintaan (satu per dashboard
+// lain), jadi batasnya dihitung per PERMINTAAN distill, bukan per panggilan
+// model, dan jendelanya lebih longgar karena panel hanya memanggil ini saat
+// dibuka, bukan setiap pertanyaan.
+const DISTILL_RATE_WINDOW_SECONDS = Number(process.env.AI_DISTILL_RATE_WINDOW_SECONDS ?? 300);
+const DISTILL_RATE_MAX_REQUESTS = Number(process.env.AI_DISTILL_RATE_MAX_REQUESTS ?? 4);
 const MAX_QUESTION_CHARS = 1000;
 const HISTORY_TURNS = Number(process.env.AI_HISTORY_TURNS ?? 6);
 const ESCALATION_ENABLED = !/^(0|false|off|no)$/i.test(process.env.AI_ESCALATION || "");
@@ -545,6 +551,21 @@ export const AiController = {
         return res.json({ tersaring: 0, dilewati: baris.length, alasan: "belum ada kunci akses" });
       }
 
+      // Penyaringan memakai kuota Gemini yang sama seperti /ask, tapi user tidak
+      // memintanya secara langsung — dia hanya membuka panel. Kalau batas
+      // terlampaui, balas 200 dengan tersaring nol, BUKAN 429: 429 di jalur ini
+      // akan terbaca sebagai gangguan atas sesuatu yang tidak diminta user.
+      const distillLimit = rateLimit.hit(
+        `distill:${user.id}`, DISTILL_RATE_MAX_REQUESTS, DISTILL_RATE_WINDOW_SECONDS
+      );
+      if (!distillLimit.allowed) {
+        return res.json({
+          tersaring: 0,
+          dilewati: baris.length,
+          alasan: `batas penyaringan tercapai, coba lagi dalam ${distillLimit.retryAfterSeconds} detik`,
+        });
+      }
+
       let tersaring = 0;
       let dilewati = 0;
 
@@ -586,6 +607,28 @@ export const AiController = {
             maxOutputTokens: Number(process.env.AI_FINDING_MAX_TOKENS) || 2048,
             thinkingLevel: "low",
           });
+
+          // aiQuota.summary menghitung pemakaian DARI ai_chat_logs. Tanpa baris
+          // ini, panggilan model penyaringan tidak pernah terlihat di sana:
+          // indikator kuota tetap hijau sementara kuota sungguhan berkurang, dan
+          // /ask yang sah bisa dijatah 429 tanpa satu pun angka yang menjelaskan
+          // sebabnya. tier ditandai "distill" — bukan salah satu tier routing —
+          // supaya jelas dari log mana asal panggilannya, dan itu tidak
+          // mengganggu agregasi karena usageSince/usageLastMinute mengelompokkan
+          // per model, bukan per tier.
+          await AiModel.logChat({
+            user_id: user.id,
+            dashboard_id: b.dashboard_id,
+            dashboard_title: d?.title || null,
+            question: `(CODE AI Distill: ${d?.title || `Dashboard #${b.dashboard_id}`})`,
+            answer: hasil?.text || null,
+            model: hasil?.model || resolved.model,
+            key_source: resolved.source,
+            tier: "distill",
+            prompt_tokens: hasil?.usage?.promptTokenCount ?? null,
+            output_tokens: hasil?.usage?.candidatesTokenCount ?? null,
+            total_tokens: hasil?.usage?.totalTokenCount ?? null,
+          }).catch((err) => console.error("[ai] gagal mencatat pemakaian penyaringan:", err.message));
 
           const temuan = bacaHasilPenyaring(hasil?.text);
           if (!temuan) {
