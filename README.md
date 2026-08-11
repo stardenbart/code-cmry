@@ -346,7 +346,7 @@ extracted automatically.
 Two options, checked in this order:
 
 1. **Personal key (BYOK)** — each user saves their own free key via the ✨ icon in
-   the header (*Pengaturan CODE AI*). Stored AES-256-GCM encrypted in
+   the header (*Pengaturan CIA*). Stored AES-256-GCM encrypted in
    `ai_user_keys`, with the key derived from `JWT_SECRET`.
 2. **Universal key** — `CODE_AI_UNIVERSAL_KEY` in `backend/.env` (legacy name
    `GEMINI_API_KEY` still works), used only when a user has no key of their own.
@@ -363,7 +363,7 @@ key, which is why per-user keys are supported — heavy users don't drain the sh
 quota. A per-user rate limit (`AI_RATE_MAX_REQUESTS` / `AI_RATE_WINDOW_SECONDS`)
 protects the shared key.
 
-### CODE AI Navigator (home screen)
+### CIA Navigator (home screen)
 
 A second, much cheaper assistant lives behind the floating button on the
 dashboard list, above the scroll-to-top control. It answers *"which dashboard do
@@ -377,7 +377,7 @@ The reply is structured JSON, rendered as interactive cards:
 
 | User has access | Buttons shown |
 |---|---|
-| yes, and the dashboard has a Report GUID | **Buka dashboard** · **Analisa** (opens it with the CODE AI panel already expanded) |
+| yes, and the dashboard has a Report GUID | **Buka dashboard** · **Analisa** (opens it with the CIA panel already expanded) |
 | yes, no Report GUID | **Buka dashboard** |
 | no | **Minta akses dulu** (fires the existing access-request flow) |
 
@@ -388,7 +388,7 @@ someone at something they may not open without saying so.
 
 Beyond finding dashboards it also answers glossary questions ("apa itu MTBF?")
 from the confirmed rows of `kpi-dictionary.md`, and refuses number questions by
-directing the user into the dashboard's own CODE AI panel.
+directing the user into the dashboard's own CIA panel.
 
 ### Model selection
 
