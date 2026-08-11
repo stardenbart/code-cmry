@@ -13,7 +13,11 @@ export function getCiaIdentityText() {
 }
 
 export function isCiaIdentityQuestion(text = '') {
-  const clean = text.toLowerCase().trim();
+  // Dipanggil paling awal di tryAnswerLocally untuk SETIAP pertanyaan, jadi
+  // masukan rusak (null, undefined, angka, dll) harus pulang false dengan
+  // tenang, bukan melempar dan menjatuhkan jalur tanya jawab yang tidak ada
+  // hubungannya dengan identitas.
+  const clean = String(text ?? '').toLowerCase().trim();
   const patterns = [
     /cia\s+itu\s+apa/i,
     /kamu\s+siapa/i,
