@@ -33,6 +33,12 @@ try {
   idProbe = (semua.body || []).find((u) => u.username === NAMA_PROBE)?.id ?? null;
   if (!idProbe) throw new Error("akun probe tidak ditemukan sesudah dibuat");
 
+  // Akun probe baru bawaannya TIDAK punya akses CIA, sama seperti akun sungguhan
+  // yang baru dibuat. Dibukakan di sini karena yang diuji berkas ini adalah
+  // endpoint temuannya, bukan penjaga aksesnya; penjaganya diuji tersendiri di
+  // tests/authz-cia-access.test.mjs.
+  await db.promise().query("UPDATE users SET cia_access = 1 WHERE id = ?", [idProbe]);
+
   const TOKEN = tokenFor(idProbe, NAMA_PROBE);
 
   section("Endpoint temuan menolak yang tidak berhak");

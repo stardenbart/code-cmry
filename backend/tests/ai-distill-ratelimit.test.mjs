@@ -19,6 +19,15 @@ const sql = db.promise();
 const [[u]] = await sql.query("SELECT id, username FROM users WHERE approved = 1 ORDER BY id DESC LIMIT 1");
 const TOKEN = tokenFor(u.id, u.username);
 
+// Akses CIA dibuka SEMENTARA untuk akun fikstur ini, lalu dikembalikan di akhir.
+// Sejak fitur CIA memakai whitelist per user, akun mana pun bawaannya ditolak,
+// jadi tanpa ini seluruh uji di bawah gagal 403 bukan karena bug melainkan
+// karena haknya memang belum dibuka. Nilai semula disimpan dan dipulihkan supaya
+// suite tidak mengubah hak akses akun sungguhan secara permanen.
+const [[semulaCia]] = await db.promise().query("SELECT cia_access FROM users WHERE id = ?", [u.id]);
+await db.promise().query("UPDATE users SET cia_access = 1 WHERE id = ?", [u.id]);
+const pulihkanCia = () => db.promise().query("UPDATE users SET cia_access = ? WHERE id = ?", [semulaCia.cia_access, u.id]);
+
 const DASH_LAIN = 555555;   // dashboard "lain" yang punya percakapan untuk disaring
 const DASH_DIBUKA = 555556; // dashboard yang "sedang dibuka" saat distill dipanggil
 
@@ -87,3 +96,5 @@ ok("baris tier distill tersimpan", Number(tercatat[0].n) === 1, JSON.stringify(t
 section("Data uji dibersihkan");
 
 await bersihkan();
+
+await pulihkanCia();

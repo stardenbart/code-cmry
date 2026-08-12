@@ -64,7 +64,11 @@ const ESCALATION_ENABLED = !/^(0|false|off|no)$/i.test(process.env.AI_ESCALATION
 // siapa pun, tanpa satu pun error yang muncul di mana pun.
 async function getUser(userId) {
   const [rows] = await sql.query(
-    "SELECT id, nama, departemen, tipe_akses, approved, role FROM users WHERE id = ?",
+    // cia_access ikut karena /status melaporkannya ke web, dan web memakainya
+    // untuk menyembunyikan pintu masuk CIA. Kolom yang tidak diambil bernilai
+    // undefined untuk semua orang, dan itu membuat fiturnya hilang bagi semua
+    // orang tanpa satu pun error.
+    "SELECT id, nama, departemen, tipe_akses, approved, role, cia_access FROM users WHERE id = ?",
     [userId]
   );
   return rows[0] || null;
@@ -174,8 +178,15 @@ export const AiController = {
       const universalMeta = await aiSettings.getUniversalKeyMeta();
       const hasUniversal = Boolean((await aiSettings.getUniversalKey()) || hasServerKey());
 
+      // Hak akses CIA dilaporkan TERPISAH dari enabled. enabled menjawab
+      // "apakah ada kunci yang membiayai", ciaAccess menjawab "apakah orang ini
+      // boleh memakainya". Menggabungkan keduanya membuat user yang ditolak
+      // melihat pesan soal kunci yang tidak ada hubungannya dengan masalahnya.
+      const bolehPakaiCia = Boolean(Number(user?.cia_access));
+
       res.json({
-        enabled: Boolean(userKey?.apiKey || hasUniversal),
+        ciaAccess: bolehPakaiCia,
+        enabled: bolehPakaiCia && Boolean(userKey?.apiKey || hasUniversal),
         hasServerKey: hasUniversal,
         universal: {
           configured: hasUniversal,

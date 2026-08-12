@@ -165,7 +165,7 @@ function DashboardCard({
 }
 
 // ── Fullscreen dashboard overlay ────────────────────────────────────────────
-function FullscreenDash({ dash, accessStatus, user, onClose, onRequestAccess, onCancelRequest, onOpenAISettings }) {
+function FullscreenDash({ dash, accessStatus, user, onClose, onRequestAccess, onCancelRequest, onOpenAISettings, ciaAccess }) {
   const allowed   = user?.tipe_akses === "All Access" || accessStatus[dash.title] === "APPROVED";
   const requested = accessStatus[dash.title] === "PENDING";
   const declined  = accessStatus[dash.title] === "DECLINED";
@@ -216,7 +216,10 @@ function FullscreenDash({ dash, accessStatus, user, onClose, onRequestAccess, on
           </button>
           <span className="font-semibold truncate">{dash.title}</span>
           <div className="ml-auto flex items-center gap-3 shrink-0">
-            {allowed && hasTokenEmbed && (
+            {/* Tombol pembuka panel ikut disembunyikan. Membiarkannya tampil lalu
+                menolak saat diklik membuat user mengira fiturnya rusak, bukan
+                mengira aksesnya belum dibuka. */}
+            {allowed && hasTokenEmbed && ciaAccess && (
               <button
                 onClick={() => setAiOpen(prev => !prev)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
@@ -247,7 +250,7 @@ function FullscreenDash({ dash, accessStatus, user, onClose, onRequestAccess, on
         </div>
 
         {/* Right segment of the SAME bar — the AI panel's header */}
-        {allowed && aiOpen && (
+        {allowed && ciaAccess && aiOpen && (
           <div className="hidden sm:flex items-center gap-2 px-4 py-3 w-[420px] shrink-0 border-l border-white/25">
             <Sparkles size={16} className="shrink-0" />
             <div className="min-w-0 flex-1">
@@ -359,6 +362,26 @@ function Dashboard({ user, onLogout }) {
   const [showAddUser, setShowAddUser]     = useState(false);
   const [showManageUser, setShowManageUser] = useState(false);
   const [showReportSetting, setShowReportSetting] = useState(false);
+
+  // Hak akses CIA, dibaca dari server.
+  //
+  // Ini HANYA untuk menyembunyikan pintu masuknya. Penjagaan sebenarnya ada di
+  // server: endpoint CIA menolak 403 untuk user yang belum dibuka aksesnya,
+  // karena siapa pun yang punya token bisa memanggilnya langsung tanpa lewat
+  // tampilan ini.
+  //
+  // Bawaannya null, bukan true. Kalau bawaannya true, pintu masuknya sempat
+  // muncul lalu hilang saat status datang, dan user yang tidak berhak sempat
+  // mengklik lalu menerima error.
+  const [ciaAccess, setCiaAccess] = useState(null);
+
+  useEffect(() => {
+    let batal = false;
+    API.get("/api/ai/status")
+      .then(({ data }) => { if (!batal) setCiaAccess(Boolean(data?.ciaAccess)); })
+      .catch(() => { if (!batal) setCiaAccess(false); });
+    return () => { batal = true; };
+  }, []);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showAISettings, setShowAISettings] = useState(false);
   const [accessStatus, setAccessStatus]   = useState({});
@@ -470,7 +493,7 @@ function Dashboard({ user, onLogout }) {
         onManageUserClick={() => setShowManageUser(true)}
         onReportSettingClick={() => setShowReportSetting(true)}
         onChangePasswordClick={() => setShowChangePassword(true)}
-        onAISettingsClick={() => setShowAISettings(true)}
+        onAISettingsClick={ciaAccess || user?.role === "admin" ? () => setShowAISettings(true) : null}
         onMenuToggle={() => setSidebarOpen(true)}
       />
 
@@ -561,6 +584,7 @@ function Dashboard({ user, onLogout }) {
           user={user}
           onClose={() => setFocusedDash(null)}
           onOpenAISettings={() => setShowAISettings(true)}
+          ciaAccess={Boolean(ciaAccess)}
           onRequestAccess={async (dept, title) => {
             await handleRequestAccess(dept, title);
           }}
@@ -571,7 +595,9 @@ function Dashboard({ user, onLogout }) {
       )}
 
       {/* Home-screen assistant: finds the right dashboard, never reads its data */}
-      {!focusedDash && (
+      {/* Navigator disembunyikan bila akses CIA belum dibuka. Penjagaan
+          sebenarnya tetap di server: endpoint navigate menolak 403. */}
+      {!focusedDash && ciaAccess && (
         <LazyBoundary>
         <CodeAINavigator
           user={user}

@@ -104,3 +104,39 @@ export function requireSelfOrAdmin(paramName) {
     }
   };
 }
+
+/**
+ * Fitur CIA hanya untuk user yang sudah diberi akses oleh admin.
+ *
+ * MENOLAK secara default: kolom cia_access bawaannya 0, jadi akun baru tidak
+ * bisa memakai CIA sampai admin membukanya. Itu diminta pemilik proyek, dan
+ * alasannya konkret: tanpa itu setiap akun baru langsung memakai kuota AI dan
+ * membaca analisa operasional tanpa ada yang menyadarinya.
+ *
+ * Penjagaan ini ada di SERVER, bukan hanya di tampilan. Menyembunyikan tombol
+ * di web bukan kontrol akses: endpoint-nya tetap bisa dipanggil langsung oleh
+ * siapa pun yang punya token.
+ *
+ * Admin TIDAK otomatis lolos. Hak mengelola user dan hak memakai CIA adalah dua
+ * hal berbeda, dan admin yang butuh CIA tinggal membuka aksesnya sendiri lewat
+ * Manage Users.
+ */
+export async function requireCiaAccess(req, res, next) {
+  try {
+    const user = await loadUser(req.user?.id);
+    if (!user || !user.approved) {
+      return res.status(403).json(ACCOUNT_INACTIVE);
+    }
+    if (!Number(user.cia_access)) {
+      return res.status(403).json({
+        message: "Akses CIA belum dibuka untuk akun ini. Hubungi admin Digital Transformation.",
+        kode: "CIA_TIDAK_DIIZINKAN",
+      });
+    }
+    req.dbUser = user;
+    next();
+  } catch (err) {
+    console.error("❌ requireCiaAccess error:", err);
+    res.status(500).json({ message: "Gagal memeriksa hak akses CIA" });
+  }
+}

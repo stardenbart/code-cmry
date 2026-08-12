@@ -41,7 +41,7 @@ async function menurunkanAdminTerakhir(targetId) {
 // GET ALL USERS
 router.get("/users", requireAdmin, (req, res) => {
   const q =
-    "SELECT id, nama, departemen, tipe_akses, nik, email, username, approved, role FROM users";
+    "SELECT id, nama, departemen, tipe_akses, nik, email, username, approved, role, cia_access FROM users";
   db.query(q, (err, results) => {
     if (err) return res.status(500).json({ message: "Database error", error: err });
     res.json(results);
@@ -105,12 +105,18 @@ router.post("/add-user", requireAdmin, async (req, res) => {
   // body permintaannya menyebut begitu tanpa disengaja.
   const peran = ROLE_SAH.has(req.body?.role) ? req.body.role : "user";
 
+  // Bawaannya MENOLAK, sama seperti kolomnya di database. Akun baru tidak boleh
+  // lahir dengan akses CIA hanya karena formulirnya lupa mengirim flag ini:
+  // fitur AI memakai kuota bersama dan menampilkan analisa operasional, jadi
+  // membukanya harus keputusan sadar admin, bukan bawaan.
+  const bolehCia = req.body?.ciaAccess ? 1 : 0;
+
   const hashedPassword = await bcrypt.hash(password, 10);
   const q = `
-    INSERT INTO users (nama, departemen, tipe_akses, nik, email, username, password, approved, role)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+    INSERT INTO users (nama, departemen, tipe_akses, nik, email, username, password, approved, role, cia_access)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
   `;
-  db.query(q, [nama, departemen, tipe_akses, nik, email, username, hashedPassword, peran], (err) => {
+  db.query(q, [nama, departemen, tipe_akses, nik, email, username, hashedPassword, peran, bolehCia], (err) => {
     if (err) return res.status(500).json({ message: "Database error", error: err });
     res.status(200).json({ message: "User successfully added" });
   });
@@ -119,7 +125,7 @@ router.post("/add-user", requireAdmin, async (req, res) => {
 // UPDATE USER
 router.put("/update-user/:id", requireAdmin, async (req, res) => {
   const { id } = req.params;
-  const { nama, departemen, tipe_akses, nik, email, username, password, role } = req.body;
+  const { nama, departemen, tipe_akses, nik, email, username, password, role, ciaAccess } = req.body;
 
   try {
     if (role !== undefined && !ROLE_SAH.has(role)) {
@@ -146,6 +152,13 @@ router.put("/update-user/:id", requireAdmin, async (req, res) => {
     if (role !== undefined) {
       kolom.push("role=?");
       params.push(role);
+    }
+    // Sama polanya dengan role: hanya ikut diubah bila memang dikirim. Kalau
+    // ditulis tanpa syarat, setiap penyuntingan biasa yang tidak menyertakan
+    // kolom ini akan diam-diam mencabut akses CIA orang itu.
+    if (ciaAccess !== undefined) {
+      kolom.push("cia_access=?");
+      params.push(ciaAccess ? 1 : 0);
     }
     params.push(id);
 

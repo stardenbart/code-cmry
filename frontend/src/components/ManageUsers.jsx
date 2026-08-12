@@ -1,6 +1,6 @@
   import React, { useEffect, useState, lazy } from "react";
   import API from "../api/api"
-  import { Trash2, RefreshCw, Edit, Search, ChevronDown, ShieldCheck } from "lucide-react";
+  import { Trash2, RefreshCw, Edit, Search, ChevronDown, ShieldCheck, Sparkles } from "lucide-react";
 import PerfSummary from "./PerfSummary";
 import LazyBoundary from "./LazyBoundary";
 const VisualHarvestPanel = lazy(() => import("./VisualHarvestPanel"));
@@ -31,6 +31,7 @@ import { useConfirm } from "./ConfirmProvider";
       username: "",
       password: "",
       role: "user",
+      ciaAccess: false,
     });
 
     useEffect(() => {
@@ -101,6 +102,9 @@ import { useConfirm } from "./ConfirmProvider";
         // tampil kosong lalu mengirim "" dan server menolaknya sebagai tidak
         // valid, padahal admin tidak mengubah apa pun di kolom itu.
         role: user.role === "admin" ? "admin" : "user",
+        // Baris lama tidak punya kolom ini. Tanpa nilai jatuhan, checkbox-nya
+        // menjadi tak terkendali dan React memperingatkan tiap kali diketik.
+        ciaAccess: Boolean(Number(user.cia_access)),
       });
 
       setLoadingAccess(true);
@@ -207,6 +211,7 @@ import { useConfirm } from "./ConfirmProvider";
                   <th className="border p-2">Email</th>
                   <th className="border p-2">Username</th>
                   <th className="border p-2">Role</th>
+                  <th className="border p-2">CIA</th>
                   <th className="border p-2">Action</th>
                 </tr>
               </thead>
@@ -227,6 +232,16 @@ import { useConfirm } from "./ConfirmProvider";
                         </span>
                       ) : (
                         <span className="text-xs text-gray-500">User</span>
+                      )}
+                    </td>
+                    <td className="border p-2 text-center">
+                      {Number(u.cia_access) ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                          <Sparkles size={13} />
+                          Aktif
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400">Tidak</span>
                       )}
                     </td>
                     <td className="border p-2 flex justify-center gap-2">
@@ -356,6 +371,22 @@ import { useConfirm } from "./ConfirmProvider";
                     size={18}
                     className="absolute right-3 top-9 text-gray-500 pointer-events-none"
                   />
+                </div>
+
+                {/* Akses CIA */}
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(form.ciaAccess)}
+                      onChange={(e) => setForm({ ...form, ciaAccess: e.target.checked })}
+                    />
+                    Boleh memakai CIA
+                  </label>
+                  <p className="text-[12px] text-gray-500 mt-1">
+                    Bawaannya tidak. Fitur CIA memakai kuota AI bersama dan
+                    menampilkan analisa operasional, jadi dibuka satu per satu.
+                  </p>
                 </div>
 
                 {/* Role */}

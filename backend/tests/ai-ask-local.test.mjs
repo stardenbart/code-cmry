@@ -12,6 +12,15 @@ const [[dash]] = await db.promise().query(
 
 const USER = tokenFor(akun.id, akun.username);
 
+// Akses CIA dibuka SEMENTARA untuk akun fikstur ini, lalu dikembalikan di akhir.
+// Sejak fitur CIA memakai whitelist per user, akun mana pun bawaannya ditolak,
+// jadi tanpa ini seluruh uji di bawah gagal 403 bukan karena bug melainkan
+// karena haknya memang belum dibuka. Nilai semula disimpan dan dipulihkan supaya
+// suite tidak mengubah hak akses akun sungguhan secara permanen.
+const [[semulaCia]] = await db.promise().query("SELECT cia_access FROM users WHERE id = ?", [akun.id]);
+await db.promise().query("UPDATE users SET cia_access = 1 WHERE id = ?", [akun.id]);
+const pulihkanCia = () => db.promise().query("UPDATE users SET cia_access = ? WHERE id = ?", [semulaCia.cia_access, akun.id]);
+
 const snapshot = {
   filters: ["Bulan is Juli 2026"],
   pagesRead: ["OEE & Downtime"],
@@ -79,3 +88,5 @@ const [del] = await db.promise().query(
   [akun.id, "Berapa total downtime?", "Kenapa downtime naik drastis bulan ini?"]
 );
 ok("baris uji dihapus", del.affectedRows >= 1, `${del.affectedRows} baris`);
+
+await pulihkanCia();

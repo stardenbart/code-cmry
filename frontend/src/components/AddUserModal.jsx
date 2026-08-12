@@ -10,6 +10,7 @@ export default function AddUserModal({ onClose }) {
     department: "",
     access: "Department Access Only",
     role: "user",
+    ciaAccess: false,
     nik: "",
     email: "",
     username: "",
@@ -50,6 +51,7 @@ export default function AddUserModal({ onClose }) {
         departemen: form.department,
         tipe_akses: form.access,
         role: form.role,
+        ciaAccess: form.ciaAccess,
         nik: form.nik,
         email: form.email,
         username: form.username,
@@ -136,6 +138,24 @@ export default function AddUserModal({ onClose }) {
             )}
           </div>
         ))}
+
+        {/* Akses CIA. Di luar perulangan field karena ini checkbox, bukan input
+            teks, dan memaksakannya masuk perulangan berarti perulangan itu harus
+            tahu tipe tiap field. */}
+        <div className="mb-3">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={Boolean(form.ciaAccess)}
+              onChange={(e) => setForm({ ...form, ciaAccess: e.target.checked })}
+            />
+            Boleh memakai CIA
+          </label>
+          <p className="text-[12px] text-gray-500 mt-1">
+            Bawaannya tidak. Fitur CIA memakai kuota AI bersama dan menampilkan
+            analisa operasional, jadi dibuka satu per satu.
+          </p>
+        </div>
 
         <div className="flex justify-end space-x-2 mt-4">
           <button className="px-4 py-2 rounded-lg border hover:bg-gray-100" onClick={onClose}>

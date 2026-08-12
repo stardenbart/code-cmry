@@ -35,7 +35,12 @@ export function isAdmin(user) {
 export async function loadUser(userId) {
   if (userId === undefined || userId === null) return null;
   const [rows] = await sql.query(
-    "SELECT id, nama, username, departemen, tipe_akses, role, approved FROM users WHERE id = ?",
+    // cia_access WAJIB ikut. Penjaga akses CIA membacanya, dan kolom yang tidak
+    // diambil bernilai undefined untuk SEMUA orang, sehingga penjaganya menolak
+    // semua orang tanpa satu pun error yang muncul di mana pun. Persis itu yang
+    // pernah terjadi pada kolom role dan membuat kunci universal tidak bisa
+    // diatur oleh siapa pun.
+    "SELECT id, nama, username, departemen, tipe_akses, role, approved, cia_access FROM users WHERE id = ?",
     [userId]
   );
   return rows[0] || null;
