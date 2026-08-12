@@ -78,6 +78,44 @@ export async function setUniversalKey(apiKey, userId) {
   invalidate();
 }
 
+// ── Setelan biasa ────────────────────────────────────────────────────────────
+//
+// Pasangan baca dan tulis untuk setelan yang BUKAN rahasia, misalnya pilihan
+// provider AI. Sengaja tidak dienkripsi dan tidak ikut cache kunci universal:
+// cache itu menyimpan satu nilai saja, dan memakainya untuk kunci lain akan
+// membuat setelan yang satu menimpa yang lain tanpa gejala.
+//
+// Nilainya disimpan apa adanya karena memang tidak rahasia, dan menyimpannya
+// terenkripsi hanya akan menyulitkan pemeriksaan langsung ke tabel saat sesuatu
+// terasa aneh.
+
+/**
+ * Membaca satu setelan biasa.
+ *
+ * @param {string} skey
+ * @returns {Promise<string|null>}
+ */
+export async function getSetelan(skey) {
+  const [rows] = await sql.query("SELECT svalue FROM ai_settings WHERE skey = ?", [String(skey)]);
+  return rows[0]?.svalue ?? null;
+}
+
+/**
+ * Menyimpan satu setelan biasa.
+ *
+ * @param {string} skey
+ * @param {string} svalue
+ * @param {number} [userId]
+ */
+export async function setSetelan(skey, svalue, userId) {
+  await sql.query(
+    `INSERT INTO ai_settings (skey, svalue, updated_by)
+     VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE svalue = VALUES(svalue), updated_by = VALUES(updated_by)`,
+    [String(skey), String(svalue), userId || null]
+  );
+}
+
 export async function clearUniversalKey() {
   await sql.query("DELETE FROM ai_settings WHERE skey = ?", [UNIVERSAL_KEY]);
   invalidate();

@@ -22,7 +22,8 @@
 //   Query kosong dijawab "tidak ada datanya", bukan dikarang.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { askGemini, GeminiError, normalizeModel, getServerKey } from "../config/gemini.js";
+import { GeminiError, normalizeModel } from "../config/gemini.js";
+import { tanyaModel } from "./modelRouter.js";
 import * as aiSettings from "./aiSettings.js";
 import { skemaModel, jalankanDaxAman, resolusiDatasetId } from "./powerbiMeta.service.js";
 import { KATALOG_KPI } from "./kpiCatalog.js";
@@ -47,15 +48,18 @@ async function kunci() {
   return k?.apiKey || null;
 }
 
+// Lewat modelRouter, bukan langsung ke Gemini. Router yang memutuskan GLM-5.2
+// atau Gemini sesuai setelan admin, dan yang beralih ke Gemini bila GLM gagal,
+// timeout, atau kena batas laju. Peralihan itu dicatat, jadi seberapa sering GLM
+// gagal bisa dilihat alih-alih dikira-kira.
 async function tanya({ apiKey, instruksi, pertanyaan, maksToken = 4000 }) {
-  const hasil = await askGemini({
-    apiKey,
-    model: normalizeModel(process.env.GEMINI_MODEL_VERSION || process.env.GEMINI_MODEL),
-    systemInstruction: instruksi,
+  const hasil = await tanyaModel({
     question: pertanyaan,
+    systemInstruction: instruksi,
     maxOutputTokens: maksToken,
+    geminiApiKey: apiKey,
+    geminiModel: normalizeModel(process.env.GEMINI_MODEL_VERSION || process.env.GEMINI_MODEL),
     thinkingLevel: process.env.DAX_AGENT_THINKING || "low",
-    timeoutMs: Number(process.env.DAX_AGENT_TIMEOUT_MS) || 120_000,
   });
   return String(hasil?.text || "").trim();
 }

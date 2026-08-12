@@ -14,7 +14,8 @@
 //   - Tidak tahu harus dijawab tidak tahu, bukan dikarang
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { askGemini, GeminiError, normalizeModel, getServerKey } from "../config/gemini.js";
+import { GeminiError, normalizeModel, getServerKey } from "../config/gemini.js";
+import { tanyaModel } from "./modelRouter.js";
 import * as aiSettings from "./aiSettings.js";
 import { susunMuatan } from "./summaryFormatter.js";
 import { ambilSnapshotMingguan } from "./historicalStore.service.js";
@@ -234,16 +235,18 @@ async function tanyakanKeModel({ tanya, dicurigai, jendela, domains, sumber }) {
   }
 
   try {
-    const hasil = await askGemini({
-      apiKey,
-      model: normalizeModel(process.env.GEMINI_MODEL_VERSION || process.env.GEMINI_MODEL),
+    // Lewat modelRouter: GLM-5.2 lebih dulu sesuai setelan admin, Gemini sebagai
+    // cadangan bila GLM gagal, timeout, atau kena batas laju.
+    const hasil = await tanyaModel({
+      geminiApiKey: apiKey,
+      geminiModel: normalizeModel(process.env.GEMINI_MODEL_VERSION || process.env.GEMINI_MODEL),
       systemInstruction: instruksiTanyaJawab(),
       // String.fromCharCode(10) alih-alih escape baris baru: skrip suntingan
       // pernah menerjemahkannya menjadi baris baru sungguhan dan merusak sintaks.
       question: isi.join(String.fromCharCode(10)),
       maxOutputTokens: Number(process.env.WHATSAPP_QA_MAX_TOKENS) || 6000,
       thinkingLevel: process.env.WHATSAPP_QA_THINKING || "low",
-      timeoutMs: Number(process.env.WHATSAPP_QA_TIMEOUT_MS) || 90_000,
+      geminiTimeoutMs: Number(process.env.WHATSAPP_QA_TIMEOUT_MS) || 90_000,
     });
 
     let teks = String(hasil?.text || "").trim();

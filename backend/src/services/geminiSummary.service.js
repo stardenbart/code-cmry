@@ -14,6 +14,8 @@
 import {
   askGemini, GeminiError, normalizeModel, getServerKey,
 } from "../config/gemini.js";
+import { askGlm } from "../config/glm.js";
+import { providerTerpilih, bolehPakaiGlm } from "./modelRouter.js";
 import * as aiSettings from "./aiSettings.js";
 import {
   instruksiSistem, validasiKeluaran, susunMuatan, PROMPT_VERSION,
@@ -100,6 +102,49 @@ export async function ringkasDenganAI({ jendela, domains, banding }) {
     ...(dicoba[0] ? [{ model: dicoba[0], tambahan: "PADATKAN" }, { model: dicoba[0], tambahan: "PADATKAN" }] : []),
     ...dicoba.slice(1).map((m) => ({ model: m, tambahan: "" })),
   ].filter((u) => u.model);
+
+  // GLM-5.2 dicoba SEKALI di depan, bukan dibungkus ke seluruh tangga di bawah.
+  //
+  // Tangga itu berisi tiga percobaan padatkan plus model cadangan, semuanya
+  // disetel dari kegagalan nyata yang terukur. Membungkusnya berarti GLM ikut
+  // dicoba di setiap anak tangga, dan satu laporan bisa memakan belasan panggilan
+  // model. Kalau GLM gagal atau keluarannya tidak lolos validasi, tangga Gemini
+  // berjalan persis seperti sebelum GLM ada.
+  if ((await providerTerpilih()) === "glm") {
+    const izin = bolehPakaiGlm();
+    if (izin.boleh) {
+      try {
+        const hasilGlm = await askGlm({
+          systemInstruction: instruksiSistem(),
+          question: pertanyaan,
+          maxOutputTokens: Number(process.env.SUMMARY_MAX_TOKENS) || 32_768,
+        });
+        const teksGlm = String(hasilGlm?.text || "").trim();
+        const validasiGlm = validasiKeluaran(teksGlm);
+        if (validasiGlm.lolos) {
+          // Bentuk kembaliannya WAJIB sama dengan jalur Gemini di bawah.
+          // Pemanggilnya menyimpan promptVersion dan muatanByte ke tabel hasil,
+          // dan kalau keduanya hilang, baris laporan tersimpan tanpa jejak
+          // prompt versi berapa yang menghasilkannya.
+          return {
+            berhasil: true,
+            teks: teksGlm,
+            modelVersion: hasilGlm.model,
+            promptVersion: PROMPT_VERSION,
+            muatanByte,
+            validasi: validasiGlm,
+          };
+        }
+        galatTerakhir = `validasi gagal pada GLM: ${validasiGlm.catatan}`;
+        console.warn(`[SUMMARY] GLM ditolak validasi, lanjut ke Gemini: ${validasiGlm.catatan}`);
+      } catch (err) {
+        galatTerakhir = `GLM gagal: ${err?.message || err}`;
+        console.warn(`[SUMMARY] ${galatTerakhir}, lanjut ke Gemini`);
+      }
+    } else {
+      console.warn(`[SUMMARY] GLM dilewati: ${izin.alasan}`);
+    }
+  }
 
   for (const { model, tambahan } of upaya) {
     const instruksi = tambahan === "PADATKAN"
