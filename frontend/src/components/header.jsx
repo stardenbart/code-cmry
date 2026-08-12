@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   UserPlus, Users, KeyRound, LogOut, LayoutDashboard, Home,
-  Menu, MoreVertical, Globe, Sparkles,
+  Menu, MoreVertical, Globe, Sparkles, CalendarClock
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -10,6 +10,7 @@ export default function Header({
   onLogout,
   onAddUserClick,
   onManageUserClick,
+  onReportSettingClick,
   onChangePasswordClick,
   onAISettingsClick,
   onMenuToggle,
@@ -102,6 +103,8 @@ export default function Header({
                   color="bg-green-500 hover:bg-green-600" tooltip="Add User" />
                 <IconButton onClick={onManageUserClick} icon={Users}
                   color="bg-blue-500 hover:bg-blue-600" tooltip="Manage Users" />
+                <IconButton onClick={onReportSettingClick} icon={CalendarClock}
+                  color="bg-teal-600 hover:bg-teal-700" tooltip="Setelan Laporan Harian" />
               </>
             )}
 
@@ -149,6 +152,8 @@ export default function Header({
                       label="Add User" color="hover:bg-green-600/60" />
                     <MobileAction onClick={onManageUserClick} icon={Users}
                       label="Manage Users" color="hover:bg-blue-600/60" />
+                    <MobileAction onClick={onReportSettingClick} icon={CalendarClock}
+                      label="Setelan Laporan Harian" color="hover:bg-teal-600/60" />
                   </>
                 )}
 

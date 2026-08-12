@@ -30,6 +30,7 @@ const NotificationPage    = lazy(() => import("./components/NotificationPage"));
 const DataRoomDashboard   = lazy(() => import("./components/DataRoomDashboard.jsx"));
 const AskAIPanel          = lazy(() => import("./components/AskAIPanel"));
 const AISettingsModal     = lazy(() => import("./components/AISettingsModal"));
+const ReportSettingModal  = lazy(() => import("./components/ReportSettingModal"));
 const CodeAINavigator     = lazy(() => import("./components/CodeAINavigator"));
 // Membawa DOMPurify (~30 KB). Hanya deskripsi dashboard yang perlu disanitasi,
 // dan itu tidak pernah tampil di halaman login.
@@ -357,6 +358,7 @@ function Dashboard({ user, onLogout }) {
   const [focusedDash, setFocusedDash]     = useState(null);
   const [showAddUser, setShowAddUser]     = useState(false);
   const [showManageUser, setShowManageUser] = useState(false);
+  const [showReportSetting, setShowReportSetting] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showAISettings, setShowAISettings] = useState(false);
   const [accessStatus, setAccessStatus]   = useState({});
@@ -457,7 +459,7 @@ function Dashboard({ user, onLogout }) {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const modalOpen = showAddUser || showManageUser || showChangePassword || showAISettings;
+  const modalOpen = showAddUser || showManageUser || showChangePassword || showAISettings || showReportSetting;
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-cimoryBlue/50 via-white to-cimoryRed/50">
@@ -466,6 +468,7 @@ function Dashboard({ user, onLogout }) {
         onLogout={onLogout}
         onAddUserClick={() => setShowAddUser(true)}
         onManageUserClick={() => setShowManageUser(true)}
+        onReportSettingClick={() => setShowReportSetting(true)}
         onChangePasswordClick={() => setShowChangePassword(true)}
         onAISettingsClick={() => setShowAISettings(true)}
         onMenuToggle={() => setSidebarOpen(true)}
@@ -606,6 +609,7 @@ function Dashboard({ user, onLogout }) {
       <LazyBoundary>
         {showAddUser    && <AddUserModal onClose={() => setShowAddUser(false)} />}
         {showManageUser && <ManageUsers onClose={() => setShowManageUser(false)} />}
+        {showReportSetting && <ReportSettingModal onClose={() => setShowReportSetting(false)} />}
         {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
         {showAISettings && <AISettingsModal onClose={() => setShowAISettings(false)} />}
       </LazyBoundary>
@@ -619,6 +623,7 @@ function NotificationsLayout({ user, onLogout }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showAddUser, setShowAddUser] = useState(false);
   const [showManageUser, setShowManageUser] = useState(false);
+  const [showReportSetting, setShowReportSetting] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
@@ -628,7 +633,7 @@ function NotificationsLayout({ user, onLogout }) {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const modalOpen = showAddUser || showManageUser || showChangePassword;
+  const modalOpen = showAddUser || showManageUser || showChangePassword || showReportSetting;
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-cimoryBlue/50 via-white to-cimoryRed/50">
@@ -637,6 +642,7 @@ function NotificationsLayout({ user, onLogout }) {
         onLogout={onLogout}
         onAddUserClick={() => setShowAddUser(true)}
         onManageUserClick={() => setShowManageUser(true)}
+        onReportSettingClick={() => setShowReportSetting(true)}
         onChangePasswordClick={() => setShowChangePassword(true)}
         onMenuToggle={() => setSidebarOpen(true)}
       />
@@ -684,6 +690,7 @@ function NotificationsLayout({ user, onLogout }) {
       <LazyBoundary>
         {showAddUser    && <AddUserModal onClose={() => setShowAddUser(false)} />}
         {showManageUser && <ManageUsers onClose={() => setShowManageUser(false)} />}
+        {showReportSetting && <ReportSettingModal onClose={() => setShowReportSetting(false)} />}
         {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
       </LazyBoundary>
     </div>
