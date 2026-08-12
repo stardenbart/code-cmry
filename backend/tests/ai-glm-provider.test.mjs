@@ -126,7 +126,7 @@ ok("jawabannya tetap didapat", setelahUlang.text === "berhasil tanpa thinking", 
 section("Pemilih provider dan jalur cadangan");
 
 ok("provider sah hanya dua", PROVIDER_SAH.join(",") === "glm,gemini", PROVIDER_SAH.join(","));
-ok("default GLM", PROVIDER_DEFAULT === "glm", PROVIDER_DEFAULT);
+ok("default Gemini, bukan GLM", PROVIDER_DEFAULT === "gemini", PROVIDER_DEFAULT);
 
 const geminiPalsu = async () => ({ text: "dari gemini", model: "gemini-3.6-flash", usage: null });
 

@@ -2,9 +2,9 @@
 //
 // Aturan yang dijaga di sini, semuanya dari keputusan pemilik proyek:
 //
-// 1. Default untuk balasan CIA adalah GLM-5.2. Admin bisa mengubahnya ke Gemini
-//    lewat setelan di website, jadi pilihannya disimpan di database, BUKAN di
-//    kode dan bukan di env.
+// 1. Pilihan provider disimpan di database, BUKAN di kode dan bukan di env,
+//    supaya admin bisa mengubahnya dari website tanpa deploy. Defaultnya Gemini,
+//    lihat alasan terukur di PROVIDER_DEFAULT di bawah.
 // 2. Kalau GLM gagal, timeout, atau kena batas laju, permintaan ITU dijawab
 //    Gemini. Tapi permintaan BERIKUTNYA tetap mencoba GLM lebih dulu. Tidak ada
 //    status "sedang rusak" yang menempel, karena kegagalan GLM di sini hampir
@@ -22,8 +22,18 @@ export const KUNCI_MODEL_CIA = "cia_model_wa";
 
 export const PROVIDER_SAH = ["glm", "gemini"];
 
-/** Default bila belum pernah diatur admin. */
-export const PROVIDER_DEFAULT = "glm";
+// Default bila belum pernah diatur admin, atau bila baris setelannya hilang.
+//
+// Gemini, bukan GLM, dan itu dari pengukuran bukan preferensi. Diuji pada akun
+// NVIDIA yang ada: z-ai/glm-5.2 terdaftar di katalog tapi tidak pernah menjawab,
+// dan sebagian besar model lain membalas "Not found for account". Dua yang hidup
+// gagal aritmetika pada soal yang seluruh angkanya sudah disodorkan: satu
+// mengarang penyebut 237 jam padahal running time 168 jam diberikan, satu lagi
+// menyebut selisih poin persentase sebagai kenaikan.
+//
+// Default yang mengarah ke provider yang tidak melayani berarti setiap
+// pertanyaan menunggu sampai timeout lebih dulu sebelum jatuh ke cadangan.
+export const PROVIDER_DEFAULT = "gemini";
 
 // Free tier GLM-5.2 di NVIDIA NIM dibatasi sekitar 40 permintaan per menit.
 // Angkanya sengaja sedikit di bawah itu: batas yang dipasang persis di angka
