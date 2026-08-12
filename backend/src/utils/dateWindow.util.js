@@ -26,7 +26,7 @@ const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
  * Caranya menggeser instant lalu membaca komponen UTC-nya. Membaca komponen
  * lokal akan menggandakan penyesuaian zona pada server yang tidak di UTC.
  */
-function komponenWib(instant) {
+export function komponenWib(instant) {
   const geser = new Date(instant.getTime() + WIB_OFFSET_MS);
   return {
     tahun: geser.getUTCFullYear(),

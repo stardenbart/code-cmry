@@ -59,6 +59,45 @@ export function daftarkanScheduler() {
   }
 
   for (const [nama, ekspresi, fn] of [
+    // Detak tiap menit yang membaca setelan dari DATABASE, lalu memutuskan
+    // sendiri apakah sudah waktunya.
+    //
+    // Ekspresi cron di bawahnya didaftarkan SEKALI saat proses menyala, jadi
+    // jadwal yang diubah admin lewat website baru berlaku setelah restart. Itu
+    // persis yang diminta tidak terjadi. Jadi jadwal dari database tidak
+    // didaftarkan sebagai cron sendiri: cron hanya berdetak, dan reportSchedule
+    // yang memutuskan.
+    //
+    // Biaya detak per menit itu satu SELECT satu baris. Jauh lebih murah
+    // daripada mendaftar ulang tugas cron setiap setelan berubah, yang menuntut
+    // membongkar dan memasang tugas saat proses hidup.
+    ["jadwal-db", "* * * * *", async () => {
+      const { ambilSetelan, tandaiDijalankan } = await import("../models/reportSettingModel.js");
+      const { apakahJatuhTempo, ringkasJadwal } = await import("../services/reportSchedule.js");
+
+      const setelan = await ambilSetelan();
+      const putusan = apakahJatuhTempo({
+        setelan,
+        sekarang: new Date(),
+        terakhirJalan: setelan.terakhirJalan,
+      });
+      if (!putusan.jatuhTempo) return;
+
+      console.log(`[cron] jadwal-db jatuh tempo (${ringkasJadwal(setelan)})`);
+
+      // Ditandai LEBIH DULU. Kalau prosesnya mati di tengah pengumpulan, jadwal
+      // itu terlewat sekali. Kalau urutannya dibalik, setiap detak dalam rentang
+      // toleransi memulai pengumpulan baru dan grup dibanjiri laporan yang sama.
+      await tandaiDijalankan();
+
+      const kumpul = await kumpulkanTerkunci({ holder: "cron-jadwal-db" });
+      if (!kumpul.dijalankan) {
+        console.log(`[cron] jadwal-db: pengumpulan dilewati: ${kumpul.alasan}`);
+        return;
+      }
+      const kirim = await kirimTerkunci({ holder: "cron-jadwal-db" });
+      if (!kirim.dijalankan) console.log(`[cron] jadwal-db: pengiriman dilewati: ${kirim.alasan}`);
+    }],
     ["kumpul", CRON_KUMPUL, async () => {
       const r = await kumpulkanTerkunci({ holder: "cron-kumpul" });
       if (!r.dijalankan) console.log(`[cron] kumpul dilewati: ${r.alasan}`);
