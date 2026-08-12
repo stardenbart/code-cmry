@@ -14,6 +14,13 @@ const MODEL_LABELS = {
   "gemini-flash-lite-latest": "Versi ringan terbaru",
 };
 
+// Nama yang dilihat orang, bukan id teknisnya. "z-ai/glm-5.2" tidak berarti apa
+// pun bagi admin yang sedang memilih.
+const PROVIDER_LABELS = {
+  glm: "GLM-5.2 (NVIDIA NIM)",
+  gemini: "Gemini",
+};
+
 export default function AISettingsModal({ onClose }) {
   const confirm = useConfirm();
   const [status, setStatus]   = useState(null);
@@ -22,6 +29,10 @@ export default function AISettingsModal({ onClose }) {
   const [model, setModel]     = useState("gemini-3.6-flash");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg]         = useState(null);   // { type: "ok"|"err", text }
+
+  // Provider CIA. Dibaca semua user, diubah hanya admin.
+  const [provider, setProvider] = useState(null);
+  const [providerLoading, setProviderLoading] = useState(false);
 
   // Universal key (Digital Transformer only)
   const [uniKey, setUniKey]     = useState("");
@@ -41,7 +52,30 @@ export default function AISettingsModal({ onClose }) {
       })
       .catch(() => setMsg({ type: "err", text: "Gagal memuat status CIA" }));
 
-  useEffect(() => { loadStatus(); }, []);
+  // Dibaca terpisah dari status: gagal memuatnya TIDAK boleh menghalangi
+  // pengelolaan kunci, yang merupakan alasan utama modal ini dibuka.
+  const loadProvider = () =>
+    API.get("/api/ai/provider")
+      .then(({ data }) => setProvider(data))
+      .catch(() => setProvider(null));
+
+  useEffect(() => { loadStatus(); loadProvider(); }, []);
+
+  const simpanProvider = async (nilai) => {
+    setProviderLoading(true);
+    setMsg(null);
+    try {
+      const { data } = await API.put("/api/ai/provider", { provider: nilai });
+      // Dibaca ulang dari server, bukan ditebak dari nilai yang dikirim, supaya
+      // yang tampil selalu keadaan sebenarnya termasuk glmSiap.
+      await loadProvider();
+      setMsg({ type: "ok", text: data?.message || "Provider diperbarui" });
+    } catch (err) {
+      setMsg({ type: "err", text: err?.response?.data?.message || "Gagal menyimpan provider" });
+    } finally {
+      setProviderLoading(false);
+    }
+  };
 
   const save = async () => {
     setLoading(true);
@@ -203,6 +237,45 @@ export default function AISettingsModal({ onClose }) {
             ))}
           </select>
         </div>
+
+        {/* Provider CIA. Dibaca semua user, diubah hanya admin. */}
+        {provider && (
+          <div className="mb-3 border-t pt-3">
+            <label className="block text-sm font-medium mb-1">
+              Model CIA di WhatsApp{" "}
+              {!canManageUniversal && (
+                <span className="text-gray-400 font-normal">(hanya bisa diubah admin)</span>
+              )}
+            </label>
+            <select
+              className="border w-full p-2 rounded-lg disabled:bg-gray-100 disabled:text-gray-500"
+              value={provider.provider}
+              disabled={!canManageUniversal || providerLoading}
+              onChange={(e) => simpanProvider(e.target.value)}
+            >
+              {(provider.pilihan || []).map((p) => (
+                <option key={p} value={p}>{PROVIDER_LABELS[p] || p}</option>
+              ))}
+            </select>
+
+            {/* Setelan boleh tersimpan sementara kuncinya belum ada. Tanpa
+                peringatan ini, admin memilih GLM, melihat tersimpan, lalu bingung
+                kenapa jawabannya tetap datang dari Gemini. */}
+            {provider.provider === "glm" && !provider.glmSiap && (
+              <p className="text-[12px] text-amber-700 mt-1">
+                NVIDIA_API_KEY belum diisi di server, jadi CIA masih menjawab lewat
+                Gemini. Setelan ini akan berlaku begitu kuncinya dipasang.
+              </p>
+            )}
+
+            <p className="text-[12px] text-gray-500 mt-1">
+              Berlaku untuk balasan CIA di grup WhatsApp, penyusun query, dan laporan
+              harian. Panel ini tetap memakai Gemini. Kalau model utamanya gagal atau
+              kena batas laju, satu pertanyaan itu dijawab Gemini, lalu pertanyaan
+              berikutnya mencoba model utama lagi.
+            </p>
+          </div>
+        )}
 
         {/* Universal key — Digital Transformer only */}
         {canManageUniversal && (
