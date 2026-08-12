@@ -226,11 +226,34 @@ section("Instruksi memuat larangan yang baru ditambahkan");
 for (const frasa of [
   "PERSIS seperti field `t`",
   "TIDAK BOLEH muncul di section REKOMENDASI",
-  "JANGAN menulis harian",
   "di bawah 3500 karakter",
   "pakai keduanya untuk MENJELASKAN",
 ]) {
   ok(`instruksi menyebut "${frasa.slice(0, 34)}"`, ins.includes(frasa), "hilang dari instruksi");
+}
+
+section("Bentuk laporan mengubah instruksinya, dan KEDUA cabang diperiksa");
+
+// Larangan periodenya sekarang bersyarat: laporan mingguan dilarang menulis
+// harian, laporan harian dilarang menulis mingguan. Memeriksa satu cabang saja
+// membuat cabang yang lain bisa rusak tanpa ada yang tahu, dan cabang itulah
+// yang dipakai enam hari dari tujuh.
+const insHarian = instruksiSistem({ jenis: "harian" });
+const insMingguan = instruksiSistem({ jenis: "mingguan" });
+
+ok("mingguan melarang menulis harian", insMingguan.includes("JANGAN menulis harian"), "hilang");
+ok("mingguan menyebut dirinya penutup minggu", /LAPORAN PENUTUP MINGGU/.test(insMingguan), "hilang");
+ok("harian melarang menulis mingguan", insHarian.includes("JANGAN menulis mingguan"), "hilang");
+ok("harian menyebut dirinya laporan harian", /LAPORAN HARIAN/.test(insHarian), "hilang");
+
+// Bawaan tanpa argumen HARUS sama dengan harian. Kalau bawaannya berubah jadi
+// mingguan, enam dari tujuh laporan salah membahasakan periodenya.
+ok("bawaan tanpa argumen sama dengan harian", instruksiSistem() === insHarian, "bawaannya berubah");
+
+// Aturan yang tidak boleh bergantung bentuk laporan.
+for (const frasa of ["Hanya sebut angka yang ADA", "angkaHarian bernilai false", "blocked"]) {
+  ok(`aturan "${frasa.slice(0, 28)}" ada di kedua bentuk`,
+    insHarian.includes(frasa) && insMingguan.includes(frasa), "hilang di salah satu cabang");
 }
 
 section("Pesan cadangan tetap membawa angka dan penandanya");

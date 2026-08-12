@@ -111,15 +111,50 @@ for (const e of KATALOG_KPI) {
   }
 }
 
+// Pengecualian sempit: measure yang TIDAK dirender di visual mana pun, tapi
+// sudah diverifikasi langsung ke model dan terbukti menghasilkan angka waras.
+//
+// Aturan "harus dirender di visual" ada supaya angkanya tidak aneh. Verifikasi
+// langsung memenuhi maksud yang sama dengan bukti yang lebih kuat, jadi jalur
+// ini dibuka HANYA bila ada hasil pengukurannya, bukan bila ada alasannya.
+//
+// Daftarnya sengaja per measure dan bukan per KPI: melonggarkan seluruh KPI
+// membuat measure lain yang kelak ditambahkan ikut lolos tanpa diperiksa.
+const DIVERIFIKASI_LANGSUNG = new Map([
+  [
+    "(all) biaya yang dibayar (akhir)",
+    "diukur 2026-08-12 lewat Execute Queries: 16.535.724.045,64 berbanding " +
+      "16.523.279.813,64 dari measure estimasi, selisih 0,075 persen. " +
+      "Disandingkan dengan estimasi supaya selisih verifikasi HRGA terlihat.",
+  ],
+]);
+
 const tidakDirender = pasangan.filter(
   (p) =>
     !adaDiVisual.has(p.measure.trim().toLowerCase()) &&
-    !buktiAlias.has(p.measure.trim().toLowerCase())
+    !buktiAlias.has(p.measure.trim().toLowerCase()) &&
+    !DIVERIFIKASI_LANGSUNG.has(p.measure.trim().toLowerCase())
 );
 ok(
   `${pasangan.length} measure semuanya terbukti dirender di visual`,
   tidakDirender.length === 0,
   tidakDirender.map((p) => `${p.kpi} :: ${p.measure}`).join(" ; ")
+);
+
+section("Pengecualian verifikasi langsung tidak boleh jadi sampah");
+
+// Pengecualian yang measure-nya sudah dihapus dari katalog, atau yang ternyata
+// SUDAH dirender di visual, harus dibuang. Daftar pengecualian yang tidak
+// pernah dibersihkan pelan-pelan menjadi lubang yang melewatkan apa pun.
+const pengecualianBasi = [...DIVERIFIKASI_LANGSUNG.keys()].filter((m) => {
+  const dipakai = pasangan.some((p) => p.measure.trim().toLowerCase() === m);
+  const sudahDiVisual = adaDiVisual.has(m);
+  return !dipakai || sudahDiVisual;
+});
+ok(
+  "tidak ada pengecualian yang basi",
+  pengecualianBasi.length === 0,
+  pengecualianBasi.join(" ; ")
 );
 
 section("Alias terlihatSebagai wajib benar-benar ada di visual");

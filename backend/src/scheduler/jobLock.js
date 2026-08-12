@@ -90,6 +90,35 @@ export async function lepasKunci(jobName, holder = null) {
   return hasil.affectedRows === 1;
 }
 
+/**
+ * Memperpanjang masa kunci selama job MASIH berjalan.
+ *
+ * Ini yang membuat TTL pendek aman. Tanpa perpanjangan, TTL harus dipasang
+ * selebar durasi terburuk yang mungkin, dan konsekuensinya proses yang MATI
+ * sambil memegang kunci menahan job berikutnya selama itu juga. Yang terjadi di
+ * lapangan: permintaan manual lewat WhatsApp dijawab "belum bisa dijalankan"
+ * padahal tidak ada yang sedang berjalan.
+ *
+ * Dengan perpanjangan berkala, dua hal itu tidak lagi bertukar: job yang hidup
+ * mempertahankan kuncinya berapa lama pun, dan job yang mati melepasnya dalam
+ * satu TTL.
+ *
+ * Dibatasi pada holder yang sama, jadi proses lain tidak bisa memperpanjang
+ * kunci yang bukan miliknya.
+ *
+ * @returns {Promise<boolean>} true bila kuncinya masih miliknya dan diperpanjang
+ */
+export async function perpanjangKunci(jobName, holder, ttlMs = TTL_BAWAAN_MS) {
+  const detik = Math.max(1, Math.round(Number(ttlMs) / 1000));
+  const [hasil] = await sql.query(
+    `UPDATE daily_summary_lock
+        SET expires_at = DATE_ADD(NOW(), INTERVAL ? SECOND)
+      WHERE job_name = ? AND holder = ?`,
+    [detik, jobName, holder]
+  );
+  return hasil.affectedRows === 1;
+}
+
 /** Keadaan kunci saat ini, untuk log dan diagnosis. */
 export async function statusKunci(jobName) {
   const [[baris]] = await sql.query(
@@ -128,10 +157,30 @@ export async function denganKunci(jobName, fn, opsi = {}) {
 
   if (!kunci.didapat) return { dijalankan: false, alasan: kunci.alasan };
 
+  // Detak jantung: selama fn berjalan, kuncinya diperpanjang berkala.
+  //
+  // Jaraknya sepertiga TTL, jadi satu detak yang terlewat karena proses sedang
+  // sibuk masih menyisakan dua kesempatan sebelum kuncinya kedaluwarsa.
+  //
+  // unref() supaya interval ini TIDAK menahan proses tetap hidup. Tanpa itu,
+  // uji yang memanggil job akan menggantung sampai timeout alih-alih selesai.
+  const ttlMs = Number(opsi.ttlMs) > 0 ? Number(opsi.ttlMs) : TTL_BAWAAN_MS;
+  const jeda = Math.max(5_000, Math.floor(ttlMs / 3));
+  const detak = setInterval(() => {
+    perpanjangKunci(jobName, holder, ttlMs).catch((err) => {
+      // Gagal memperpanjang tidak menghentikan job: kalau memang kuncinya sudah
+      // direbut orang lain, job ini tetap harus menyelesaikan pekerjaannya, dan
+      // lepasKunci di bawah memang tidak akan menghapus milik orang lain.
+      console.warn(`[lock] gagal memperpanjang ${jobName}: ${err?.message || err}`);
+    });
+  }, jeda);
+  detak.unref?.();
+
   try {
     const hasil = await fn();
     return { dijalankan: true, hasil };
   } finally {
+    clearInterval(detak);
     await lepasKunci(jobName, holder);
   }
 }

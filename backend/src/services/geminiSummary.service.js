@@ -65,6 +65,13 @@ export async function ringkasDenganAI({ jendela, domains, banding }) {
   const muatan = susunMuatan({ jendela, domains, banding });
   const muatanByte = Buffer.byteLength(JSON.stringify(muatan), "utf8");
 
+  // Jenis laporan diturunkan dari BENTUK jendela, sama seperti susunMuatan
+  // menentukan periode.jenis. Satu sumber kebenaran: dailySummaryJob.js yang
+  // memutuskan jendela mana dikirim (lewat apakahAkhirMinggu()), dan instruksi
+  // sistem cuma mengikuti bentuknya, bukan memutuskan sendiri.
+  const jenisLaporan = jendela?.mulaiTanggal ? "mingguan" : "harian";
+  const instruksi = instruksiSistem({ jenis: jenisLaporan });
+
   const kunci = await kunciJob();
   if (!kunci) {
     return {
@@ -126,7 +133,7 @@ export async function ringkasDenganAI({ jendela, domains, banding }) {
     if (izin.boleh) {
       try {
         const hasilGlm = await askGlm({
-          systemInstruction: instruksiSistem(),
+          systemInstruction: instruksi,
           question: pertanyaan,
           maxOutputTokens: Number(process.env.SUMMARY_MAX_TOKENS) || 32_768,
         });
@@ -158,16 +165,16 @@ export async function ringkasDenganAI({ jendela, domains, banding }) {
   }
 
   for (const { model, tambahan } of upaya) {
-    const instruksi = tambahan === "PADATKAN"
-      ? `${instruksiSistem()}
+    const instruksiPercobaan = tambahan === "PADATKAN"
+      ? `${instruksi}
 
 PENTING: keluaran sebelumnya DITOLAK karena melebihi ${BATAS_PESAN_KARAKTER} karakter. Tulis ulang jauh lebih padat: satu kalimat per domain, maksimum 3 butir rekomendasi, dan buang kalimat pembuka maupun penutup. Kelima section tetap WAJIB ada.`
-      : instruksiSistem();
+      : instruksi;
     try {
       const hasil = await askGemini({
         apiKey: kunci.apiKey,
         model,
-        systemInstruction: instruksi,
+        systemInstruction: instruksiPercobaan,
         question: pertanyaan,
         // Anggaran token job ini SENGAJA jauh lebih besar daripada jalur tanya
         // jawab user, dan keduanya tidak saling memengaruhi karena setelan ini

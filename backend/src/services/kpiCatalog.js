@@ -273,19 +273,40 @@ export const KATALOG_KPI = [
     domain: "cost",
     kpi: "Biaya lembur",
     modelName: "Dashboard Lembur Plant",
-    measures: ["Biaya Yang dibayar (cost)"],
+    // DUA measure disengaja disandingkan, BUKAN dipilih satu. Diukur langsung
+    // 2026-08-12: keduanya menghitung hal yang konsep sama dari tabel yang
+    // berbeda dan bisa berbeda angka.
+    //   - "Biaya Yang dibayar (cost)" hidup di HRGA_Gform(True) Gabungan All,
+    //     yaitu tabel FORM ISIAN MENTAH sebelum diverifikasi HRGA. Ini estimasi.
+    //   - "(all) biaya yang dibayar (akhir)" hidup di HRGA_Hslakhir, tabel HASIL
+    //     AKHIR setelah proses verifikasi. Ini yang final.
+    // Menyandingkan keduanya, bukan menimpa satu ke yang lain, karena selisihnya
+    // sendiri adalah informasi: kalau jauh berbeda, ada form yang belum
+    // diverifikasi atau ditolak, dan itu layak diketahui manajemen.
+    measures: ["Biaya Yang dibayar (cost)", "(all) biaya yang dibayar (akhir)"],
     unit: "IDR",
     status: "confirmed",
-    // Perilaku tanggal DIUKUR 2026-08-04, bukan ditebak dari prosa registry:
-    // Model Lembur Plant tidak punya tabel tanggal: 16,3 miliar IDR itu akumulasi, BUKAN sehari.
+    // Perilaku tanggal DIUKUR 2026-08-04 dan 2026-08-12: model tidak punya SATU
+    // tabel tanggal yang ditandai jelas untuk auto-deteksi (temukanKolomTanggal
+    // sengaja tidak menebak kolom tanggal yang menempel di tabel fakta), walau
+    // kedua tabel fakta di atas SEBENARNYA punya kolom tanggal sendiri
+    // ("Tanggal Lembur (Bulan/Tanggal/Tahun)" di Gform, "Tanggal" di Hslakhir).
+    // Sampai ada override tanggal eksplisit per entri (belum ada di kode),
+    // angka ini tetap dilaporkan sebagai akumulatif, BUKAN karena datanya
+    // memang tidak bisa difilter harian.
     filterTanggal: false,
     harian: false,
-    dateLogic: "TIDAK bisa difilter tanggal: model ini tidak punya tabel tanggal, angkanya akumulatif",
+    dateLogic:
+      "belum difilter tanggal: detektor otomatis tidak menandai satu tabel tanggal, " +
+      "walau kolom tanggalnya ada di kedua tabel fakta. Butuh override eksplisit " +
+      "untuk jadi harian, lihat catatan di atas.",
     notes:
       "PENTING untuk pembacaan laporan: model ini refresh pagi pertamanya 08:30, jadi " +
       "pada job 06:15 datanya hanya sampai 17:30 hari sebelumnya. Jam lembur justru " +
       "bertambah malam, sehingga angka ini sistematis lebih rendah dari kenyataan dan " +
-      "WAJIB disertai jam batasnya.",
+      "WAJIB disertai jam batasnya. Sebut measure pertama sebagai ESTIMASI (form " +
+      "mentah, belum diverifikasi) dan measure kedua sebagai HASIL AKHIR " +
+      "(terverifikasi HRGA) — jangan menyebut salah satunya sebagai satu-satunya angka benar.",
   },
   {
     domain: "cost",

@@ -20,6 +20,7 @@
 
 import {
   jendelaLaporan, jendelaMinggu, mingguDalamJangkauan, mingguSudahLewat, tanggalWib,
+  apakahAkhirMinggu,
 } from "../utils/dateWindow.util.js";
 import { ambilDomain, domainKatalog } from "../services/powerbiSummary.service.js";
 import { validasiKatalog } from "../services/kpiCatalog.js";
@@ -112,22 +113,26 @@ export async function jalankanPengumpulan({ dryRun = false, tanggal = null, onPr
     log.catat("minggu ditarik", `${minggu.mulaiTanggal} ${domains.length} domain${ditolakBeku ? `, ${ditolakBeku} ditolak karena beku` : ""}`);
   }
 
-  // Minggu berjalan dipakai untuk analisis: itu yang paling relevan bagi
-  // manajemen, dan angkanya paling lengkap dibanding satu hari.
+  // Minggu berjalan dipakai untuk snapshot & pembekuan mingguan (tetap perlu
+  // jalan setiap hari, terlepas dari apa yang dikirim ke grup), dan sebagai
+  // isi laporan HANYA pada hari terakhir minggu — lihat bawah.
   const utama = mingguDitarik.find((m) => m.minggu.mulaiTanggal === mingguBerjalan.mulaiTanggal)
     || mingguDitarik[mingguDitarik.length - 1];
-  const domains = utama?.domains || [];
+  const domainsMingguan = utama?.domains || [];
 
-  // ── Snapshot harian, untuk pembanding vs kemarin ──────────────────────────
-  if (!dryRun) {
-    const harianDomains = [];
-    for (const d of domainKatalog()) {
-      try {
-        harianDomains.push(await ambilDomain(d, { tanggal: tanggalLaporan }));
-      } catch {
-        /* domain harian yang gagal tidak menggagalkan snapshot mingguan */
-      }
+  // ── Tarik harian, untuk pembanding vs kemarin DAN untuk isi laporan ───────
+  //
+  // Ditarik selalu, bukan hanya saat !dryRun: dryRun butuh angka ini juga untuk
+  // menyusun pratinjau laporan harian, bukan cuma untuk disimpan.
+  const harianDomains = [];
+  for (const d of domainKatalog()) {
+    try {
+      harianDomains.push(await ambilDomain(d, { tanggal: tanggalLaporan }));
+    } catch {
+      /* domain harian yang gagal tidak menggagalkan snapshot mingguan */
     }
+  }
+  if (!dryRun) {
     for (const d of harianDomains) {
       await simpanSnapshot(tanggalLaporan, d.domain, d.kpi, d.freshness, d.cutoffWib);
     }
@@ -150,15 +155,30 @@ export async function jalankanPengumpulan({ dryRun = false, tanggal = null, onPr
     log.catat("pembanding gagal", String(err.message).slice(0, 80));
   }
 
+  // ── Pilih bentuk laporan sesuai hari ───────────────────────────────────────
+  //
+  // Hari biasa: laporan merekap KEMARIN saja, karena itu yang ditanyakan orang
+  // di morning meeting ("apa yang terjadi kemarin"), bukan akumulasi minggu
+  // berjalan yang mengaburkan angka satu hari di balik angka tujuh hari.
+  //
+  // Hari terakhir minggu (default Minggu, ikut hariMulaiMinggu()): laporan
+  // beralih ke rekap SELURUH minggu, karena itu titik wajar melihat satu
+  // minggu penuh sebelum minggu baru mulai, dan merekap "kemarin Sabtu" saja
+  // di hari itu justru kehilangan gambaran mingguannya.
+  const akhirMinggu = apakahAkhirMinggu(tanggalLaporan);
+  const jendelaAI = akhirMinggu ? mingguBerjalan : harian;
+  const domainsAI = akhirMinggu ? domainsMingguan : harianDomains;
+  log.catat("bentuk laporan", akhirMinggu ? "mingguan (akhir minggu)" : "harian (kemarin)");
+
   // ── Analisis AI ───────────────────────────────────────────────────────────
-  const ai = await ringkasDenganAI({ jendela: mingguBerjalan, domains, banding });
+  const ai = await ringkasDenganAI({ jendela: jendelaAI, domains: domainsAI, banding });
   log.catat("gemini", ai.berhasil ? `ok ${ai.modelVersion}, ${ai.teks.length} char` : `gagal: ${ai.alasan}`);
 
-  const adaAkumulatif = domains.some((d) => (d.kpi || []).some((k) => k.dateFilterApplied !== true));
+  const adaAkumulatif = domainsAI.some((d) => (d.kpi || []).some((k) => k.dateFilterApplied !== true));
 
   const pesan = ai.berhasil
-    ? ai.teks + catatanKaki({ jendela: mingguBerjalan, adaAkumulatif })
-    : pesanCadangan({ jendela: mingguBerjalan, domains, alasan: ai.alasan });
+    ? ai.teks + catatanKaki({ jendela: jendelaAI, adaAkumulatif })
+    : pesanCadangan({ jendela: jendelaAI, domains: domainsAI, alasan: ai.alasan });
 
   if (!dryRun) {
     await simpanHasil(tanggalLaporan, {
@@ -173,7 +193,7 @@ export async function jalankanPengumpulan({ dryRun = false, tanggal = null, onPr
   }
 
   // ── Alert bila perlu ──────────────────────────────────────────────────────
-  const penilaian = nilaiKegagalan({ jendela: mingguBerjalan, domains, ai, kirim: null });
+  const penilaian = nilaiKegagalan({ jendela: jendelaAI, domains: domainsAI, ai, kirim: null });
   if (penilaian.perluAlert && !dryRun) {
     const a = await kirimAlert({
       judul: penilaian.judul,
@@ -190,6 +210,7 @@ export async function jalankanPengumpulan({ dryRun = false, tanggal = null, onPr
     berhasil: true,
     dryRun,
     tanggalLaporan,
+    bentukLaporan: akhirMinggu ? "mingguan" : "harian",
     minggu: { mulai: mingguBerjalan.mulaiTanggal, selesai: mingguBerjalan.selesaiTanggal },
     mingguDitarik: mingguDitarik.map((m) => ({
       mulai: m.minggu.mulaiTanggal, domain: m.domains.length, ditolakBeku: m.ditolakBeku,
@@ -316,7 +337,7 @@ export function kumpulkanTerkunci(opsi = {}) {
   return denganKunci(JOB_KUMPUL, () => jalankanPengumpulan(opsi), {
     holder: opsi.holder || `pid-${process.pid}`,
     reportDate: opsi.tanggal || tanggalWib(),
-    ttlMs: 45 * 60 * 1000,
+    ttlMs: 10 * 60 * 1000,
   });
 }
 

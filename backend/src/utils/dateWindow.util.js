@@ -128,6 +128,32 @@ export function mingguSudahLewat(minggu, sekarang = new Date()) {
 }
 
 /**
+ * Hari terakhir minggu, mengikuti hariMulaiMinggu(). Default Senin mulai
+ * berarti Minggu adalah hari terakhir (0 di getUTCDay).
+ */
+export function hariAkhirMinggu(mulaiHari = hariMulaiMinggu()) {
+  return (mulaiHari - 1 + 7) % 7;
+}
+
+/**
+ * Apakah TANGGAL LAPORAN (bukan hari job jalan) adalah hari terakhir minggu.
+ *
+ * Dipakai memutuskan bentuk ringkasan harian yang dikirim job: laporan
+ * hari-hari biasa merekap KEMARIN saja, tapi laporan yang jatuh di hari
+ * terakhir minggu merekap seluruh minggu, karena itu titik wajar untuk
+ * melihat satu minggu penuh sebelum minggu baru mulai.
+ *
+ * Sengaja dihitung dari TANGGAL LAPORAN, bukan dari jam job berjalan: job
+ * yang jalan Senin pagi melaporkan hari Minggu sebelumnya, dan itu yang
+ * harus dites, bukan hari job-nya jalan.
+ */
+export function apakahAkhirMinggu(tanggal, mulaiHari = hariMulaiMinggu()) {
+  const awal = awalHariWibUtc(tanggal);
+  const hariWib = new Date(awal.getTime() + WIB_OFFSET_MS).getUTCDay();
+  return hariWib === hariAkhirMinggu(mulaiHari);
+}
+
+/**
  * Minggu-minggu yang bersinggungan dengan jangkauan hari ke belakang.
  *
  * Bawaannya 7 hari, jadi biasanya mengembalikan dua minggu: minggu berjalan dan
