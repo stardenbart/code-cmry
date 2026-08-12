@@ -42,16 +42,56 @@ export const TARGET_SAH = ["group", "individual"];
  * harus DIAM, bukan mengirim ke grup yang salah: pesan yang salah kirim ke grup
  * manajemen tidak bisa ditarik kembali.
  */
+// Grup yang diisi admin lewat website, disalin ke memori supaya konfigurasi()
+// tetap sinkron.
+//
+// konfigurasi() dipanggil dari banyak tempat, sebagian di jalur yang tidak
+// asinkron, jadi membuat fungsi itu membaca database berarti mengubah bentuk
+// seluruh pemanggilnya. Yang disalin ke sini hanya daftar JID grup, bukan
+// rahasia apa pun.
+let grupTerpasang = "";
+
+/**
+ * Menyegarkan daftar grup dari database.
+ *
+ * Dipanggil sebelum mengirim, bukan sekali saat menyala, supaya perubahan dari
+ * UI berlaku tanpa restart. Gagal membacanya TIDAK menggagalkan pengiriman:
+ * daftar dari env tetap dipakai, karena laporan yang terkirim ke grup lama jauh
+ * lebih baik daripada laporan yang tidak terkirim sama sekali.
+ */
+export async function segarkanGrupDariSetelan() {
+  try {
+    const { ambilSetelan } = await import("../models/reportSettingModel.js");
+    const s = await ambilSetelan();
+    grupTerpasang = String(s.grupJid || "");
+  } catch (err) {
+    console.warn("[WA] gagal membaca grup dari setelan, memakai env:", err?.message || err);
+  }
+  return grupTerpasang;
+}
+
 export function konfigurasi() {
   const provider = String(process.env.WHATSAPP_PROVIDER || "dryrun").trim();
   const targetMode = String(process.env.WHATSAPP_TARGET_MODE || "group").trim();
   // Beberapa grup didukung, dipisah koma. Dinamis sejak awal supaya tidak perlu
   // diubah lagi ketika grup kedua dipakai sungguhan, dan supaya pengujian ke
   // grup coba-coba tidak menuntut mengedit kode.
-  const daftarGrup = String(process.env.WHATSAPP_GROUP_ID || "")
+  // Grup dari DATABASE lebih dulu, env sebagai cadangan.
+  //
+  // Urutannya sengaja begitu: grup yang diisi admin lewat website harus berlaku
+  // tanpa deploy, sementara deployment lama yang belum pernah mengisi UI tetap
+  // jalan memakai env-nya. Nilainya disuntikkan oleh grupDariSetelan() di bawah,
+  // karena konfigurasi() dipanggil dari jalur yang tidak semuanya asinkron.
+  const dariDb = String(grupTerpasang || "")
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
+  const daftarGrup = dariDb.length
+    ? dariDb
+    : String(process.env.WHATSAPP_GROUP_ID || "")
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean);
   // Dipertahankan untuk pembaca yang hanya butuh satu, misalnya tampilan status.
   const groupId = daftarGrup[0] || "";
   const daftarNomor = String(process.env.WHATSAPP_RECIPIENT_LIST || "")

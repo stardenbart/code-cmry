@@ -30,7 +30,7 @@ import {
 } from "../services/historicalStore.service.js";
 import { ringkasDenganAI } from "../services/geminiSummary.service.js";
 import { pesanCadangan, catatanKaki, validasiKeluaran } from "../services/summaryFormatter.js";
-import { sendDailySummary, konfigurasi } from "../services/whatsapp.service.js";
+import { sendDailySummary, konfigurasi, segarkanGrupDariSetelan } from "../services/whatsapp.service.js";
 import { kirimAlert, nilaiKegagalan, TINGKAT } from "../services/alerting.service.js";
 import { denganKunci } from "./jobLock.js";
 
@@ -257,8 +257,14 @@ export async function jalankanPengiriman({ dryRun = false, tanggal = null, onPro
     };
   }
 
+  // Grup disegarkan dari database SEBELUM konfigurasi dibaca, supaya grup yang
+  // diisi admin lewat website berlaku tanpa restart. Tanpa baris ini, setelan
+  // grup di UI tersimpan rapi tapi tidak pernah dipakai mengirim apa pun.
+  await segarkanGrupDariSetelan();
+
   const cfg = konfigurasi();
   log.catat("provider", `${cfg.provider} ${cfg.targetMode}${cfg.siap ? "" : " TIDAK SIAP"}`);
+  log.catat("target grup", cfg.daftarGrup.join(", ") || "(tidak ada)");
 
   if (dryRun) {
     log.catat("selesai dry run", `${hasil.text.length} char tidak dikirim`);

@@ -15,7 +15,7 @@ import {
   askGemini, GeminiError, normalizeModel, getServerKey,
 } from "../config/gemini.js";
 import { askGlm } from "../config/glm.js";
-import { providerTerpilih, bolehPakaiGlm } from "./modelRouter.js";
+import { bolehPakaiGlm } from "./modelRouter.js";
 import * as aiSettings from "./aiSettings.js";
 import {
   instruksiSistem, validasiKeluaran, susunMuatan, PROMPT_VERSION,
@@ -103,14 +103,25 @@ export async function ringkasDenganAI({ jendela, domains, banding }) {
     ...dicoba.slice(1).map((m) => ({ model: m, tambahan: "" })),
   ].filter((u) => u.model);
 
-  // GLM-5.2 dicoba SEKALI di depan, bukan dibungkus ke seluruh tangga di bawah.
-  //
+  // Provider laporan SENGAJA terpisah dari provider tanya jawab CIA. Laporan
+  // harian dibaca manajemen sebagai fakta dan boleh memakai model berbeda dari
+  // balasan santai di grup. Dibaca dari report_setting, bukan ai_settings.
+  const providerLaporan = await (async () => {
+    try {
+      const { ambilSetelan } = await import("../models/reportSettingModel.js");
+      return (await ambilSetelan()).provider;
+    } catch {
+      return "gemini";
+    }
+  })();
+
+  // GLM dicoba SEKALI di depan, bukan dibungkus ke seluruh tangga di bawah.
   // Tangga itu berisi tiga percobaan padatkan plus model cadangan, semuanya
   // disetel dari kegagalan nyata yang terukur. Membungkusnya berarti GLM ikut
   // dicoba di setiap anak tangga, dan satu laporan bisa memakan belasan panggilan
   // model. Kalau GLM gagal atau keluarannya tidak lolos validasi, tangga Gemini
   // berjalan persis seperti sebelum GLM ada.
-  if ((await providerTerpilih()) === "glm") {
+  if (providerLaporan === "glm") {
     const izin = bolehPakaiGlm();
     if (izin.boleh) {
       try {

@@ -100,6 +100,8 @@ export const ROUTE_CLASSIFICATION = new Map([
   ["POST /api/portal-links/", "adminOnly"],
   ["PUT /api/portal-links/:id", "adminOnly"],
   ["DELETE /api/portal-links/:id", "adminOnly"],
+  ["GET /api/report-setting/", "authenticated"],
+  ["PUT /api/report-setting/", "adminOnly"],
   ["GET /api/ai/provider", "authenticated"],
   ["PUT /api/ai/provider", "adminOnly"],
   ["PUT /api/ai/universal-key", "adminOnly"],
