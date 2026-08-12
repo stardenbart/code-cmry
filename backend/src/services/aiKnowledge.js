@@ -351,6 +351,8 @@ const KAMUS_PEMICU = [
   { cocok: "downtime handling status", kata: ["status", "perbaikan", "closed", "open", "monitoring", "penanganan", "tindakan", "action"] },
   { cocok: "machine names", kata: ["mesin", "machine", "line", "tetra", "serac", "evergreen", "blow", "moulding", "filler", "esl", "sbl"] },
   { cocok: "downtime issue detail", kata: ["issue", "kendala", "masalah", "penyebab", "kenapa", "mengapa", "detail", "rincian", "pemicu"] },
+  { cocok: "kategori downtime oee", kata: ["oee", "downtime", "technical", "routine", "organizational", "org", "planned", "stoppage", "en", "rout", "log", "pno", "standar", "standard", "penyumbang", "sebab", "kategori"] },
+  { cocok: "kategori nc dan deviasi", kata: ["nc", "deviasi", "kategori", "quality", "qc", "reject", "hold", "cmd", "gedung"] },
   { cocok: "plantname is a measure", kata: ["plant", "plantname", "pasuruan", "semarang", "sentul", "psr", "smg", "stl"] },
 ];
 
@@ -361,7 +363,11 @@ const KAMUS_PEMICU = [
  * @param {{maks?: number}} [opsi] maks membatasi karakter supaya anggaran token aman
  * @returns {string} blok siap tempel, atau string kosong bila tidak ada yang relevan
  */
-export function kamusNilai(pertanyaan = "", { maks = 3000 } = {}) {
+// Batasnya dinaikkan dari 3000 saat kategori downtime OEE dan kategori NC masuk.
+// Keduanya memang panjang, dan memangkasnya membuang justru daftar nama mesin
+// dan status yang jadi kunci pertanyaan downtime. Penyaringan per subbagian
+// tetap yang menjaga ukurannya, bukan pemangkasan di akhir.
+export function kamusNilai(pertanyaan = "", { maks = 6000 } = {}) {
   const bagian = extractSection(read("data-dictionary.md"), "Value vocabulary");
   if (!bagian) return "";
 

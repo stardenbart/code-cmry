@@ -122,6 +122,13 @@ for (const e of KATALOG_KPI) {
 // membuat measure lain yang kelak ditambahkan ikut lolos tanpa diperiksa.
 const DIVERIFIKASI_LANGSUNG = new Map([
   [
+    "standard oee",
+    "diukur 2026-08-12 lewat ambilBreakdown: Evergreen ESL 950ml 0,48, " +
+      "Serac Line 3 CYD 65ml 0,65, Pasteurizer Mixing Line 1 nol. Dipakai sebagai " +
+      "pembanding OEE per mesin, bukan sebagai capaian. Nilai nol berarti standar " +
+      "belum ditetapkan, bukan standar sungguhan.",
+  ],
+  [
     "(all) biaya yang dibayar (akhir)",
     "diukur 2026-08-12 lewat Execute Queries: 16.535.724.045,64 berbanding " +
       "16.523.279.813,64 dari measure estimasi, selisih 0,075 persen. " +
@@ -178,9 +185,18 @@ const bdCacat = KATALOG_KPI.filter(
 ok("entri breakdown lengkap dimensi, arah, dan n", bdCacat.length === 0,
   bdCacat.map((e) => e.kpi).join(", "));
 
-// Breakdown hanya boleh satu measure: TOPN mengurutkan berdasarkan satu nilai.
-const bdBanyak = KATALOG_KPI.filter((e) => e.jenis === "breakdown" && e.measures.length !== 1);
-ok("breakdown memakai tepat satu measure", bdBanyak.length === 0, bdBanyak.map((e) => e.kpi).join(", "));
+// Breakdown wajib punya MINIMAL satu measure: measure pertama yang menentukan
+// peringkat TOPN. Measure berikutnya boleh ada sebagai pendamping, dan ikut di
+// baris yang sama.
+//
+// Dulu aturannya tepat satu. Itu dilonggarkan dengan sengaja: pertanyaan
+// korelatif seperti "OEE terendah DAN penyumbangnya apa" tidak bisa dijawab
+// dengan satu angka, dan memecahnya jadi entri terpisah memaksa pembaca
+// mencocokkan sendiri baris mana milik mesin mana.
+const bdKosong = KATALOG_KPI.filter(
+  (e) => e.jenis === "breakdown" && (!Array.isArray(e.measures) || e.measures.length < 1)
+);
+ok("breakdown punya minimal satu measure", bdKosong.length === 0, bdKosong.map((e) => e.kpi).join(", "));
 
 section("Varian bersaing tidak dipilih diam-diam");
 

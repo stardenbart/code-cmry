@@ -599,24 +599,30 @@ export const KATALOG_KPI = [
     dateLogic: "difilter tanggal kejadian deviasi, cutoff harian biasa",
     notes: "FG berarti Finished Good. Mencakup ketiga CMD, satu-satunya untuk deviasi FG.",
   },
-  {
-    domain: "quality",
-    kpi: "Deviasi terhadap standar per CMD",
-    modelName: "Dashboard NC dan Deviasi",
-    measures: [
-      "Jumlah Deviasi - Standar Deviasi CMD 1", "Jumlah Deviasi - Standar Deviasi CMD 2",
-      "Jumlah Deviasi - Standar Deviasi CMD 3",
-    ],
-    unit: "kejadian",
-    status: "needs_confirmation",
-    filterTanggal: true,
-    harian: true,
-    dateLogic: "difilter tanggal kejadian deviasi, cutoff harian biasa",
-    notes:
-      "Selisih terhadap ambang Standar CMD. Kamus KPI menandai ambang 51, 200, " +
-      "dan 265 sebagai perlu dikonfirmasi masih berlaku atau tidak, jadi tanda " +
-      "positif atau negatifnya belum bisa dijadikan kesimpulan.",
-  },
+  // DIBUANG 2026-08-12: "Deviasi terhadap standar per CMD".
+  //
+  // Measure-nya bukan hitungan kejadian, melainkan PENGURANGAN, dan katalog ini
+  // salah menyatakan satuannya "kejadian". Diukur langsung lewat Execute
+  // Queries: [Jumlah Deviasi - Standar Deviasi CMD 3] bernilai -2156, sementara
+  // [Standar CMD 3 (265)] bernilai 265 dan [Jumlah deviasi] bernilai 2421.
+  // 265 dikurangi 2421 tepat sama dengan -2156, jadi rumusnya adalah ambang
+  // dikurangi jumlah deviasi, dan pengurangnya memakai angka SELURUH CMD
+  // walaupun namanya menyebut CMD 3.
+  //
+  // Akibatnya nyata di laporan yang terkirim 2026-08-11: angka 49, 200, dan 262
+  // dibaca manajemen sebagai jumlah kejadian deviasi, padahal itu 51 dikurangi
+  // 2, 200 dikurangi 0, dan 265 dikurangi 3, yaitu SISA JATAH sebelum menyentuh
+  // ambang. Yang terdengar paling parah, "200 di CMD 2", justru berarti NOL
+  // deviasi di CMD 2.
+  //
+  // Ambang 51, 200, dan 265 juga ditanam di dalam NAMA measure-nya, dan
+  // checklist anti-mengarang di data-dictionary sudah menyebut "Standar CMD 1
+  // (51)" sebagai contoh ambang hardcoded yang tidak boleh dinyatakan sebagai
+  // fakta terkini.
+  //
+  // Penggantinya bukan measure lain: jumlah kejadian sudah tersedia di KPI
+  // "Jumlah Deviasi per CMD". Ambangnya sendiri boleh dipakai kelak sebagai
+  // pembanding, tapi harus disebut sebagai ambang, bukan sebagai kejadian.
   {
     domain: "quality",
     kpi: "NC berulang per CMD",
@@ -644,6 +650,96 @@ export const KATALOG_KPI = [
   // Karena itu setiap entri di bawah membawa `terlihatSebagai`, yaitu nama
   // tampilan yang MEMBUKTIKAN measure ini benar-benar dirender. Tanpa field itu,
   // penjaga katalog akan menolak measure yang sebenarnya dipakai dashboard.
+  {
+    domain: "production",
+    jenis: "breakdown",
+    kpi: "Mesin dengan OEE terendah",
+    modelName: "Dashboard Daily Meeting untuk OEE",
+    dimensi: "nama_mesin",
+    // Disebut eksplisit: nama_mesin ada di beberapa tabel pada model ini.
+    dimensiTabel: "Dim_ORS",
+    // Dibatasi ke section packaging saja, atas permintaan pemilik proyek
+    // 2026-08-12. Tanpa batas ini, peringkat OEE terendah terisi mesin proses
+    // seperti Pasteurizer Mixing Line 1, yang standarnya belum ditetapkan
+    // sehingga "rendah" tidak berarti apa-apa untuknya.
+    //
+    // Nilainya dienumerasi eksplisit, bukan dicocokkan lewat awalan: section
+    // baru akan tersaring keluar sampai ada yang sengaja menambahkannya.
+    //
+    // Diukur 2026-08-12, ada 9 section. Yang SENGAJA di luar daftar:
+    // Mixing-Processing Sentul 1, 2, dan 3 karena bukan packaging. "Packing
+    // Sentul 3" sempat ditanyakan karena namanya tanpa awalan Filling, lalu
+    // dikonfirmasi pemilik 2026-08-12 bahwa itu termasuk.
+    saring: {
+      tabel: "Dim_ORS",
+      kolom: "nama_section",
+      nilai: [
+        "Filling-Packing Sentul 1",
+        "Filling-Packing Sentul 2",
+        "Filling-Packing Sentul 3",
+        "Bottle Making Sentul 1",
+        "Pouch Making Sentul 3",
+        "Packing Sentul 3",
+      ],
+    },
+    // Measure PERTAMA menentukan peringkat, sisanya ikut di baris yang sama.
+    //
+    // Keempat kategori inilah yang menentukan OEE tiap mesin, dikonfirmasi
+    // pemilik proyek 2026-08-12. Menyebut OEE rendah tanpa penyumbangnya tidak
+    // bisa ditindaklanjuti siapa pun: yang menentukan langkah berikutnya adalah
+    // kategori mana yang paling besar.
+    //
+    // Standard OEE ikut supaya "rendah" punya pembanding. Diukur 2026-08-12,
+    // TIDAK semua mesin punya standar: UHT 5000 mengembalikan kosong, jadi
+    // "di bawah standar" tidak boleh dinyatakan tanpa memeriksa ada tidaknya.
+    measures: [
+      "OEE (%)",
+      "Technical DT (%)",
+      "Operasional DT (%)",
+      "Org DT (%)",
+      "Planned Stoppages DT (%)",
+      "Standard OEE",
+    ],
+    arah: "terendah",
+    n: 3,
+    unit: "%",
+    status: "confirmed",
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal produksi, cutoff harian biasa",
+    notes:
+      "Arah penelusuran sesudah penyumbang terbesarnya diketahui, dikonfirmasi " +
+      "pemilik: Organizational tertinggi berarti periksa Dashboard Utility Failure, " +
+      "Technical tertinggi berarti periksa Maintenance Downtime dan Dashboard DT ORS " +
+      "untuk issue serta tindakannya. Sebut nama kategorinya, jangan kode " +
+      "group_downtime seperti en, rout, log, atau pno.",
+  },
+  {
+    domain: "production",
+    jenis: "breakdown",
+    kpi: "Gedung dengan OEE terendah",
+    modelName: "Dashboard Daily Meeting untuk OEE",
+    dimensi: "Gedung",
+    dimensiTabel: "Dim_Gedung",
+    measures: [
+      "OEE (%)",
+      "Technical DT (%)",
+      "Operasional DT (%)",
+      "Org DT (%)",
+      "Planned Stoppages DT (%)",
+    ],
+    arah: "terendah",
+    n: 3,
+    unit: "%",
+    status: "confirmed",
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal produksi, cutoff harian biasa",
+    notes:
+      "Gedung di model ini bernilai CMD1, CMD2, CMD3, BTMK, dan PM. Perhatikan " +
+      "ini GEDUNG, bukan plant: plant bernilai CMDPSR, CMDSMG, dan CMDSTL, dan " +
+      "keduanya berawalan sama.",
+  },
   {
     domain: "maintenance",
     jenis: "breakdown",

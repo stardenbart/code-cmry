@@ -269,7 +269,17 @@ export async function ambilBreakdown(entri, jendela) {
   const terpasang = perluFilter && Boolean(kolomTanggal?.kolom);
 
   const kolomDim = `${tabel(dim.tabel)}${kurung(dim.kolom)}`;
-  const m = kurung(entri.measures[0]);
+
+  // Measure PERTAMA menentukan peringkat, sisanya ikut sebagai kolom pendamping
+  // di baris yang sama.
+  //
+  // Ini yang membuat pertanyaan korelatif bisa dijawab: "OEE terendah" tidak
+  // berguna tanpa "penyumbangnya apa". Sebelumnya hanya measures[0] yang
+  // dipakai, jadi penyumbang harus ditarik lewat entri terpisah dan pembacanya
+  // yang mencocokkan sendiri baris mana milik mesin mana.
+  const semuaM = (entri.measures || []).filter(Boolean);
+  const m = kurung(semuaM[0]);
+  const pendamping = semuaM.slice(1);
   const urut = entri.arah === "terendah" ? "ASC" : "DESC";
 
   // Kolom teks pendamping, misalnya Issue dan Action pada downtime. Ikut
@@ -282,8 +292,31 @@ export async function ambilBreakdown(entri, jendela) {
     if (k.kolom) dimTeks.push({ nama: t, dax: `${tabel(k.tabel)}${kurung(k.kolom)}` });
   }
 
+  // Penyaring nilai dimensi, misalnya membatasi peringkat OEE ke section
+  // packaging saja. Nilainya dienumerasi EKSPLISIT di katalog, bukan dicocokkan
+  // lewat awalan: section baru yang muncul kelak akan tersaring keluar sampai
+  // ada yang sengaja menambahkannya, dan itu arah yang aman. Awalan yang
+  // longgar justru diam-diam memasukkan section yang belum pernah ditinjau.
+  const saring = entri.saring;
+  let filterSaring = "";
+  if (saring?.kolom && Array.isArray(saring.nilai) && saring.nilai.length) {
+    const k = saring.tabel
+      ? `${tabel(saring.tabel)}${kurung(saring.kolom)}`
+      : (await temukanKolom(datasetId, saring.kolom)).kolom
+        ? `${tabel((await temukanKolom(datasetId, saring.kolom)).tabel)}${kurung(saring.kolom)}`
+        : "";
+    if (k) {
+      const daftar = saring.nilai.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(", ");
+      filterSaring = `, ${k} IN {${daftar}}`;
+    }
+  }
+
   const grup = [kolomDim, ...dimTeks.map((x) => x.dax)].join(", ");
-  let sumber = `SUMMARIZECOLUMNS(${grup}, "v", ${m})`;
+  // Nama kolom pendamping dibuat dari indeks, bukan dari nama measure-nya.
+  // Nama measure memuat kurung, persen, dan spasi yang harus di-escape di DAX,
+  // dan satu yang terlewat membuat seluruh query gagal 400.
+  const kolomPendamping = pendamping.map((nm, i) => `, "m${i + 1}", ${kurung(nm)}`).join("");
+  let sumber = `SUMMARIZECOLUMNS(${grup}, "v", ${m}${kolomPendamping})`;
 
   if (terpasang) {
     const kol = `${tabel(kolomTanggal.tabel)}${kurung(kolomTanggal.kolom)}`;
@@ -291,7 +324,10 @@ export async function ambilBreakdown(entri, jendela) {
     const selesaiTgl = jendela.selesaiTanggal || jendela.tanggal;
     const [y, mo, d] = String(selesaiTgl).split("-").map(Number);
     const setelah = new Date(Date.UTC(y, mo - 1, d + 1)).toISOString().slice(0, 10);
-    sumber = `CALCULATETABLE(${sumber}, ${kol} >= ${daxTanggal(mulaiTgl)}, ${kol} < ${daxTanggal(setelah)})`;
+    sumber = `CALCULATETABLE(${sumber}, ${kol} >= ${daxTanggal(mulaiTgl)}, ${kol} < ${daxTanggal(setelah)}${filterSaring})`;
+  } else if (filterSaring) {
+    // Tanpa filter tanggal, penyaringnya tetap harus terpasang.
+    sumber = `CALCULATETABLE(${sumber}${filterSaring})`;
   }
 
   // Baris tanpa nilai dibuang SEBELUM TOPN. Tanpa itu, TOPN bisa terisi baris
@@ -311,6 +347,18 @@ export async function ambilBreakdown(entri, jendela) {
       const n = typeof v === "number" ? v : Number(v);
       out.value = Number.isFinite(n) ? n : null;
       for (const t of dimTeks) out[t.nama] = r[t.dax.replace(/'/g, "")] ?? r[`${t.nama}`] ?? null;
+
+      // Angka pendamping dibawa dengan NAMA MEASURE-nya sebagai kunci, supaya
+      // pemakainya tahu angka itu apa. Kunci "m1" saja tidak menjelaskan apa pun
+      // begitu keluar dari fungsi ini.
+      if (pendamping.length) {
+        out.pendamping = {};
+        pendamping.forEach((nm, i) => {
+          const raw = r[`[m${i + 1}]`];
+          const num = typeof raw === "number" ? raw : Number(raw);
+          out.pendamping[nm] = Number.isFinite(num) ? num : null;
+        });
+      }
       return out;
     });
 
