@@ -35,6 +35,8 @@ import { ringkasKatalogUntukPengalihan, aturanPengalihanUntukInstruksi }
   from "../services/dashboardRedirect.js";
 import * as aiSettings from "../services/aiSettings.js";
 import { buildKnowledgeBlock, isUnmappedModel, getGlossaryRows } from "../services/aiKnowledge.js";
+import { providerTerpilih, simpanProvider, PROVIDER_SAH, PROVIDER_DEFAULT } from "../services/modelRouter.js";
+import { hasGlmKey } from "../config/glm.js";
 import { tryAnswerLocally, AMBANG_KEYAKINAN } from "../services/aiLocalAnswer.js";
 import * as rateLimit from "../services/rateLimiter.js";
 import { getSanitizer, SANITIZER_CONFIG } from "../services/aiSanitizer.js";
@@ -241,6 +243,53 @@ export const AiController = {
     } catch (err) {
       console.error("❌ AI saveModel error:", err);
       res.status(500).json({ message: "Failed to update model" });
+    }
+  },
+
+  /**
+   * GET /api/ai/provider — provider mana yang sedang dipakai CIA.
+   *
+   * Terbuka untuk semua user yang login, bukan admin saja: mengetahui jawaban
+   * datang dari model mana bukan rahasia, dan menyembunyikannya membuat admin
+   * jadi satu-satunya orang yang bisa menjelaskan kenapa gaya jawaban berubah.
+   */
+  provider: async (req, res) => {
+    try {
+      const provider = await providerTerpilih();
+      res.json({
+        provider,
+        pilihan: PROVIDER_SAH,
+        default: PROVIDER_DEFAULT,
+        // Tanpa kunci, GLM dilewati dan CIA memakai Gemini. Ini disebut apa
+        // adanya supaya admin tidak mengira setelannya tidak tersimpan.
+        glmSiap: hasGlmKey(),
+      });
+    } catch (err) {
+      console.error("❌ AI provider error:", err);
+      res.status(500).json({ message: "Gagal membaca setelan provider" });
+    }
+  },
+
+  /** PUT /api/ai/provider — admin only. Berlaku global untuk semua grup. */
+  saveProvider: async (req, res) => {
+    try {
+      const user = await getUser(req.user.id);
+      if (!aiSettings.isAdminUser(user)) {
+        return res.status(403).json({ message: "Hanya admin yang boleh mengubah provider" });
+      }
+
+      const diminta = String(req.body?.provider || "").trim().toLowerCase();
+      if (!PROVIDER_SAH.includes(diminta)) {
+        return res.status(400).json({
+          message: `provider harus salah satu dari: ${PROVIDER_SAH.join(", ")}`,
+        });
+      }
+
+      await simpanProvider(diminta, user.id);
+      res.json({ message: "Provider diperbarui", provider: diminta, glmSiap: hasGlmKey() });
+    } catch (err) {
+      console.error("❌ AI saveProvider error:", err);
+      res.status(500).json({ message: "Gagal menyimpan provider" });
     }
   },
 

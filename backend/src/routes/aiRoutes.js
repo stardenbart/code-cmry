@@ -14,6 +14,8 @@ router.put("/key", AiController.saveKey);
 router.delete("/key", AiController.deleteKey);
 
 // Universal (shared) key — Digital Transformer only, enforced in the controller
+router.get("/provider", AiController.provider);
+router.put("/provider", requireAdmin, AiController.saveProvider);
 router.put("/universal-key", requireAdmin, AiController.saveUniversalKey);
 router.delete("/universal-key", requireAdmin, AiController.deleteUniversalKey);
 
