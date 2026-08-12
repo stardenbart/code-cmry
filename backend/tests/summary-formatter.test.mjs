@@ -129,12 +129,12 @@ for (const s of SECTION_WAJIB) {
 
 section("Validasi keluaran menolak yang cacat");
 
-// Susunan mengikuti SECTION_WAJIB yang sekarang berjenjang: INTISARI dan PER
+// Susunan mengikuti SECTION_WAJIB yang sekarang berjenjang: SUMMARY dan PER
 // AREA menggantikan satu blok ANALISIS, supaya pesannya terbaca di ponsel
 // alih-alih menjadi paragraf panjang.
 const lengkap = [
   "*RINGKASAN OPERASIONAL* periode 2026-08-04",
-  "*INTISARI*",
+  "*SUMMARY*",
   "- OEE turun ke 69,7% dan downtime teknikal naik.",
   "*PER AREA*",
   "- Produksi (data s.d. jam 15:03): OEE 69,7%, dipicu downtime teknikal.",

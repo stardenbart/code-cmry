@@ -55,7 +55,7 @@ export const BATAS_PESAN_KARAKTER = Number(process.env.SUMMARY_MAX_CHARS) || 500
  * pembacanya tidak tahu bagian mana yang hilang.
  */
 export const SECTION_WAJIB = [
-  "INTISARI",
+  "SUMMARY",
   "PER AREA",
   "PERLU DIKONFIRMASI",
   "REKOMENDASI",
@@ -171,12 +171,12 @@ export function susunMuatan({ jendela, domains, banding = new Map() }) {
         nilai,
         ...(b
           ? {
-              banding: {
-                sebelumnya: angka(b.kemarin),
-                rata7: angka(b.avg7),
-                hariTersedia: b.hariTersedia,
-              },
-            }
+            banding: {
+              sebelumnya: angka(b.kemarin),
+              rata7: angka(b.avg7),
+              hariTersedia: b.hariTersedia,
+            },
+          }
           : {}),
       });
     }
@@ -340,7 +340,7 @@ export function instruksiSistem() {
     "",
     "*RINGKASAN OPERASIONAL*  periode dan plant, satu baris.",
     "",
-    "*INTISARI*  tiga baris berawalan tanda hubung, satu baris satu hal paling",
+    "*SUMMARY*  tiga baris berawalan tanda hubung, satu baris satu hal paling",
     "penting. Ini yang dibaca kalau tidak ada waktu membaca sisanya, jadi tulis",
     "kesimpulan, bukan pengantar.",
     "",
