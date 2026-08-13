@@ -239,6 +239,18 @@ export async function temukanKolom(datasetId, namaKolom) {
 }
 
 /**
+ * Peta kunci baris dalam huruf kecil, untuk pencocokan yang abai kapitalisasi.
+ *
+ * Dipakai karena Execute Queries menormalkan kapitalisasi nama kolom di kunci
+ * barisnya, sementara metadata model menyimpan nama aslinya.
+ */
+function kunciAbaiHuruf(baris) {
+  const peta = new Map();
+  for (const k of Object.keys(baris || {})) peta.set(k.toLowerCase(), baris[k]);
+  return peta;
+}
+
+/**
  * Mengambil satu entri breakdown.
  *
  * @param {object} entri  entri katalog berjenis breakdown
@@ -285,11 +297,24 @@ export async function ambilBreakdown(entri, jendela) {
   // Kolom teks pendamping, misalnya Issue dan Action pada downtime. Ikut
   // dikelompokkan supaya penyebab dan tindakannya terbaca bersama angkanya,
   // bukan sebagai daftar terpisah yang harus dicocokkan pembacanya sendiri.
+  // Tiap entri boleh berupa string, atau objek { tabel, kolom } bila nama
+  // kolomnya ada di lebih dari satu tabel.
+  //
+  // temukanKolom SENGAJA menolak menebak saat namanya ambigu, dan itu perilaku
+  // yang benar: menebak berarti mengelompokkan berdasarkan kolom milik tabel
+  // lain, dan hasilnya keluar tanpa error. Tapi tanpa cara menyebut tabelnya,
+  // kolom seperti Cause dan ACTION yang ada di empat tabel tidak pernah bisa
+  // dipakai, dan penyebab beserta tindakannya hilang dari laporan.
   const teks = Array.isArray(entri.kolomTeks) ? entri.kolomTeks : [];
   const dimTeks = [];
   for (const t of teks) {
-    const k = await temukanKolom(datasetId, t);
-    if (k.kolom) dimTeks.push({ nama: t, dax: `${tabel(k.tabel)}${kurung(k.kolom)}` });
+    const nama = typeof t === "string" ? t : t?.kolom;
+    if (!nama) continue;
+    const tabelDisebut = typeof t === "object" ? t.tabel : null;
+    const k = tabelDisebut
+      ? { tabel: tabelDisebut, kolom: nama }
+      : await temukanKolom(datasetId, nama);
+    if (k.kolom) dimTeks.push({ nama, dax: `${tabel(k.tabel)}${kurung(k.kolom)}` });
   }
 
   // Penyaring nilai dimensi, misalnya membatasi peringkat OEE ke section
@@ -346,7 +371,18 @@ export async function ambilBreakdown(entri, jendela) {
       const v = r["[v]"];
       const n = typeof v === "number" ? v : Number(v);
       out.value = Number.isFinite(n) ? n : null;
-      for (const t of dimTeks) out[t.nama] = r[t.dax.replace(/'/g, "")] ?? r[`${t.nama}`] ?? null;
+      // Pencarian kunci ABAI huruf besar-kecil.
+      //
+      // Execute Queries menormalkan kapitalisasi nama kolom di kunci barisnya:
+      // kolom yang di metadata model bernama "ACTION" kembali sebagai
+      // "Deviasi PM CMD 3[Action]". Pencocokan persis meleset, hasilnya kolom
+      // teksnya selalu null, dan itu terbaca seperti datanya memang kosong
+      // padahal terisi di seluruh 792 baris.
+      const kunciBaris = kunciAbaiHuruf(r);
+      for (const t of dimTeks) {
+        const tepat = t.dax.replace(/'/g, "");
+        out[t.nama] = r[tepat] ?? kunciBaris.get(tepat.toLowerCase()) ?? r[t.nama] ?? null;
+      }
 
       // Angka pendamping dibawa dengan NAMA MEASURE-nya sebagai kunci, supaya
       // pemakainya tahu angka itu apa. Kunci "m1" saja tidak menjelaskan apa pun

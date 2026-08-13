@@ -740,6 +740,56 @@ export const KATALOG_KPI = [
       "ini GEDUNG, bukan plant: plant bernilai CMDPSR, CMDSMG, dan CMDSTL, dan " +
       "keduanya berawalan sama.",
   },
+  // ── Kategori deviasi tertinggi ─────────────────────────────────────────────
+  //
+  // HANYA Deviasi PM CMD 3. Kategori NC per gedung SENGAJA tidak dipakai di
+  // laporan harian, dan alasannya diukur 2026-08-12, bukan diasumsikan:
+  //
+  //   NC CMD 1 dan NC CMD 2  : tidak punya kolom tanggal sama sekali. Yang ada
+  //                            hanya `Hari` bertipe TEKS berisi nama hari
+  //                            ("Jumat", "Friday"), jadi tidak bisa difilter
+  //                            per tanggal dengan cara apa pun.
+  //   NC CMD 3               : tanggal terakhir 2026-07-09, 121 baris.
+  //   NC CMD ALL (Append)    : tanggal terakhir 2026-07-09, 198 baris.
+  //   NC External  CMD 3     : tanggal terakhir 2025-09-17.
+  //   Deviasi PM CMD 3       : tanggal terakhir 2026-08-12, 792 baris. SEGAR.
+  //
+  // Memasang KPI di atas sumber yang berhenti sebulan lalu berarti laporan
+  // harian membawa section yang SELALU kosong, dan kosong yang tidak dijelaskan
+  // terbaca sebagai "tidak ada masalah kualitas kemarin".
+  //
+  // Dua jalur lain juga sudah dicoba dan gagal, dicatat supaya tidak diulang:
+  //   - `Kategori_NC CMD 1[KATEGORI ISSUE ]` tabel TERPUTUS tanpa relasi ke
+  //     fakta. Mengelompokkan dengannya mengembalikan angka SAMA untuk setiap
+  //     kategori, yaitu 74, dan itu terlihat seperti hasil sungguhan.
+  //   - `NC External  CMD 1[KATEGORI  DEVIASI]` kosong seluruhnya: 33 baris
+  //     dengan kategori null.
+  {
+    domain: "quality",
+    jenis: "breakdown",
+    kpi: "Kategori deviasi PM tertinggi CMD 3",
+    modelName: "Dashboard NC dan Deviasi",
+    dimensi: "Issue Category",
+    dimensiTabel: "Deviasi PM CMD 3",
+    // Tabelnya disebut eksplisit: nama Cause ada di 2 tabel dan ACTION di 4,
+    // dan temukanKolom menolak menebak saat ambigu.
+    kolomTeks: [
+      { tabel: "Deviasi PM CMD 3", kolom: "Cause" },
+      { tabel: "Deviasi PM CMD 3", kolom: "ACTION" },
+    ],
+    measures: ["Jumlah Deviasi PM"],
+    arah: "tertinggi",
+    n: 3,
+    unit: "kejadian",
+    status: "confirmed",
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal kejadian, cutoff harian biasa",
+    notes:
+      "Cause dan ACTION ikut dikelompokkan supaya penyebab dan tindakannya " +
+      "terbaca bersama angkanya. Diukur 2026-08-12 untuk rentang 1 sampai 12 " +
+      "Agustus: Channel Leakage 4 dan Design Correction 1.",
+  },
   {
     domain: "maintenance",
     jenis: "breakdown",
