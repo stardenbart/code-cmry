@@ -770,6 +770,39 @@ export const KATALOG_KPI = [
   //   - `NC External  CMD 1[KATEGORI  DEVIASI]` kosong seluruhnya: 33 baris
   //     dengan kategori null.
   {
+    domain: "cost",
+    jenis: "breakdown",
+    kpi: "Departemen dengan lembur tertinggi",
+    modelName: "Dashboard Lembur Plant",
+    dimensi: "Kode Departemen",
+    dimensiTabel: "HRGA_Hslakhir Gabungan",
+    // Kolom tanggal disebut eksplisit. Kolom "Tanggal Lembur (Bulan/Tanggal/Tahun)"
+    // di OfficeForms Table bertipe TEKS berformat M/D/YYYY, jadi perbandingan
+    // tanggal terhadapnya gagal 400. Yang bertipe Date sungguhan ada di tabel
+    // hasil akhir ini.
+    kolomTanggal: { tabel: "HRGA_Hslakhir Gabungan", kolom: "Tanggal" },
+    // SUM atas kolom fakta, bukan measure. Measure jam lembur di model ini ada
+    // lima varian yang bersaing dan kamus KPI menandainya blocked, jadi memilih
+    // salah satunya diam-diam justru yang dilarang.
+    measures: ["Jam lembur dibayar"],
+    pakaiSum: true,
+    arah: "tertinggi",
+    n: 3,
+    unit: "jam",
+    status: "confirmed",
+    // Lembur dihitung per periode cut-off tanggal 13, BUKAN per jendela laporan.
+    jendelaKhusus: "lembur",
+    filterTanggal: true,
+    harian: false,
+    dateLogic: "akumulasi periode cut-off berjalan, tanggal 13 ke 12",
+    notes:
+      "Kode Departemen sudah berupa nama terbaca, bukan kode. Diukur 2026-08-12 " +
+      "untuk cut-off 13 Juni sampai 12 Juli: Production 3 8659,6 jam, Maintenance " +
+      "7800,6 jam, Quality Control 5062,3 jam. Tabel ini hasil akhir terverifikasi " +
+      "HRGA dan diisi per periode cut-off, jadi WAJAR tidak bertambah harian; " +
+      "tanggal terakhirnya 2026-07-12 saat diukur.",
+  },
+  {
     domain: "quality",
     jenis: "breakdown",
     kpi: "Kategori NC tertinggi CMD 1",

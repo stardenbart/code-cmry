@@ -298,7 +298,20 @@ export async function ambilBreakdown(entri, jendela) {
   // dipakai, jadi penyumbang harus ditarik lewat entri terpisah dan pembacanya
   // yang mencocokkan sendiri baris mana milik mesin mana.
   const semuaM = (entri.measures || []).filter(Boolean);
-  const m = kurung(semuaM[0]);
+
+  // pakaiSum menandai bahwa yang disebut di `measures` adalah KOLOM fakta, bukan
+  // measure, sehingga harus dibungkus SUM().
+  //
+  // Dibutuhkan ketika measure resmi untuk angka itu ada beberapa varian yang
+  // bersaing dan kamus KPI menandainya blocked: memilih salah satunya diam-diam
+  // justru yang dilarang, sementara menjumlahkan kolom faktanya sendiri jelas
+  // asal-usulnya.
+  const bungkus = (nama) =>
+    entri.pakaiSum
+      ? `SUM(${tabel(entri.dimensiTabel || dim.tabel)}${kurung(nama)})`
+      : kurung(nama);
+
+  const m = bungkus(semuaM[0]);
   const pendamping = semuaM.slice(1);
   const urut = entri.arah === "terendah" ? "ASC" : "DESC";
 
@@ -348,13 +361,18 @@ export async function ambilBreakdown(entri, jendela) {
   // Nama kolom pendamping dibuat dari indeks, bukan dari nama measure-nya.
   // Nama measure memuat kurung, persen, dan spasi yang harus di-escape di DAX,
   // dan satu yang terlewat membuat seluruh query gagal 400.
-  const kolomPendamping = pendamping.map((nm, i) => `, "m${i + 1}", ${kurung(nm)}`).join("");
+  const kolomPendamping = pendamping.map((nm, i) => `, "m${i + 1}", ${bungkus(nm)}`).join("");
   let sumber = `SUMMARIZECOLUMNS(${grup}, "v", ${m}${kolomPendamping})`;
 
   if (terpasang) {
     const kol = `${tabel(kolomTanggal.tabel)}${kurung(kolomTanggal.kolom)}`;
-    const mulaiTgl = jendela.mulaiTanggal || jendela.tanggal;
-    const selesaiTgl = jendela.selesaiTanggal || jendela.tanggal;
+    // Jendela khusus dihormati di sini juga, sama seperti jalur KPI. Lembur
+    // dihitung per periode cut-off tanggal 13, bukan per jendela laporan.
+    // Tanpa ini, breakdown lembur memakai jendela kemarin dan hasilnya kosong
+    // atau jauh lebih kecil dari yang dilihat orang di dashboard.
+    const jw = jendelaUntukEntri(entri, jendela);
+    const mulaiTgl = jw.mulaiTanggal || jw.tanggal;
+    const selesaiTgl = jw.selesaiTanggal || jw.tanggal;
     const [y, mo, d] = String(selesaiTgl).split("-").map(Number);
     const setelah = new Date(Date.UTC(y, mo - 1, d + 1)).toISOString().slice(0, 10);
     sumber = `CALCULATETABLE(${sumber}, ${kol} >= ${daxTanggal(mulaiTgl)}, ${kol} < ${daxTanggal(setelah)}${filterSaring})`;
