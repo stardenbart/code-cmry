@@ -295,3 +295,80 @@ for (const [label, teks] of [["pesan cadangan", cadangan], ["catatan kaki", kaki
   ok(`${label} tanpa emoji`, !/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(teks));
   ok(`${label} tanpa tanda pisah panjang`, !teks.includes("—"));
 }
+
+section("Bentuk laporan hasil koreksi pemilik 2026-08-12");
+
+// Laporan yang benar-benar terkirim 2026-08-11 sulit dibaca, dan sebabnya bisa
+// ditunjuk: nama measure Power BI bocor ke layar, "bukti belum cukup" diulang di
+// hampir setiap baris, dan beberapa angka salah arti. Blok ini menjaga koreksinya.
+
+const insBaru = instruksiSistem({ jenis: "harian" });
+
+// Nama measure adalah identitas teknis. Pembacanya manajemen, bukan pemodel data.
+ok(
+  "melarang nama measure muncul di laporan",
+  /JANGAN menuliskan NAMA MEASURE/.test(insBaru),
+  "larangan hilang"
+);
+ok(
+  "menyebut contoh nama measure yang pernah bocor",
+  insBaru.includes("(RT) IC_OK_Percentage"),
+  "contohnya hilang, larangannya jadi abstrak"
+);
+
+// Tujuh kali "bukti belum cukup" menenggelamkan isi laporannya sendiri.
+ok(
+  "bukti belum cukup digabung jadi satu baris di akhir",
+  /SATU baris di paling akhir/.test(insBaru),
+  "masih dibiarkan berulang per baris"
+);
+
+// PERLU DIKONFIRMASI dihapus atas permintaan pemilik: isinya sudah terwakili
+// section lain, dan mempertahankannya membuat laporan mengulang dirinya.
+ok(
+  "PERLU DIKONFIRMASI tidak lagi diminta",
+  !insBaru.includes("PERLU DIKONFIRMASI"),
+  "masih diminta"
+);
+ok(
+  "PERLU DIKONFIRMASI bukan lagi section wajib",
+  !SECTION_WAJIB.includes("PERLU DIKONFIRMASI"),
+  SECTION_WAJIB.join(", ")
+);
+
+// Isi SUMMARY ditentukan, bukan dipilih model. Tanpa ini modelnya menulis angka
+// agregat plant yang tidak bisa ditindaklanjuti siapa pun.
+ok("SUMMARY meminta tiga mesin OEE terendah", /TIGA mesin dengan OEE terendah/.test(insBaru), "hilang");
+ok(
+  "menyuruh menyebut penyumbang terbesar dan arah pemeriksaannya",
+  /Organizational tertinggi berarti Utility Failure/.test(insBaru),
+  "rantai penelusurannya hilang"
+);
+ok(
+  "standar nol diperlakukan sebagai belum ditetapkan",
+  /standarnya belum ditetapkan/.test(insBaru),
+  "mesin tanpa standar akan terbaca di atas standar"
+);
+
+// Planning bercampur kedatangan truk di laporan 2026-08-11, padahal itu
+// warehouse, bukan planning produksi.
+ok(
+  "melarang kedatangan truk masuk Planning",
+  /JANGAN menyebut kedatangan truk/.test(insBaru),
+  "masih bisa tercampur"
+);
+
+// Rekomendasi dan risiko harus berangkat dari temuan, bukan analisa baru.
+ok(
+  "rekomendasi dan risiko berangkat dari temuan di atas",
+  (insBaru.match(/berangkat dari temuan/g) || []).length >= 2,
+  "salah satu masih boleh mengarang analisa baru"
+);
+
+// Estimasi versus hasil akhir: kosong pada sisi terverifikasi berarti
+// verifikasinya menyusul, bukan angkanya nol.
+ok(
+  "kosong pada angka terverifikasi tidak boleh disebut nol",
+  /verifikasinya belum berjalan, JANGAN/.test(insBaru),
+  "hilang"
+);
