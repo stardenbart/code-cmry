@@ -122,6 +122,25 @@ for (const e of KATALOG_KPI) {
 // membuat measure lain yang kelak ditambahkan ikut lolos tanpa diperiksa.
 const DIVERIFIKASI_LANGSUNG = new Map([
   [
+    "po_alt sentul",
+    "diukur 2026-08-13 lewat Execute Queries per Sub Group Description: UHT Milk " +
+      "250 ml 633.938.670 dan Stick Pack 40 g 798.335.284. Dipakai sebagai " +
+      "pendamping agar besaran PO terlihat di samping persentase capaiannya, " +
+      "bukan sebagai angka yang diperingkat.",
+  ],
+  [
+    "(true) jam yang dibayar",
+    "diukur 2026-08-13 lewat ambilBreakdown untuk cut-off 13 Juli sampai 12 " +
+      "Agustus: Engineering 2676,4 jam, Produksi CMD 3 1725,0, Quality Control " +
+      "1570,6. Sisi form mentah, jadi sudah terisi untuk periode berjalan.",
+  ],
+  [
+    "(all) jumlah jam yang dibayar (akhir)",
+    "diukur 2026-08-13 pada periode yang sama dan mengembalikan NOL, karena " +
+      "verifikasi HRGA belum berjalan untuk periode itu. Disandingkan dengan " +
+      "angka estimasi supaya selisihnya terlihat, bukan disembunyikan.",
+  ],
+  [
     "standard oee",
     "diukur 2026-08-12 lewat ambilBreakdown: Evergreen ESL 950ml 0,48, " +
       "Serac Line 3 CYD 65ml 0,65, Pasteurizer Mixing Line 1 nol. Dipakai sebagai " +

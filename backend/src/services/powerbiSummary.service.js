@@ -299,19 +299,7 @@ export async function ambilBreakdown(entri, jendela) {
   // yang mencocokkan sendiri baris mana milik mesin mana.
   const semuaM = (entri.measures || []).filter(Boolean);
 
-  // pakaiSum menandai bahwa yang disebut di `measures` adalah KOLOM fakta, bukan
-  // measure, sehingga harus dibungkus SUM().
-  //
-  // Dibutuhkan ketika measure resmi untuk angka itu ada beberapa varian yang
-  // bersaing dan kamus KPI menandainya blocked: memilih salah satunya diam-diam
-  // justru yang dilarang, sementara menjumlahkan kolom faktanya sendiri jelas
-  // asal-usulnya.
-  const bungkus = (nama) =>
-    entri.pakaiSum
-      ? `SUM(${tabel(entri.dimensiTabel || dim.tabel)}${kurung(nama)})`
-      : kurung(nama);
-
-  const m = bungkus(semuaM[0]);
+  const m = kurung(semuaM[0]);
   const pendamping = semuaM.slice(1);
   const urut = entri.arah === "terendah" ? "ASC" : "DESC";
 
@@ -361,7 +349,7 @@ export async function ambilBreakdown(entri, jendela) {
   // Nama kolom pendamping dibuat dari indeks, bukan dari nama measure-nya.
   // Nama measure memuat kurung, persen, dan spasi yang harus di-escape di DAX,
   // dan satu yang terlewat membuat seluruh query gagal 400.
-  const kolomPendamping = pendamping.map((nm, i) => `, "m${i + 1}", ${bungkus(nm)}`).join("");
+  const kolomPendamping = pendamping.map((nm, i) => `, "m${i + 1}", ${kurung(nm)}`).join("");
   let sumber = `SUMMARIZECOLUMNS(${grup}, "v", ${m}${kolomPendamping})`;
 
   if (terpasang) {

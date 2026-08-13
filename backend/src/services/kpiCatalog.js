@@ -770,37 +770,83 @@ export const KATALOG_KPI = [
   //   - `NC External  CMD 1[KATEGORI  DEVIASI]` kosong seluruhnya: 33 baris
   //     dengan kategori null.
   {
+    domain: "planning",
+    jenis: "breakdown",
+    kpi: "Produk dengan capaian PO terendah",
+    modelName: "Dashboard PPIC",
+    // Nama kolomnya berakhir SPASI. Menulisnya tanpa spasi menghasilkan 400.
+    dimensi: "Sub Group Description ",
+    // Dim_Material, BUKAN Dim_Material_Util. Diukur 2026-08-13: hanya
+    // Dim_Material yang benar-benar berelasi ke PO_Sentul lewat
+    // "Join Plant -> Join Material". Mengelompokkan dengan Dim_Material_Util
+    // mengembalikan angka yang SAMA untuk setiap produk, dan itu terlihat
+    // seperti hasil sungguhan.
+    dimensiTabel: "Dim_Material",
+    kolomTanggal: { tabel: "Dim_date", kolom: "Date" },
+    // Diperingkat berdasarkan PERSENTASE capaian, bukan berdasarkan STB dibagi
+    // PO. STB bersatuan pieces sementara PO bersatuan nilai: 3,3 miliar
+    // berbanding 634 juta untuk UHT Milk 250 ml. Membaginya menghasilkan angka
+    // yang terlihat seperti persen padahal bukan.
+    measures: ["Persentase akurasi PO", "PO_alt Sentul", "STB_ Sentul"],
+    arah: "terendah",
+    n: 3,
+    unit: "%",
+    status: "needs_confirmation",
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal PO lewat relasi ke Dim_date",
+    notes:
+      "Diukur 2026-08-13: SQ Bites 102,3 persen, YD 70 ml 44,3 persen, Milk Man " +
+      "100 ml 40,0 persen. PERINGATAN: sebagian produk berakurasi rendah tapi " +
+      "PO-nya NOL, dan produk tanpa PO tidak layak disebut capaian terendah. " +
+      "Sebut angka PO-nya bersama persentasenya, dan abaikan baris yang PO-nya " +
+      "nol saat menyimpulkan produk mana yang bermasalah. Status " +
+      "needs_confirmation karena istilah akurasi PO versus fulfillment PO belum " +
+      "dipastikan pemilik. Diukur juga: jendela SATU HARI biasanya kosong karena " +
+      "pengiriman PO tidak tercatat tiap hari, sedangkan jendela seminggu " +
+      "mengembalikan UHT YD 125 ml 99 persen, UHT Milk 125 ml 101 persen, dan " +
+      "UHT Milk 250 ml 101 persen. Kosong di sini berarti belum ada pengiriman " +
+      "tercatat, BUKAN capaian nol.",
+  },
+  {
     domain: "cost",
     jenis: "breakdown",
     kpi: "Departemen dengan lembur tertinggi",
     modelName: "Dashboard Lembur Plant",
-    dimensi: "Kode Departemen",
-    dimensiTabel: "HRGA_Hslakhir Gabungan",
-    // Kolom tanggal disebut eksplisit. Kolom "Tanggal Lembur (Bulan/Tanggal/Tahun)"
-    // di OfficeForms Table bertipe TEKS berformat M/D/YYYY, jadi perbandingan
-    // tanggal terhadapnya gagal 400. Yang bertipe Date sungguhan ada di tabel
-    // hasil akhir ini.
-    kolomTanggal: { tabel: "HRGA_Hslakhir Gabungan", kolom: "Tanggal" },
-    // SUM atas kolom fakta, bukan measure. Measure jam lembur di model ini ada
-    // lima varian yang bersaing dan kamus KPI menandainya blocked, jadi memilih
-    // salah satunya diam-diam justru yang dilarang.
-    measures: ["Jam lembur dibayar"],
-    pakaiSum: true,
+    dimensi: "Departemen",
+    dimensiTabel: "Dim_Dept",
+    // Difilter lewat Dim_Date, BUKAN lewat kolom tanggal di tabel faktanya.
+    //
+    // Kolom "Tanggal Lembur (Bulan/Tanggal/Tahun)" di OfficeForms Table bertipe
+    // TEKS berformat M/D/YYYY, jadi perbandingan tanggal terhadapnya gagal 400.
+    // Model ini punya Dim_Date yang berelasi ke tabel faktanya, dan pemilik
+    // proyek mengonfirmasi itu jalur yang benar 2026-08-13.
+    kolomTanggal: { tabel: "Dim_Date", kolom: "Date" },
+    // DUA measure disandingkan, bukan dipilih satu, dengan alasan yang sama
+    // seperti KPI biaya lembur:
+    //   "(true) Jam yang dibayar" hidup di sisi FORM MENTAH, jadi sudah terisi
+    //   untuk periode berjalan. Ini estimasi.
+    //   "(all) jumlah jam yang dibayar (akhir)" hidup di sisi HASIL AKHIR
+    //   terverifikasi HRGA, dan tertinggal satu periode. Ini yang final.
+    // Diukur 2026-08-13 untuk cut-off 13 Juli sampai 12 Agustus: yang pertama
+    // mengembalikan Engineering 2676,4 jam, Produksi CMD 3 1725,0, Quality
+    // Control 1570,6, Warehouse/Logistic 1564,8; yang kedua KOSONG karena
+    // verifikasinya belum berjalan untuk periode itu. Selisih itu sendiri
+    // informasi, jadi keduanya disebut.
+    measures: ["(true) Jam yang dibayar", "(all) jumlah jam yang dibayar (akhir)"],
     arah: "tertinggi",
     n: 3,
     unit: "jam",
     status: "confirmed",
-    // Lembur dihitung per periode cut-off tanggal 13, BUKAN per jendela laporan.
     jendelaKhusus: "lembur",
     filterTanggal: true,
     harian: false,
-    dateLogic: "akumulasi periode cut-off berjalan, tanggal 13 ke 12",
+    dateLogic: "akumulasi periode bulanan cut-off, tanggal 13 ke 12, bukan harian",
     notes:
-      "Kode Departemen sudah berupa nama terbaca, bukan kode. Diukur 2026-08-12 " +
-      "untuk cut-off 13 Juni sampai 12 Juli: Production 3 8659,6 jam, Maintenance " +
-      "7800,6 jam, Quality Control 5062,3 jam. Tabel ini hasil akhir terverifikasi " +
-      "HRGA dan diisi per periode cut-off, jadi WAJAR tidak bertambah harian; " +
-      "tanggal terakhirnya 2026-07-12 saat diukur.",
+      "Angka pertama ESTIMASI dari form mentah dan sudah terisi untuk periode " +
+      "berjalan; angka kedua HASIL AKHIR terverifikasi HRGA dan bisa kosong " +
+      "karena verifikasinya menyusul. Kosong pada angka kedua berarti belum " +
+      "diverifikasi, BUKAN berarti tidak ada lembur.",
   },
   {
     domain: "quality",
@@ -1063,7 +1109,8 @@ export function modelDipakai() {
 
 /** Semua pasangan model dan measure, diratakan. */
 export function pasanganMeasure() {
-  return KATALOG_KPI.flatMap((e) =>
-    e.measures.map((m) => ({ modelName: e.modelName, measure: m, kpi: e.kpi, status: e.status }))
-  );
+  return KATALOG_KPI
+    .flatMap((e) =>
+      e.measures.map((m) => ({ modelName: e.modelName, measure: m, kpi: e.kpi, status: e.status }))
+    );
 }
