@@ -276,7 +276,15 @@ export async function ambilBreakdown(entri, jendela) {
     : await temukanKolom(datasetId, entri.dimensi);
   if (!dim.kolom) return { ...dasar, baris: [], error: `dimensi tidak terpakai: ${dim.alasan}` };
 
-  const kolomTanggal = await temukanKolomTanggal(datasetId);
+  // Kolom tanggal boleh disebut EKSPLISIT per entri lewat { tabel, kolom }.
+  //
+  // Deteksi otomatis memilih satu kolom untuk seluruh model, dan pada model
+  // dengan banyak tabel fakta itu sering bukan kolom milik tabel yang sedang
+  // dikelompokkan. Akibatnya filter tanggal menempel di tabel lain dan hasilnya
+  // kosong tanpa satu pun error, yang terbaca sebagai "tidak ada kejadian".
+  const kolomTanggal = entri.kolomTanggal?.kolom
+    ? { tabel: entri.kolomTanggal.tabel, kolom: entri.kolomTanggal.kolom, sumber: "disebut di katalog" }
+    : await temukanKolomTanggal(datasetId);
   const perluFilter = perluFilterTanggal(entri);
   const terpasang = perluFilter && Boolean(kolomTanggal?.kolom);
 

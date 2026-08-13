@@ -745,18 +745,23 @@ export const KATALOG_KPI = [
   // HANYA Deviasi PM CMD 3. Kategori NC per gedung SENGAJA tidak dipakai di
   // laporan harian, dan alasannya diukur 2026-08-12, bukan diasumsikan:
   //
-  //   NC CMD 1 dan NC CMD 2  : tidak punya kolom tanggal sama sekali. Yang ada
-  //                            hanya `Hari` bertipe TEKS berisi nama hari
-  //                            ("Jumat", "Friday"), jadi tidak bisa difilter
-  //                            per tanggal dengan cara apa pun.
-  //   NC CMD 3               : tanggal terakhir 2026-07-09, 121 baris.
-  //   NC CMD ALL (Append)    : tanggal terakhir 2026-07-09, 198 baris.
-  //   NC External  CMD 3     : tanggal terakhir 2025-09-17.
-  //   Deviasi PM CMD 3       : tanggal terakhir 2026-08-12, 792 baris. SEGAR.
+  //   NC CMD 1            : kolom Tgl, terakhir 2026-07-08, 74 baris.
+  //   NC CMD 2            : kolom Tgl, terakhir 2026-05-10, 69 baris.
+  //   NC CMD 3            : kolom Tanggal, terakhir 2026-07-09, 121 baris.
+  //   NC External  CMD 1  : kolom Date SELURUHNYA null, 33 baris.
+  //   NC External  CMD 2  : kolom Date, terakhir 2025-02-18.
+  //   NC External  CMD 3  : kolom Date, terakhir 2025-09-17.
+  //   Deviasi PM CMD 3    : kolom Date, terakhir 2026-08-12, 792 baris. SEGAR.
   //
-  // Memasang KPI di atas sumber yang berhenti sebulan lalu berarti laporan
-  // harian membawa section yang SELALU kosong, dan kosong yang tidak dijelaskan
-  // terbaca sebagai "tidak ada masalah kualitas kemarin".
+  // KOREKSI: versi pertama catatan ini menyatakan NC CMD 1 dan CMD 2 tidak punya
+  // kolom tanggal sama sekali. Itu SALAH, dan berasal dari daftar kolom yang
+  // terpotong saat diperiksa. Keduanya punya kolom `Tgl` bertipe Date. Yang
+  // benar adalah datanya berhenti diisi, bukan strukturnya tidak mendukung.
+  //
+  // Entrinya tetap dibuat supaya langsung jalan begitu pengisian datanya
+  // dilanjutkan. Selama kosong, KPI tanpa angka masuk ke keterbatasanData di
+  // susunMuatan, bukan dikirim sebagai nol, sehingga tidak terbaca sebagai
+  // "tidak ada masalah kualitas kemarin".
   //
   // Dua jalur lain juga sudah dicoba dan gagal, dicatat supaya tidak diulang:
   //   - `Kategori_NC CMD 1[KATEGORI ISSUE ]` tabel TERPUTUS tanpa relasi ke
@@ -764,6 +769,78 @@ export const KATALOG_KPI = [
   //     kategori, yaitu 74, dan itu terlihat seperti hasil sungguhan.
   //   - `NC External  CMD 1[KATEGORI  DEVIASI]` kosong seluruhnya: 33 baris
   //     dengan kategori null.
+  {
+    domain: "quality",
+    jenis: "breakdown",
+    kpi: "Kategori NC tertinggi CMD 1",
+    modelName: "Dashboard NC dan Deviasi",
+    dimensi: "Kategori NC",
+    dimensiTabel: "NC CMD 1",
+    // Disebut eksplisit. Deteksi otomatis memilih Dim_date[Date] untuk seluruh
+    // model, dan filter itu menempel di tabel lain sehingga hasilnya kosong
+    // tanpa error.
+    kolomTanggal: { tabel: "NC CMD 1", kolom: "Tgl" },
+    measures: ["Jumlah NC CMD 1"],
+    arah: "tertinggi",
+    n: 2,
+    unit: "kejadian",
+    status: "confirmed",
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal kejadian pada tabel gedungnya sendiri",
+    notes:
+      "Tabel NC terpisah per gedung, jadi tiap gedung punya entri sendiri. " +
+      "Diukur 2026-08-12, angkanya BERUBAH per kategori sehingga measure ini " +
+      "menghormati konteks baris.",
+  },
+  {
+    domain: "quality",
+    jenis: "breakdown",
+    kpi: "Kategori NC tertinggi CMD 2",
+    modelName: "Dashboard NC dan Deviasi",
+    dimensi: "Kategori NC",
+    dimensiTabel: "NC CMD 2",
+    // Disebut eksplisit. Deteksi otomatis memilih Dim_date[Date] untuk seluruh
+    // model, dan filter itu menempel di tabel lain sehingga hasilnya kosong
+    // tanpa error.
+    kolomTanggal: { tabel: "NC CMD 2", kolom: "Tgl" },
+    measures: ["Jumlah NC CMD 2"],
+    arah: "tertinggi",
+    n: 2,
+    unit: "kejadian",
+    status: "confirmed",
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal kejadian pada tabel gedungnya sendiri",
+    notes:
+      "Tabel NC terpisah per gedung, jadi tiap gedung punya entri sendiri. " +
+      "Diukur 2026-08-12, angkanya BERUBAH per kategori sehingga measure ini " +
+      "menghormati konteks baris.",
+  },
+  {
+    domain: "quality",
+    jenis: "breakdown",
+    kpi: "Kategori NC tertinggi CMD 3",
+    modelName: "Dashboard NC dan Deviasi",
+    dimensi: "Kategori NC",
+    dimensiTabel: "NC CMD 3",
+    // Disebut eksplisit. Deteksi otomatis memilih Dim_date[Date] untuk seluruh
+    // model, dan filter itu menempel di tabel lain sehingga hasilnya kosong
+    // tanpa error.
+    kolomTanggal: { tabel: "NC CMD 3", kolom: "Tanggal" },
+    measures: ["Jumlah NC"],
+    arah: "tertinggi",
+    n: 2,
+    unit: "kejadian",
+    status: "confirmed",
+    filterTanggal: true,
+    harian: true,
+    dateLogic: "difilter tanggal kejadian pada tabel gedungnya sendiri",
+    notes:
+      "Tabel NC terpisah per gedung, jadi tiap gedung punya entri sendiri. " +
+      "Diukur 2026-08-12, angkanya BERUBAH per kategori sehingga measure ini " +
+      "menghormati konteks baris.",
+  },
   {
     domain: "quality",
     jenis: "breakdown",
