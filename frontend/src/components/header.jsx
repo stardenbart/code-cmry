@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   UserPlus, Users, KeyRound, LogOut, LayoutDashboard, Home,
-  Menu, MoreVertical, Globe, Sparkles, CalendarClock
+  Menu, MoreVertical, Globe, Sparkles, CalendarClock, MessageSquare
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -13,6 +13,7 @@ export default function Header({
   onReportSettingClick,
   onChangePasswordClick,
   onAISettingsClick,
+  onUnifiedChatClick,
   onMenuToggle,
 }) {
   const navigate = useNavigate();
@@ -113,6 +114,11 @@ export default function Header({
                 color="bg-indigo-500 hover:bg-indigo-600" tooltip="Pengaturan CIA" />
             )}
 
+            {onUnifiedChatClick && (
+              <IconButton onClick={onUnifiedChatClick} icon={MessageSquare}
+                color="bg-emerald-500 hover:bg-emerald-600" tooltip="Multi-Dashboard Chat" />
+            )}
+
             <IconButton onClick={onChangePasswordClick} icon={KeyRound}
               color="bg-yellow-500 hover:bg-yellow-600" tooltip="Change Password" />
             <IconButton onClick={onLogout} icon={LogOut}
@@ -160,6 +166,11 @@ export default function Header({
                 {onAISettingsClick && (
                   <MobileAction onClick={onAISettingsClick} icon={Sparkles}
                     label="Pengaturan CIA" color="hover:bg-indigo-600/60" />
+                )}
+
+                {onUnifiedChatClick && (
+                  <MobileAction onClick={onUnifiedChatClick} icon={MessageSquare}
+                    label="Multi-Dashboard Chat" color="hover:bg-emerald-600/60" />
                 )}
 
                 <MobileAction onClick={onChangePasswordClick} icon={KeyRound}

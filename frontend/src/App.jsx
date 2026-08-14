@@ -32,6 +32,7 @@ const AskAIPanel          = lazy(() => import("./components/AskAIPanel"));
 const AISettingsModal     = lazy(() => import("./components/AISettingsModal"));
 const ReportSettingModal  = lazy(() => import("./components/ReportSettingModal"));
 const CodeAINavigator     = lazy(() => import("./components/CodeAINavigator"));
+const UnifiedChatModal    = lazy(() => import("./components/UnifiedChatModal"));
 // Membawa DOMPurify (~30 KB). Hanya deskripsi dashboard yang perlu disanitasi,
 // dan itu tidak pernah tampil di halaman login.
 const SafeHtml            = lazy(() => import("./components/SafeHtml"));
@@ -362,6 +363,7 @@ function Dashboard({ user, onLogout }) {
   const [showAddUser, setShowAddUser]     = useState(false);
   const [showManageUser, setShowManageUser] = useState(false);
   const [showReportSetting, setShowReportSetting] = useState(false);
+  const [showUnifiedChat, setShowUnifiedChat] = useState(false);
 
   // Hak akses CIA, dibaca dari server.
   //
@@ -494,6 +496,7 @@ function Dashboard({ user, onLogout }) {
         onReportSettingClick={() => setShowReportSetting(true)}
         onChangePasswordClick={() => setShowChangePassword(true)}
         onAISettingsClick={ciaAccess || user?.role === "admin" ? () => setShowAISettings(true) : null}
+        onUnifiedChatClick={ciaAccess ? () => setShowUnifiedChat(true) : null}
         onMenuToggle={() => setSidebarOpen(true)}
       />
 
@@ -718,6 +721,7 @@ function NotificationsLayout({ user, onLogout }) {
         {showManageUser && <ManageUsers onClose={() => setShowManageUser(false)} />}
         {showReportSetting && <ReportSettingModal onClose={() => setShowReportSetting(false)} />}
         {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
+        {showUnifiedChat && <UnifiedChatModal isOpen={showUnifiedChat} onClose={() => setShowUnifiedChat(false)} />}
       </LazyBoundary>
     </div>
   );
