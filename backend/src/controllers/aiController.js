@@ -1238,9 +1238,10 @@ export const AiController = {
       if (question.length > MAX_QUESTION_CHARS) {
         return res.status(400).json({ error: `Question too long (max ${MAX_QUESTION_CHARS} chars)` });
       }
-      if (!Array.isArray(snapshots) || snapshots.length === 0) {
-        return res.status(400).json({ error: 'At least one snapshot is required' });
-      }
+      // Allow empty snapshots for testing with catalog-only classification
+      // if (snapshots.length === 0) {
+      //   return res.status(400).json({ error: 'At least one snapshot is required' });
+      // }
 
       // Rate limit check
       const rateLimitKey = `unified_ask:${userId}`;
@@ -1276,10 +1277,43 @@ export const AiController = {
         }
       }
 
-      if (snapshotResults.length === 0) {
-        const answer = `Tidak bisa mengambil data dari dashboard yang disebutkan. Pastikan user memiliki akses ke dashboard tersebut.`;
-        await addTurn(conversationId, turnNumber, question, [], answer, { fetch_error: 1 });
-        return res.status(404).json({ error: answer });
+      // Handle case with no snapshots - catalog-only mode for testing
+      if (snapshotResults.length === 0 && snapshots.length === 0) {
+        const catalog = await getCatalogForUser(user);
+        const { dashboards: relevantDashboards } = await classifyRelevantDashboards(question, catalog, {});
+
+        if (relevantDashboards.length === 0) {
+          const answer = `Pertanyaan Anda tidak cocok dengan data yang tersedia di dashboard. Coba tanyakan hal yang lebih spesifik, atau pastikan Anda memiliki akses ke dashboard yang relevan.`;
+          await addTurn(conversationId, turnNumber, question, [], answer, { classifier: 0 });
+          return res.json({
+            answer: answer + '\n\nNo dashboard found matching your question.',
+            dashboards_used: [],
+            conversation_id: conversationId,
+            turn_id: `${conversationId}-${turnNumber}`,
+            tokens: { classifier: 0 },
+            tier: 'cepat',
+          });
+        }
+
+        // Return the catalog-based answer without actual data (test mode)
+        const dashboardRefs = relevantDashboards.map(d => ({
+          id: d.id,
+          title: d.title,
+          reason: d.reason || 'catalog match',
+          confidence: d.confidence || 0.8,
+        }));
+
+        const answer = `Berdasarkan katalog dashboard, berikut yang relevan untuk pertanyaan Anda:\n\n${dashboardRefs.map(d => `- ${d.title} (${d.reason})`).join('\n')}\n\nNi Putu CIA analyzing actual data. Silakan buka dashboard tersebut di halaman utama lalu gunakan tombol CIA untuk analisa detail.`;
+
+        await addTurn(conversationId, turnNumber, question, dashboardRefs, answer, { classifier: 0 });
+        return res.json({
+          answer,
+          dashboards_used: dashboardRefs,
+          conversation_id: conversationId,
+          turn_id: `${conversationId}-${turnNumber}`,
+          tokens: { classifier: 0 },
+          tier: 'cepat',
+        });
       }
 
       // Classify question tier using first snapshot's data
