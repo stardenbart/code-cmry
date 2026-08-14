@@ -287,6 +287,35 @@ const SANITIZATION_NOTES = [
   "- Kolom bertanda `(% dari total kolom)` sudah diubah jadi porsi relatif, bukan angka absolut. Bicaralah dalam persentase/porsi untuk kolom itu, jangan mengarang nilai rupiah absolutnya.",
 ].join("\n");
 
+/**
+ * Builds context for multiple dashboard snapshots (unified chat).
+ * Each dashboard is clearly labeled so the model knows which data came from where.
+ *
+ * @param {Array} snapshots - [{ pagesRead, visuals, ... }]
+ * @param {Array} dashboards - [{ id, title, department, description }]
+ * @param {number} charCap - Total character budget for all dashboards combined
+ * @returns {string}
+ */
+export function buildMultiDashboardContext(snapshots, dashboards, charCap = TIER_CHAR_BUDGET.standar) {
+  if (!Array.isArray(snapshots) || snapshots.length === 0) {
+    return "=== MULTI-DASHBOARD CONTEXT ===\n(tidak ada dashboard yang diberikan)";
+  }
+
+  const lines = ["=== MULTI-DASHBOARD CONTEXT ===", ""];
+  const perDashboardBudget = Math.floor(charCap / snapshots.length);
+
+  for (let i = 0; i < snapshots.length; i++) {
+    const snapshot = snapshots[i];
+    const dashboard = dashboards[i];
+    lines.push(`\n--------- DASHBOARD ${(i + 1)}: ${dashboard?.title || `Dashboard ${i + 1}`} ---------`);
+    const singleContext = buildDataContext(snapshot, dashboard, perDashboardBudget);
+    lines.push(singleContext);
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
 export function buildSystemPrompt({ userName, userDept, dashboardTitle, knowledge, sanitized }) {
   const base = [
     "Kamu adalah \"CIA (Cimory Intelligence Assistant)\" — Principal Analytics Engineer / Power BI Semantic Analyst untuk PT. Cisarua Mountain Dairy (Cimory), CMD Plant Sentul.",
