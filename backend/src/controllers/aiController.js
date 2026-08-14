@@ -18,13 +18,19 @@ import {
   answerNeedsMoreData,
   TIER_CHAR_BUDGET,
 } from "../services/aiContext.js";
-import { callAI, nextTier, TIER_LABELS, TIERS } from "../services/aiProvider.js";
+import { callAI, nextTier, TIER_LABELS, TIERS, tierModel } from "../services/aiProvider.js";
 import { classify, resolveTier, shouldEscalate } from "../services/aiRouter.js";
 import * as aiQuota from "../services/aiQuota.js";
 import * as aiCache from "../services/aiCache.js";
 import {
   buildCatalog, buildNavigatorPrompt, parseNavigatorReply, resolveDashboardRefs,
 } from "../services/aiNavigator.js";
+import { classifyRelevantDashboards } from "../services/dashboardRelevanceClassifier.js";
+import {
+  createConversation, addTurn, getTurns, getConversation, getUserConversations,
+} from "../services/unifiedConversationManager.js";
+import { buildMultiDashboardContext } from "../services/aiContext.js";
+import { formatUnifiedAnswer } from "../services/unifiedAnswerBuilder.js";
 import { simpanTemuan, temuanAktif, turnTerakhirTersaring, JAM_JENDELA }
   from "../models/findingModel.js";
 import {
@@ -1208,6 +1214,157 @@ export const AiController = {
       }).catch(() => {});
 
       res.status(status).json({ message });
+    }
+  },
+
+  /**
+   * Unified chat handler: route question to relevant dashboards, answer using passed-in snapshots.
+   *
+   * API flow:
+   * 1. POST /api/ai/unified/classify - returns dashboard_ids based on catalog only
+   * 2. Frontend fetches snapshots from each dashboard, posts to unifiedAsk
+   * 3. unifiedAsk receives { question, conversationId, snapshots: [{dashboard_id, snapshot}] }
+   */
+  unifiedAsk: async (req, res) => {
+    try {
+      const { question, conversationId: providedConvId, snapshots = [] } = req.body;
+      const userId = req.user.id;
+      const MAX_QUESTION_CHARS = 1000;
+
+      // Validate input
+      if (!question || typeof question !== 'string') {
+        return res.status(400).json({ error: 'Question is required and must be a string' });
+      }
+      if (question.length > MAX_QUESTION_CHARS) {
+        return res.status(400).json({ error: `Question too long (max ${MAX_QUESTION_CHARS} chars)` });
+      }
+      if (!Array.isArray(snapshots) || snapshots.length === 0) {
+        return res.status(400).json({ error: 'At least one snapshot is required' });
+      }
+
+      // Rate limit check
+      const rateLimitKey = `unified_ask:${userId}`;
+      const limiter = rateLimit.getRateLimiter(rateLimitKey, RATE_WINDOW_SECONDS, RATE_MAX_REQUESTS);
+      if (!limiter.consume()) {
+        return res.status(429).json({ error: 'Rate limit exceeded' });
+      }
+
+      // Get or create conversation
+      let conversationId = providedConvId;
+      let turnNumber = 1;
+      if (!conversationId) {
+        const conv = await createConversation(userId);
+        conversationId = conv.id;
+      } else {
+        const conv = await getConversation(conversationId, userId);
+        if (!conv) {
+          return res.status(403).json({ error: 'Conversation not found or not owned by user' });
+        }
+        const turns = await getTurns(conversationId, 100);
+        turnNumber = turns.length + 1;
+      }
+
+      // Get user info
+      const user = await getUser(userId);
+
+      // Map snapshot dashboard_id to full dashboard data (holes allowed - missing IDs handled gracefully)
+      const snapshotResults = [];
+      for (const snap of snapshots) {
+        const dashboard = await getDashboard(snap.dashboard_id);
+        if (dashboard) {
+          snapshotResults.push({ dashboard, snapshot: snap.snapshot, dashboard_id: snap.dashboard_id });
+        }
+      }
+
+      if (snapshotResults.length === 0) {
+        const answer = `Tidak bisa mengambil data dari dashboard yang disebutkan. Pastikan user memiliki akses ke dashboard tersebut.`;
+        await addTurn(conversationId, turnNumber, question, [], answer, { fetch_error: 1 });
+        return res.status(404).json({ error: answer });
+      }
+
+      // Classify question tier using first snapshot's data
+      const firstSnapshot = snapshotResults[0]?.snapshot;
+      const tierClassification = classify({
+        question,
+        snapshot: firstSnapshot,
+        historyTurns: turnNumber - 1,
+      });
+
+      // Build context from all dashboards
+      const snapshotsForContext = snapshotResults.map(r => r.snapshot);
+      const dashboardsForContext = snapshotResults.map(r => r.dashboard);
+      const charBudget = TIER_CHAR_BUDGET[tierClassification.tier];
+      const dataContext = buildMultiDashboardContext(snapshotsForContext, dashboardsForContext, charBudget);
+
+      // Get conversation history (last 6 turns)
+      const priorTurns = turnNumber > 1 ? await getTurns(conversationId, 6) : [];
+      let historyContext = '';
+      if (priorTurns.length > 0) {
+        historyContext = priorTurns
+          .map((t) => `Turn ${t.turn_number}: Q: ${t.question.slice(0, 150)}...\nA: ${t.answer.slice(0, 150)}...`)
+          .join('\n\n');
+      }
+
+      // Build prompts and call Gemini
+      const systemPrompt = buildSystemPrompt({
+        userName: user.nama,
+        userDept: user.departemen,
+        dashboardTitle: `${snapshotResults.length} dashboard`, // plural if multi
+        knowledge: '',
+        sanitized: false,
+      });
+
+      const unifiedHistory = priorTurns
+        .map((t) => [
+          { role: 'user', text: t.question },
+          { role: 'model', text: t.answer },
+        ]).flat();
+
+      const userMessage = `Konteks multi-dashboard:\n${dataContext}\n\nRiwayat percakapan sebelumnya (opsional):\n${historyContext}\n\nPertanyaan user: ${question}\n\nJawab berdasarkan data dari semua dashboard di atas. Sebutkan sumbernya (mana dashboard yang menjawab pertanyaan mana).`;
+
+      const resolved = await resolveKey(userId, tierModel(tierClassification.tier));
+
+      const result = await callAI({
+        tier: tierClassification.tier,
+        apiKey: resolved?.apiKey,
+        queueKey: user.id,
+        systemInstruction: systemPrompt,
+        history: unifiedHistory,
+        question: userMessage,
+        onRetry: undefined,
+      });
+
+      // Format answer with dashboard attribution
+      const dashboardRefs = snapshotResults.map(r => ({
+        id: r.dashboard_id,
+        title: r.dashboard.title,
+        reason: `data dari ${r.dashboard.title}`,
+        confidence: 1,
+      }));
+
+      const { formatted_answer } = formatUnifiedAnswer(result.text, dashboardRefs);
+
+      // Store turn in history
+      await addTurn(conversationId, turnNumber, question, dashboardRefs, formatted_answer, {
+        classifier: 0,
+        gemini: result.usage?.totalTokenCount || 0,
+      });
+
+      res.json({
+        answer: formatted_answer,
+        dashboards_used: dashboardRefs,
+        conversation_id: conversationId,
+        turn_id: `${conversationId}-${turnNumber}`,
+        tokens: result.usage,
+        tier: tierClassification.tier,
+      });
+
+    } catch (error) {
+      console.error('unifiedAsk error:', error);
+      return res.status(500).json({
+        error: 'Failed to answer question',
+        message: error.message,
+      });
     }
   },
 };

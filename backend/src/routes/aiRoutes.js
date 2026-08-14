@@ -2,6 +2,7 @@ import express from "express";
 import { AiController } from "../controllers/aiController.js";
 import { verifyJWT } from "../middleware/auth.js";
 import { requireAdmin, requireCiaAccess } from "../middleware/authorize.js";
+import { getUserConversations, getConversation, getTurns, clearConversation } from "../services/unifiedConversationManager.js";
 
 const router = express.Router();
 
@@ -39,5 +40,43 @@ router.post("/finding/distill", requireCiaAccess, AiController.distillFindings);
 
 router.get("/history/:dashboardId", requireCiaAccess, AiController.history);
 router.delete("/history/:dashboardId", requireCiaAccess, AiController.clearHistory);
+
+// ── Unified Chat (multi-dashboard, single conversation) ─────────────────────
+router.post("/unified/ask", requireCiaAccess, AiController.unifiedAsk);
+
+router.get("/unified/conversations", requireCiaAccess, async (req, res) => {
+  try {
+    const conversations = await getUserConversations(req.user.id, 10);
+    return res.json({ conversations });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/unified/conversations/:id/turns", requireCiaAccess, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const conv = await getConversation(id, req.user.id);
+    if (!conv) return res.status(403).json({ error: 'Not found' });
+
+    const turns = await getTurns(id, 100);
+    return res.json({ turns });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete("/unified/conversations/:id", requireCiaAccess, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const conv = await getConversation(id, req.user.id);
+    if (!conv) return res.status(403).json({ error: 'Not found' });
+
+    await clearConversation(id);
+    return res.json({ deleted: true });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
 
 export default router;
