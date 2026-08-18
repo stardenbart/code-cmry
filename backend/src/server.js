@@ -48,6 +48,25 @@ app.use(cors());
 // Must sit before every router so no route can be registered behind its back.
 app.use(defaultDeny);
 
+// Denyut nadi proses. DI LUAR /api dengan sengaja, sehingga defaultDeny
+// melewatinya dan pemantau tidak perlu token.
+//
+// SELALU 200 selama prosesnya masih melayani HTTP, termasuk saat databasenya
+// tidak terjangkau. Bedanya penting: restart memperbaiki proses yang menggantung,
+// tetapi tidak memperbaiki MySQL yang mati, jadi 503 saat database mati hanya
+// membuat pengawas merestart backend berulang-ulang tanpa hasil. Keadaan database
+// dilaporkan di badannya untuk dibaca manusia, bukan sebagai kode status yang
+// memicu tindakan.
+app.get("/health", async (req, res) => {
+  let database = "ok";
+  try {
+    await db.promise().query("SELECT 1");
+  } catch (err) {
+    database = `gagal: ${err?.code || err?.message || "tidak diketahui"}`;
+  }
+  res.json({ status: "ok", database, uptime_detik: Math.round(process.uptime()) });
+});
+
 // Serve uploaded portal images statically
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
