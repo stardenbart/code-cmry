@@ -10,6 +10,7 @@ Berkas yang dipakai:
 | --- | --- |
 | `ecosystem.config.cjs` | Aturan pm2: backoff, batas restart, batas memori, log |
 | `scripts/deploy.sh` | Backup, ambil versi baru, build, restart, verifikasi |
+| `scripts/migrate.sh` | Jalankan seluruh migrasi database sekali jalan |
 | `scripts/watchdog.sh` | Restart backend yang hidup tapi tidak menjawab |
 | `GET /health` | Denyut nadi tanpa token, dibaca deploy dan watchdog |
 
@@ -119,12 +120,15 @@ membuat token untuk akun mana pun. Bangkitkan yang benar:
     node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 Kalau ini server yang benar-benar baru, jalankan skema dan seluruh migrasinya
-lebih dulu:
+lebih dulu. Skema sekali dengan mysql, migrasinya lewat skrip:
 
     mysql -u USER -p NAMA_DB < backend/migrations/cod_db.schema.sql
-    for f in backend/migrations/add_*.sql; do
-      echo "== $f"; mysql -u USER -p NAMA_DB < "$f" || break
-    done
+    ./scripts/migrate.sh --dry-run
+    ./scripts/migrate.sh
+
+`migrate.sh` menjalankan keenam belas berkas `add_*.sql` urut abjad. Lihat
+bagian "Migrasi database" di bawah untuk alasan urutan itu benar dan mengapa
+skrip ini aman dijalankan berulang.
 
 Lalu dependency dan build pertama:
 
@@ -241,20 +245,44 @@ Yang dikerjakannya, berurutan:
    dilaporkan gagal dan perintah rollback dicetak. Backup lama di luar 5 yang
    terbaru dibuang.
 
-### Kalau ada migrasi database baru
+### Migrasi database
 
-Skrip berhenti dengan kode keluar 3 dan menyebut berkasnya. Ini disengaja:
-migrasi yang salah tidak bisa dibatalkan dengan menyalin berkas, dan skrip tidak
-bisa tahu mana yang aman diulang. Kerjakan urut:
+Migrasinya terpisah satu berkas per perubahan, dan tidak perlu dijalankan satu
+per satu. Satu perintah memasang semuanya:
+
+    ./scripts/migrate.sh --dry-run   # urutan yang akan dijalankan
+    ./scripts/migrate.sh
+
+**Skrip ini aman dijalankan berulang.** Bukan karena ada tabel pencatat migrasi
+(proyek ini tidak punya), melainkan karena setiap berkasnya menjaga dirinya
+sendiri: sebagian dengan `CREATE TABLE IF NOT EXISTS`, sebagian dengan
+memeriksa `information_schema` lebih dulu, satu dengan `INSERT IGNORE`. Sudah
+diuji: 22 tabel sebelum, 22 tabel sesudah dijalankan dua kali.
+
+Penjagaan `information_schema` itu bukan gaya penulisan yang berbeda-beda tanpa
+alasan. `ADD COLUMN IF NOT EXISTS` adalah sintaks MariaDB dan **gagal di MySQL**;
+itu pernah terjadi di repo ini dan membuat dua tabel tidak pernah terbentuk.
+
+Urutan abjad memang urutan yang benar: `add_sent_confirmed.sql` mensyaratkan
+`add_daily_summary.sql` lebih dulu, dan "daily" lebih dulu dari "sent" secara
+abjad. Sasaran foreign key selebihnya hanya `users` dan `dashboards`, yang sudah
+dibuat oleh `cod_db.schema.sql`.
+
+Kalau ada satu berkas yang gagal, skrip berhenti di situ, mencetak galat MySQL
+apa adanya, dan keluar bukan-nol. Migrasi sebelumnya sudah masuk dan aman
+diulang, jadi sesudah sebab galatnya diperbaiki, jalankan skrip yang sama lagi.
+
+#### Kalau deploy.sh berhenti karena ada migrasi baru
+
+`deploy.sh` sengaja TIDAK menjalankan migrasi sendiri. Ia berhenti dengan kode
+keluar 3 dan menyebut berkasnya, karena migrasi yang salah tidak bisa dibatalkan
+dengan menyalin berkas. Kerjakan urut:
 
 1. Backup database sudah ada di `../cod-backups/<cap-waktu>/db.sql.gz`. Pastikan
    berkasnya benar-benar ada dan ukurannya wajar sebelum lanjut.
-2. Baca berkas migrasinya. Kalau ada `DROP` atau `ALTER` yang menghapus kolom,
-   pastikan dulu tidak ada data yang hilang.
-3. Jalankan ke database produksi:
-
-       mysql -u USER -p NAMA_DB < backend/migrations/nama_migrasi.sql
-
+2. Baca berkas migrasi yang disebut. Kalau ada `DROP` atau `ALTER` yang
+   menghapus kolom, pastikan dulu tidak ada data yang hilang.
+3. `./scripts/migrate.sh`
 4. Ulangi `./scripts/deploy.sh`.
 
 ### Rollback

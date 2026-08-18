@@ -1,0 +1,13 @@
+# Skrip shell WAJIB LF, bukan CRLF.
+#
+# Ini bukan soal kerapian. Git di Windows mengubah LF menjadi CRLF saat menyimpan,
+# dan skrip yang tersimpan ber-CRLF ditolak Linux di baris pertamanya:
+# `#!/usr/bin/env bash\r` dibaca sebagai penerjemah bernama "bash\r" yang tidak
+# ada, jadi `./scripts/deploy.sh` di server gagal dengan
+# "bad interpreter: /usr/bin/env bash^M" sebelum satu baris pun dijalankan.
+# Git Bash di Windows memaafkan CRLF, jadi kesalahan ini tidak terlihat saat diuji
+# di laptop.
+*.sh text eol=lf
+
+# Alasan yang sama: dibaca bash di server lewat cron dan crontab.
+*.bash text eol=lf
