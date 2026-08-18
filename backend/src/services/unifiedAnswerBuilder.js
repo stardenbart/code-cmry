@@ -33,22 +33,3 @@ export function formatUnifiedAnswer(answer, dashboards, historyContext = null) {
     dashboard_refs: refs,
   };
 }
-
-/**
- * Compress older conversation turns into a summary for context.
- * Used to keep history while staying within token budget.
- *
- * @param {Array} oldTurns - Turns older than recent N
- * @returns {string} Compressed summary
- */
-export function compressHistory(oldTurns) {
-  if (!Array.isArray(oldTurns) || oldTurns.length === 0) {
-    return '';
-  }
-
-  const topics = oldTurns
-    .map(t => `Q: ${t.question.slice(0, 50)}...`)
-    .slice(0, 5);
-
-  return `\n(Konversasi sebelumnya mencakup: ${topics.join(', ')})\n`;
-}

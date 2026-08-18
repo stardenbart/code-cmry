@@ -1,178 +1,199 @@
-# Unified Multi-Dashboard Chat
+# Chat CIA Lintas Dashboard
 
-## Overview
-Users can ask questions across all Power BI dashboards in a single chat panel, without opening dashboards one-by-one.
+Satu percakapan untuk bertanya ke beberapa dashboard Power BI sekaligus, tanpa
+membuka dashboardnya satu per satu.
 
-## Architecture
-**Serial Router**: Question → classify intent → identify relevant dashboards (fast tier, catalog only) → fetch snapshots → answer with full context.
+Alamatnya `/cia-chat`, sebuah halaman penuh. Pintu masuknya ikon di header,
+hanya tampil bagi user yang aksesnya dibuka. Sebelumnya ini modal melayang;
+sebagai halaman, percakapan panjang punya ruang, daftar riwayat muat di
+sampingnya, dan alamatnya bisa dibuka langsung.
 
-### Key Benefits
-- **Token Efficient**: Only fetches relevant dashboards, skipping irrelevant ones.
-- **Multi-Turn**: Conversation history maintained per user, not per-dashboard.
-- **Cross-Reference**: Answers show which dashboards were queried and why.
-- **Drill-Down**: Users can ask for details and the same question is re-routed.
+## Dua jalur penarikan data
 
-## Data Flow
+Keduanya berujung ke endpoint yang sama, `POST /api/ai/unified/ask`. Yang
+membedakan hanya ada tidaknya snapshot di badan permintaan.
+
+**Manual.** User mencentang dashboard, browser menarik snapshotnya di latar,
+lalu pertanyaan dikirim bersama snapshot itu. Jawabannya berdata.
+
+**Otomatis.** User langsung bertanya tanpa mencentang apa pun. Server
+mengklasifikasi pertanyaan terhadap katalog dashboard yang boleh dilihat user
+itu, lalu menjawab dengan `saran_dashboard`: daftar dashboard yang relevan,
+BUKAN angka. User mengklik salah satunya, snapshotnya ditarik, dan pertanyaan
+tadi dikirim ulang otomatis.
+
+Jalur otomatis SENGAJA tidak langsung menarik data begitu saran keluar.
+Menebak dashboard yang salah lalu menjawab dengan angkanya adalah kegagalan
+diam yang paling mahal di sistem ini: jawaban yang terdengar berdata padahal
+sumbernya keliru. Konfirmasi satu klik jauh lebih murah daripada itu.
+
+`saran_dashboard` dan `dashboards_used` dipisah di seluruh lapisan dengan
+alasan yang sama. Yang pertama disarankan, yang kedua sumber angka.
+
+## Alur data
 
 ```
-User Question
-    ↓
-[Client] Classify Intent
-    ↓
-[Server] Dashboard Relevance Classifier (catalog only, ~1k tokens)
-    ↓
-[Dashboard IDs]
-    ↓
-[Client] Fetch Snapshots from Power BI (per dashboard_id)
-    ↓
-POST /api/ai/unified/ask { question, conversationId, snapshots }
-    ↓
-[Server] Merge Contexts + Call Gemini (tier-based)
-    ↓
-[Response] answer + dashboards_used + conversation_id
-    ↓
-Store in ai_unified_turns (per conversation)
+Pertanyaan user
+    |
+    +-- tanpa snapshot --> [Server] classifyRelevantDashboards (katalog saja)
+    |                          |
+    |                      saran_dashboard --> user mengklik --> tarik snapshot
+    |                                                                 |
+    +-- dengan snapshot <-----------------------------------------------+
+                 |
+    [Browser] captureReportSnapshot per dashboard (SnapshotCapture, di luar layar)
+                 |
+    POST /api/ai/unified/ask { question, conversationId, snapshots }
+                 |
+    [Server] gabung konteks + riwayat utas + ingatan lintas percakapan
+                 |
+    panggil model sesuai tier
+                 |
+    simpan ke ai_unified_turns, pangkas kalau lewat atap penyimpanan
+                 |
+    { answer, dashboards_used, conversation_id, turn_id, tokens, tier }
 ```
 
-## API Endpoints
+Snapshot ditarik di BROWSER, bukan server. Server tidak pernah menyentuh
+Power BI atas nama user.
 
-### POST /api/ai/unified/ask
-Ask a question across multiple dashboards.
+## Ingatan
 
-**Request:**
+Tiga lapis, masing-masing beda perannya.
+
+**Riwayat utas ini.** Enam turn TERAKHIR percakapan yang sedang dibuka,
+dikirim sebagai giliran percakapan sungguhan lewat `history`. Bukan enam
+pertama: pada percakapan panjang, konteks yang membeku di awal membuat
+pertanyaan lanjutan dijawab seolah sepuluh turn terakhir tidak pernah terjadi.
+
+**Ingatan lintas percakapan.** Lima percakapan LAIN milik user yang sama,
+masing-masing hanya judul, pertanyaan terakhir, dan 300 karakter jawabannya.
+Prinsipnya sama dengan `ai_finding`: yang dikirim topiknya, bukan seluruh
+analisa. Model diberi tahu secara eksplisit bahwa angka di sana sudah lama dan
+tidak boleh dipakai sebagai angka jawaban; kalau perlu angkanya, model harus
+menyebut dashboard mana yang perlu dibuka lagi.
+
+**Yang dibaca user.** Membuka percakapan lama memuat sampai 200 turn. Yang
+dibatasi adalah muatan ke model, bukan yang terbaca di layar.
+
+## Penyimpanan
+
+Atapnya 5 GB per user, kira-kira 2,5 juta turn. Angka itu praktis tak
+tersentuh, dan memang itu gunanya: batas yang menahan kasus liar, bukan yang
+dipakai sehari-hari.
+
+Pemakaian dihitung dari panjang kolom teksnya (`SUM(LENGTH(...))`), bukan
+diperkirakan. Kalau lewat atap, percakapan TERTUA dibuang utuh, bukan per
+turn: utas yang tinggal separuh terbaca sebagai jawaban yang hilang.
+Pemangkasan dipanggil sesudah turn berjawaban penuh tersimpan.
+
+## Endpoint
+
+Semuanya di bawah `/api/ai`, dijaga `verifyJWT` lalu `requireCiaAccess`.
+
+| Metode | Alamat | Guna |
+| --- | --- | --- |
+| POST | `/unified/ask` | Bertanya. Tanpa `snapshots`, jawabannya berupa saran dashboard. |
+| POST | `/unified/suggest` | Dashboard mana yang relevan, tanpa menarik datanya. |
+| GET | `/unified/conversations` | Daftar percakapan + pemakaian penyimpanan. |
+| GET | `/unified/conversations/:id/turns` | Isi satu percakapan (sampai 200 turn). |
+| DELETE | `/unified/conversations/:id` | Buang percakapan berikut seluruh turn-nya. |
+
+`POST /unified/ask` mengembalikan:
+
 ```json
 {
-  "question": "bandingkan produksi vs defect minggu ini?",
-  "conversationId": 42,
-  "snapshots": [
-    {
-      "dashboard_id": 1,
-      "snapshot": { "visuals": [...], "pagesRead": [0], ... }
-    },
-    {
-      "dashboard_id": 2,
-      "snapshot": { "visuals": [...], "pagesRead": [0], ... }
-    }
-  ]
-}
-```
-
-**Response:**
-```json
-{
-  "answer": "Produksi minggu ini... Sumber data: ...",
+  "answer": "...",
   "dashboards_used": [
     { "id": 1, "title": "Produksi Harian", "reason": "data dari Produksi Harian", "confidence": 1 }
   ],
+  "saran_dashboard": [],
   "conversation_id": 42,
-  "turn_id": "42-1",
+  "turn_id": "42-3",
   "tokens": { "totalTokenCount": 3400 },
   "tier": "standar"
 }
 ```
 
-### GET /api/ai/unified/conversations
-List all conversations for the user.
+`GET /unified/conversations`:
 
-**Response:**
 ```json
 {
   "conversations": [
-    { "id": 42, "created_at": "2026-08-14T10:30:00Z", "updated_at": "2026-08-14T11:45:00Z" }
-  ]
+    { "id": 42, "judul": "Berapa OEE line 3?", "jumlah_turn": 6,
+      "created_at": "...", "updated_at": "..." }
+  ],
+  "penyimpanan": { "terpakai": 18422, "batas": 5368709120 }
 }
 ```
 
-### GET /api/ai/unified/conversations/:id/turns
-Get all turns from a conversation (history).
+DELETE membuang PERCAKAPANNYA, bukan hanya mengosongkan turn-nya. Versi
+sebelumnya menyisakan baris percakapan kosong di daftar riwayat, dan user
+melihat utas yang tidak bisa dibuka isinya.
 
-**Response:**
-```json
-{
-  "turns": [
-    {
-      "turn_number": 1,
-      "question": "berapa produksi hari ini?",
-      "answer": "Produksi hari ini...",
-      "dashboards_queried": [{ "id": 1, "title": "Produksi Harian" }],
-      "created_at": "2026-08-14T10:30:00Z"
-    }
-  ]
-}
-```
+## Berkas
 
-### DELETE /api/ai/unified/conversations/:id
-Clear conversation history.
+| Berkas | Perannya |
+| --- | --- |
+| `frontend/src/components/UnifiedChatPage.jsx` | Halaman: daftar riwayat, penyimpanan, hapus percakapan. |
+| `frontend/src/components/UnifiedChatPanel.jsx` | Percakapannya sendiri, dua jalur penarikan data. |
+| `frontend/src/components/ChatMessage.jsx` | Satu gelembung, termasuk saran yang bisa diklik. |
+| `frontend/src/components/SnapshotCapture.jsx` | Memuat Power BI di luar layar untuk menarik snapshot. |
+| `frontend/src/services/unifiedChatApi.js` | Klien, memakai instance axios bersama. |
+| `backend/src/controllers/aiController.js` | `unifiedAsk`, `unifiedSuggest`. |
+| `backend/src/services/unifiedConversationManager.js` | Seluruh sentuhan ke database. |
+| `backend/migrations/add_unified_chat.sql` | Tabelnya. Aman diulang. |
+| `backend/tests/unified-conversation.test.mjs` | Penjaga empat regresi di bawah. |
 
-## Frontend Integration
+## Anggaran token per tier
 
-### Step 1: Collect Snapshots
-Use existing `powerbiData.js` logic to capture snapshots from each relevant dashboard. The frontend knows which dashboards are open and can fetch their visuals on demand.
+- Cepat: 8.000 karakter (pertanyaan angka tunggal)
+- Standar: 18.000 karakter (perbandingan)
+- Mendalam: 40.000 karakter (akar masalah)
 
-### Step 2: Call unifiedAsk
-```javascript
-import { askUnified } from '@/services/unifiedChatApi';
+Dibagi rata antar dashboard yang ikut dibaca.
 
-const result = await askUnified(
-  "berapa total produksi minggu ini?",
-  conversationId,
-  [
-    { dashboard_id: 1, snapshot: { visuals: [...], ... } },
-    { dashboard_id: 2, snapshot: { visuals: [...], ... } }
-  ]
-);
-```
+## Skema
 
-### Step 3: Render Response
-Use `UnifiedChatPanel` component which handles:
-- Message history (user + assistant)
-- Dashboard attribution cards
-- Conversation persistence
+**ai_unified_conversations**: `id`, `user_id` (FK users, ON DELETE CASCADE),
+`judul` VARCHAR(200), `created_at`, `updated_at`, `metadata` JSON.
 
-## Performance Notes
-- **Dashboard Relevance Classification**: ~1k tokens, fast tier (Gemini Flash)
-- **Answer Generation**: Tier-based on question complexity (cepat/standar/mendalam)
-- **Snapshot Merging**: Adaptive per-dashboard budgets (TIER_CHAR_BUDGET / num_dashboards)
-- **Total Latency**: ~5-8 seconds end-to-end for typical 2-3 dashboard questions
+**ai_unified_turns**: `id`, `conversation_id` (FK, ON DELETE CASCADE),
+`turn_number`, `question`, `dashboards_queried` JSON, `answer` LONGTEXT,
+`tokens_used` JSON, `created_at`, UNIQUE(`conversation_id`, `turn_number`).
 
-## Token Budget (per tier)
-- **Cepat**: 8,000 chars (simple lookups: "berapa total?")
-- **Standar**: 18,000 chars (comparisons: "bandingkan Q3 vs Q4")
-- **Mendalam**: 40,000 chars (root cause: "kenapa ada anomali?")
+Migrasinya `.sql`, sama seperti tujuh belas migrasi lain di repo ini. Versi
+pertama ditulis sebagai migrasi JavaScript padahal TIDAK ADA runner JavaScript
+yang memanggilnya, jadi tabelnya tidak pernah dibuat dan setiap permintaan
+chat mati di `createConversation`.
 
-## Database Schema
+## Keamanan
 
-**ai_unified_conversations**
-```sql
-id INT PRIMARY KEY
-user_id INT (FK users.id)
-created_at TIMESTAMP
-updated_at TIMESTAMP
-metadata JSON
-```
+- Percakapan terikat `user_id`; `getConversation` menuntut pemiliknya, jadi
+  ID orang lain mengembalikan 404, bukan isinya.
+- Katalog dashboard disaring server lewat `getCatalogForUser` sebelum
+  klasifikasi, jadi saran tidak pernah menyebut dashboard yang tidak boleh
+  dilihat user itu.
+- Akses fitur dijaga `requireCiaAccess` di SERVER. Menyembunyikan ikon di
+  header hanya kenyamanan; rute frontend bukan penjaga keamanan.
+- Snapshot ditarik user, bukan server.
+- Dibatasi laju per user.
 
-**ai_unified_turns**
-```sql
-id INT PRIMARY KEY
-conversation_id INT (FK ai_unified_conversations.id)
-turn_number INT
-question TEXT
-dashboards_queried JSON
-answer LONGTEXT
-tokens_used JSON
-created_at TIMESTAMP
-UNIQUE(conversation_id, turn_number)
-```
+## Jebakan yang sudah pernah menggigit
 
-## Security
-- Conversations owned by user_id — no cross-user leakage
-- Dashboard access filtered server-side before answering (getCatalogForUser)
-- Snapshots are user-captured (not fetched by server) — reduces attack surface
-- Rate-limited per user (60s window, 10 requests max by default)
+Empat-empatnya tidak terlihat sebagai kegagalan saat berjalan, dan itu sebabnya
+`unified-conversation.test.mjs` ada.
 
-## Future Enhancements
-- [ ] Parameter filtering (date ranges, departments) passed to Power BI
-- [ ] Drill-down modal showing full details from a specific dashboard
-- [ ] Voice input for questions
-- [ ] Export conversation to PDF
-- [ ] Scheduled reports based on unified chat queries
+1. **Migrasi tidak pernah jalan.** Ditulis `.js` di repo tanpa runner `.js`.
+2. **`JSON.parse` atas kolom JSON.** mysql2 sudah mengembalikannya sebagai
+   OBJEK; memanggil `JSON.parse` melempar
+   `"[object Object]" is not valid JSON`. Tidak ada `JSON.parse` di
+   `unifiedConversationManager.js`, dan tidak boleh ada.
+3. **`getTurns` memberi yang pertama, bukan yang terakhir.**
+4. **Penomoran turn dari `turns.length`.** Bertabrakan dengan UNIQUE KEY
+   begitu satu turn terhapus. Sekarang dari `MAX(turn_number)`.
+
+Satu lagi di sisi frontend: `unifiedChatApi.js` sempat memakai `fetch`
+telanjang tanpa header Authorization, jadi setiap panggilan dijawab 401
+sebelum menyentuh controller. Sekarang memakai instance axios bersama, yang
+juga menangani penyegaran token.

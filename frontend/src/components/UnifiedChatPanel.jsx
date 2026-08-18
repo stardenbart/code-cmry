@@ -1,11 +1,28 @@
+// Panel chat CIA lintas dashboard.
+//
+// Dua jalur penarikan data, keduanya berujung ke endpoint yang sama:
+//   1. MANUAL  - user mencentang dashboard lebih dulu, lalu bertanya.
+//   2. OTOMATIS - user langsung bertanya tanpa mencentang apa pun. Server
+//      menjawab dengan daftar dashboard yang relevan (`saran_dashboard`),
+//      user mengklik salah satunya, dan pertanyaan terakhirnya dikirim ulang.
+//
+// Jalur otomatis TIDAK langsung menarik data begitu saran keluar. Menarik
+// snapshot berarti memuat Power BI di latar, dan menebak dashboard yang salah
+// lalu menjawab dengan angkanya adalah kegagalan diam yang paling mahal di
+// sistem ini. Konfirmasi satu klik jauh lebih murah daripada jawaban salah.
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { RefreshCw, Send, Check, AlertTriangle } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
 import { askUnified } from '../services/unifiedChatApi';
 import SnapshotCapture from './SnapshotCapture';
 import API from '../api/api.js';
 
-export function UnifiedChatPanel({ defaultDashboards = [] }) {
-  const [conversationId, setConversationId] = useState(null);
+export function UnifiedChatPanel({
+  conversationId,
+  onConversationId,
+  turnAwal = null,
+  onTurnTersimpan,
+}) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -14,109 +31,145 @@ export function UnifiedChatPanel({ defaultDashboards = [] }) {
   const [selectedDashboardIds, setSelectedDashboardIds] = useState([]);
   // snapshots[id] = { data, error, capturing }
   const [snapshots, setSnapshots] = useState({});
+  // Pertanyaan terakhir yang dijawab dengan saran, untuk dikirim ulang saat
+  // user mengklik salah satu sarannya.
+  const [pertanyaanTertunda, setPertanyaanTertunda] = useState(null);
   const messagesEndRef = useRef(null);
 
-  // Fetch catalog of dashboards accessible to this user
   useEffect(() => {
     let cancelled = false;
     API.get('/api/dashboards')
       .then(({ data }) => {
         if (cancelled) return;
         const list = Array.isArray(data) ? data : data.dashboards || [];
-        setDashboards(list.filter(d => d.active !== false));
+        setDashboards(list.filter((d) => d.active !== false));
       })
-      .catch((err) => {
-        console.warn('Failed to fetch dashboards:', err);
-        if (!cancelled) setDashboards(defaultDashboards);
-      });
+      .catch(() => { if (!cancelled) setDashboards([]); });
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const toggleDashboard = (id) => {
-    setSelectedDashboardIds(prev =>
-      prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id]
+  // Membuka percakapan lama dari daftar riwayat.
+  useEffect(() => {
+    if (!turnAwal) return;
+    setMessages(
+      turnAwal.flatMap((t) => [
+        { role: 'user', content: t.question, timestamp: t.created_at },
+        {
+          role: 'assistant',
+          content: t.answer,
+          dashboards_used: t.dashboards_queried,
+          timestamp: t.created_at,
+        },
+      ])
     );
-    // Selecting a dashboard we've never captured queues an off-screen
-    // SnapshotCapture below; deselecting just stops sending it, we keep the
-    // cached data in case the user re-checks it.
-  };
+    setSelectedDashboardIds([]);
+    setPertanyaanTertunda(null);
+    setError(null);
+  }, [turnAwal]);
 
   const handleSnapshotDone = useCallback((dashboardId, snap, errMsg) => {
-    setSnapshots(prev => ({
+    setSnapshots((prev) => ({
       ...prev,
       [dashboardId]: { data: snap, error: errMsg, capturing: false },
     }));
   }, []);
 
-  // Dashboards that are selected but have no snapshot attempt yet — these get
-  // an off-screen SnapshotCapture mounted until they report back.
-  const pendingCaptureIds = selectedDashboardIds.filter(id => !snapshots[id]);
-  const capturingCount = selectedDashboardIds.filter(id => snapshots[id]?.capturing).length
-    + pendingCaptureIds.length;
+  const toggleDashboard = (id) => {
+    setSelectedDashboardIds((prev) =>
+      prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]
+    );
+  };
 
-  const handleSend = async () => {
-    if (!input.trim()) return;
+  const pendingCaptureIds = selectedDashboardIds.filter((id) => !snapshots[id]);
 
-    if (selectedDashboardIds.length === 0) {
-      setError('Pilih dashboard untuk data yang ingin ditanyakan.');
-      return;
+  const kirim = useCallback(async (pertanyaan, idsTerpilih) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const snapshotsToSend = idsTerpilih
+        .map((id) => (snapshots[id]?.data ? { dashboard_id: id, snapshot: snapshots[id].data } : null))
+        .filter(Boolean);
+
+      const hasil = await askUnified(pertanyaan, conversationId, snapshotsToSend);
+
+      onConversationId?.(hasil.conversation_id);
+      setMessages((prev) => [...prev, {
+        role: 'assistant',
+        content: hasil.answer,
+        dashboards_used: hasil.dashboards_used,
+        saran_dashboard: hasil.saran_dashboard,
+        timestamp: new Date(),
+      }]);
+
+      // Saran keluar berarti pertanyaannya belum terjawab dengan data. Simpan
+      // supaya klik pada saran bisa mengirimkannya ulang tanpa mengetik lagi.
+      setPertanyaanTertunda(hasil.saran_dashboard?.length > 0 ? pertanyaan : null);
+      onTurnTersimpan?.();
+    } catch (err) {
+      setError(err.message);
+      setMessages((prev) => prev.slice(0, -1));
+    } finally {
+      setLoading(false);
     }
+  }, [conversationId, snapshots, onConversationId, onTurnTersimpan]);
+
+  const handleSend = () => {
+    const pertanyaan = input.trim();
+    if (!pertanyaan || loading) return;
 
     if (pendingCaptureIds.length > 0) {
       setError('Tunggu dashboard selesai memuat datanya sebentar lagi.');
       return;
     }
 
-    const userMessage = input;
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: userMessage, timestamp: new Date() }]);
-    setLoading(true);
-    setError(null);
-
-    try {
-      const snapshotsToSend = selectedDashboardIds
-        .map(id => {
-          const entry = snapshots[id];
-          return entry?.data ? { dashboard_id: id, snapshot: entry.data } : null;
-        })
-        .filter(Boolean);
-
-      if (snapshotsToSend.length === 0) {
-        setError('Tidak ada data yang berhasil diambil dari dashboard terpilih. Coba dashboard lain.');
-        setMessages(prev => prev.slice(0, -1));
-        setLoading(false);
-        return;
-      }
-
-      const result = await askUnified(userMessage, conversationId, snapshotsToSend);
-
-      setConversationId(result.conversation_id);
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: result.answer,
-        dashboards_used: result.dashboards_used,
-        timestamp: new Date(),
-      }]);
-    } catch (err) {
-      setError(`Error: ${err.message}`);
-      setMessages(prev => prev.slice(0, -1));
-    } finally {
-      setLoading(false);
-    }
+    setMessages((prev) => [...prev, { role: 'user', content: pertanyaan, timestamp: new Date() }]);
+    // Tanpa dashboard terpilih, server yang menyarankan. Itu jalur otomatisnya.
+    kirim(pertanyaan, selectedDashboardIds);
   };
+
+  // Klik pada dashboard saran: centang, tunggu datanya siap, lalu kirim ulang
+  // pertanyaan yang tertunda. Pengiriman ulangnya ada di useEffect di bawah,
+  // karena snapshot-nya baru ada beberapa detik kemudian.
+  const [menungguSaran, setMenungguSaran] = useState(null);
+
+  const pilihSaran = (id) => {
+    if (!pertanyaanTertunda) return;
+    setSelectedDashboardIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    setMenungguSaran(id);
+  };
+
+  useEffect(() => {
+    if (!menungguSaran || !pertanyaanTertunda) return;
+    const entry = snapshots[menungguSaran];
+    if (!entry) return;                     // masih memuat
+
+    const idsSiap = [...new Set([...selectedDashboardIds, menungguSaran])]
+      .filter((id) => snapshots[id]?.data);
+
+    setMenungguSaran(null);
+    if (idsSiap.length === 0) {
+      setError('Data dashboard itu gagal dibaca. Coba dashboard lain.');
+      return;
+    }
+    const pertanyaan = pertanyaanTertunda;
+    setPertanyaanTertunda(null);
+    setMessages((prev) => [...prev, { role: 'user', content: pertanyaan, timestamp: new Date() }]);
+    kirim(pertanyaan, idsSiap);
+  }, [menungguSaran, snapshots, pertanyaanTertunda, selectedDashboardIds, kirim]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const dashboardById = (id) => dashboards.find(d => d.id === id);
+  const dashboardById = (id) => dashboards.find((d) => d.id === id);
+  const sedangMemuat = pendingCaptureIds.length;
 
   return (
-    <div className="flex flex-col h-full bg-white">
-      {/* Off-screen snapshot capture: one mount per selected dashboard that
-          hasn't reported a snapshot (or an error) yet. */}
-      {pendingCaptureIds.map(id => {
+    <div className="flex flex-col h-full min-h-0 bg-white">
+      {/* Penarikan snapshot di latar, satu mount per dashboard terpilih yang
+          datanya belum pernah diambil. */}
+      {pendingCaptureIds.map((id) => {
         const dash = dashboardById(id);
         if (!dash) return null;
         return (
@@ -128,68 +181,67 @@ export function UnifiedChatPanel({ defaultDashboards = [] }) {
         );
       })}
 
-      {/* Header */}
-      <div className="border-b border-gray-200 px-6 py-4 bg-gradient-to-r from-cimoryBlue to-cimoryRed text-white shrink-0">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">💬 Multi-Dashboard Chat</h1>
-            <p className="text-xs text-white/80 mt-0.5">
-              Tanyakan apapun tentang beberapa dashboard sekaligus
-            </p>
-          </div>
-          <button
-            onClick={() => { setMessages([]); setConversationId(null); }}
-            className="px-3 py-1 text-xs bg-white/20 hover:bg-white/30 rounded transition"
-          >
-            Clear
-          </button>
-        </div>
-      </div>
-
-      {/* Dashboard selector */}
-      <div className="border-b border-gray-200 px-6 py-3 bg-gray-50 shrink-0">
+      {/* Pemilihan dashboard */}
+      <div className="border-b border-cimoryGray px-5 py-3 bg-gray-50/80 shrink-0">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-gray-700">
-            📊 Dashboard ({selectedDashboardIds.length} terpilih)
+          <h3 className="text-sm font-semibold text-cimoryBlue">
+            Dashboard
+            {selectedDashboardIds.length > 0 && (
+              <span className="ml-2 text-xs font-normal text-gray-500">
+                {selectedDashboardIds.length} terpilih
+              </span>
+            )}
           </h3>
-          {capturingCount > 0 && (
-            <span className="text-xs text-cimoryBlue animate-pulse">
-              Memuat data {capturingCount} dashboard...
+          {sedangMemuat > 0 && (
+            <span className="flex items-center gap-1.5 text-xs text-cimoryBlue">
+              <RefreshCw size={12} className="animate-spin" />
+              Memuat data {sedangMemuat} dashboard
             </span>
           )}
         </div>
 
+        <p className="text-xs text-gray-500 mb-2">
+          Pilih dashboard untuk membaca datanya, atau langsung tanya dan CIA yang
+          menyarankan dashboard mana yang perlu dibuka.
+        </p>
+
         {dashboards.length === 0 ? (
-          <p className="text-sm text-gray-500 py-2">Memuat daftar dashboard...</p>
+          <p className="text-sm text-gray-500 py-1">Memuat daftar dashboard...</p>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-40 overflow-y-auto pr-1">
-            {dashboards.map(dash => {
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 max-h-36 overflow-y-auto pr-1">
+            {dashboards.map((dash) => {
               const entry = snapshots[dash.id];
               const isSelected = selectedDashboardIds.includes(dash.id);
               return (
                 <label
                   key={dash.id}
                   className={`flex items-start gap-2 p-2 rounded-lg border cursor-pointer transition-all text-sm ${
-                    isSelected ? 'border-cimoryBlue bg-cimoryBlue/5' : 'border-gray-200 hover:border-gray-300'
+                    isSelected
+                      ? 'border-cimoryBlue bg-cimoryBlue/5'
+                      : 'border-cimoryGray bg-white hover:border-cimoryBlue/50'
                   }`}
                 >
                   <input
                     type="checkbox"
                     checked={isSelected}
                     onChange={() => toggleDashboard(dash.id)}
-                    className="mt-1 w-4 h-4 text-cimoryBlue rounded focus:ring-cimoryBlue"
+                    className="mt-1 w-4 h-4 accent-cimoryBlue rounded"
                   />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-gray-900 truncate">{dash.title}</p>
                     {dash.department && <p className="text-xs text-gray-500">{dash.department}</p>}
                     {isSelected && !entry && (
-                      <p className="text-xs text-cimoryBlue mt-0.5 animate-pulse">Memuat data...</p>
+                      <p className="text-xs text-cimoryBlue mt-0.5">Memuat data...</p>
                     )}
                     {entry?.data && (
-                      <p className="text-xs text-green-600 mt-0.5">✓ Data siap</p>
+                      <p className="flex items-center gap-1 text-xs text-green-600 mt-0.5">
+                        <Check size={12} /> Data siap
+                      </p>
                     )}
                     {entry?.error && (
-                      <p className="text-xs text-red-500 mt-0.5" title={entry.error}>⚠ Gagal ambil data</p>
+                      <p className="flex items-center gap-1 text-xs text-cimoryRed mt-0.5" title={entry.error}>
+                        <AlertTriangle size={12} /> Gagal ambil data
+                      </p>
                     )}
                   </div>
                 </label>
@@ -199,43 +251,53 @@ export function UnifiedChatPanel({ defaultDashboards = [] }) {
         )}
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto bg-gray-50/50">
+      {/* Percakapan */}
+      <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-cimoryGray/60">
         {messages.length === 0 && (
-          <div className="flex items-center justify-center h-full text-gray-500">
-            <div className="text-center max-w-md px-4">
-              <p className="text-lg font-medium">Mulai percakapan baru</p>
-              <p className="text-sm mt-2">Pilih dashboard di atas, lalu tanyakan sesuatu</p>
+          <div className="flex items-center justify-center h-full text-center px-6">
+            <div className="max-w-sm">
+              <p className="text-base font-semibold text-cimoryBlue">Mulai percakapan</p>
+              <p className="text-sm text-gray-500 mt-2">
+                Tanyakan apa pun. Kalau belum yakin dashboard mana yang menjawabnya,
+                kirim saja pertanyaannya.
+              </p>
             </div>
           </div>
         )}
         {messages.map((msg, idx) => (
-          <ChatMessage key={idx} {...msg} />
+          <ChatMessage key={idx} {...msg} onPilihSaran={pilihSaran} />
         ))}
+        {loading && (
+          <div className="px-5 py-4 flex items-center gap-2 text-sm text-gray-500">
+            <RefreshCw size={14} className="animate-spin" />
+            CIA sedang membaca datanya
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <div className="border-t border-gray-200 px-6 py-4 bg-white shrink-0">
+      {/* Masukan */}
+      <div className="border-t border-cimoryGray px-5 py-4 bg-white shrink-0">
         <div className="flex gap-3">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder={selectedDashboardIds.length > 0 ? "Tanyakan sesuatu..." : "Pilih dashboard dulu..."}
-            disabled={loading || selectedDashboardIds.length === 0}
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+            placeholder="Tanyakan sesuatu tentang dashboard"
+            disabled={loading}
+            className="flex-1 px-4 py-2 border border-cimoryGray rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cimoryBlue/40 focus:border-cimoryBlue disabled:bg-gray-100"
           />
           <button
             onClick={handleSend}
-            disabled={loading || !input.trim() || selectedDashboardIds.length === 0 || pendingCaptureIds.length > 0}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:opacity-50 transition"
+            disabled={loading || !input.trim() || pendingCaptureIds.length > 0}
+            className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-cimoryBlue to-cimoryRed text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition"
           >
-            {loading ? <span className="animate-spin inline-block">↻</span> : 'Kirim'}
+            {loading ? <RefreshCw size={16} className="animate-spin" /> : <Send size={16} />}
+            Kirim
           </button>
         </div>
-        {error && <p className="text-xs text-red-600 mt-2 pl-1">{error}</p>}
+        {error && <p className="text-xs text-cimoryRed mt-2 pl-1">{error}</p>}
       </div>
     </div>
   );

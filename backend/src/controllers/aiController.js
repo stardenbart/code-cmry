@@ -27,7 +27,8 @@ import {
 } from "../services/aiNavigator.js";
 import { classifyRelevantDashboards } from "../services/dashboardRelevanceClassifier.js";
 import {
-  createConversation, addTurn, getTurns, getConversation, getUserConversations,
+  createConversation, addTurn, getTurns, getConversation,
+  hitungTurn, ingatanLintasPercakapan, pangkasSampaiMuat,
 } from "../services/unifiedConversationManager.js";
 import { buildMultiDashboardContext } from "../services/aiContext.js";
 import { formatUnifiedAnswer } from "../services/unifiedAnswerBuilder.js";
@@ -1218,12 +1219,66 @@ export const AiController = {
   },
 
   /**
-   * Unified chat handler: route question to relevant dashboards, answer using passed-in snapshots.
+   * Dashboard mana yang relevan untuk sebuah pertanyaan, tanpa menarik datanya.
    *
-   * API flow:
-   * 1. POST /api/ai/unified/classify - returns dashboard_ids based on catalog only
-   * 2. Frontend fetches snapshots from each dashboard, posts to unifiedAsk
-   * 3. unifiedAsk receives { question, conversationId, snapshots: [{dashboard_id, snapshot}] }
+   * Ini jalur kedua penarikan data: alih-alih user mencentang dashboard sendiri,
+   * ia melempar pertanyaannya lebih dulu dan sistem memilihkan. Yang dikembalikan
+   * hanya DAFTAR PILIHAN, bukan jawaban. Penarikan snapshot tetap terjadi di
+   * browser user setelah pilihannya terlihat, karena embed Power BI hanya ada
+   * di sana, dan karena user berhak tahu dashboard mana yang akan dibaca sebelum
+   * dibaca.
+   */
+  unifiedSuggest: async (req, res) => {
+    try {
+      const { question } = req.body;
+      if (!question || typeof question !== "string" || !question.trim()) {
+        return res.status(400).json({ error: "Pertanyaan wajib diisi." });
+      }
+      if (question.length > 1000) {
+        return res.status(400).json({ error: "Pertanyaan terlalu panjang (maksimal 1000 karakter)." });
+      }
+
+      const pembatas = rateLimit.getRateLimiter(
+        `unified_suggest:${req.user.id}`, RATE_WINDOW_SECONDS, RATE_MAX_REQUESTS
+      );
+      if (!pembatas.consume()) {
+        return res.status(429).json({ error: "Terlalu banyak permintaan." });
+      }
+
+      const user = await getUser(req.user.id);
+      // getCatalogForUser sudah menyaring hak akses per dashboard, dan
+      // classifyRelevantDashboards membuang yang hasAccess false. Jadi
+      // saran tidak pernah menunjuk dashboard yang tidak boleh dibuka user.
+      const katalog = await getCatalogForUser(user);
+      const { dashboards, routerDecision } = await classifyRelevantDashboards(question, katalog);
+
+      // Report GUID ikut supaya frontend tahu mana yang bisa diambil datanya.
+      // Tanpa GUID, dashboard tidak bisa di-embed dan snapshot mustahil.
+      const diperkaya = dashboards.map((d) => {
+        const asli = katalog.find((k) => k.id === d.id);
+        return {
+          id: d.id,
+          title: asli?.title || d.title,
+          department: asli?.department || null,
+          reason: d.reason || "",
+          confidence: d.confidence,
+          bisaDibaca: Boolean(asli?.reportGuid),
+        };
+      });
+
+      return res.json({ dashboards: diperkaya, alasanRouter: routerDecision });
+    } catch (error) {
+      console.error("unifiedSuggest error:", error);
+      return res.status(500).json({ error: "Gagal mencari dashboard yang relevan." });
+    }
+  },
+
+  /**
+   * Chat CIA lintas dashboard.
+   *
+   * Menerima { question, conversationId, snapshots: [{dashboard_id, snapshot}] }.
+   * Snapshot diambil di browser user, bukan oleh server: embed Power BI beserta
+   * tokennya hidup di sana.
    */
   unifiedAsk: async (req, res) => {
     try {
@@ -1238,10 +1293,8 @@ export const AiController = {
       if (question.length > MAX_QUESTION_CHARS) {
         return res.status(400).json({ error: `Question too long (max ${MAX_QUESTION_CHARS} chars)` });
       }
-      // Allow empty snapshots for testing with catalog-only classification
-      // if (snapshots.length === 0) {
-      //   return res.status(400).json({ error: 'At least one snapshot is required' });
-      // }
+      // Snapshot boleh kosong: itu jalur "belum tahu dashboard mana", yang
+      // dijawab dengan saran dashboard alih-alih dengan angka.
 
       // Rate limit check
       const rateLimitKey = `unified_ask:${userId}`;
@@ -1254,15 +1307,17 @@ export const AiController = {
       let conversationId = providedConvId;
       let turnNumber = 1;
       if (!conversationId) {
-        const conv = await createConversation(userId);
+        const conv = await createConversation(userId, question);
         conversationId = conv.id;
       } else {
         const conv = await getConversation(conversationId, userId);
         if (!conv) {
-          return res.status(403).json({ error: 'Conversation not found or not owned by user' });
+          return res.status(404).json({ error: 'Percakapan tidak ditemukan.' });
         }
-        const turns = await getTurns(conversationId, 100);
-        turnNumber = turns.length + 1;
+        // MAX(turn_number) + 1, bukan jumlah baris + 1. Menghitung baris salah
+        // begitu ada satu turn terhapus: nomornya berulang dan tertolak
+        // UNIQUE KEY (conversation_id, turn_number).
+        turnNumber = (await hitungTurn(conversationId)) + 1;
       }
 
       // Get user info
@@ -1277,17 +1332,21 @@ export const AiController = {
         }
       }
 
-      // Handle case with no snapshots - catalog-only mode for testing
-      if (snapshotResults.length === 0 && snapshots.length === 0) {
+      // Tidak ada snapshot: user bertanya tanpa memilih dashboard. Yang
+      // dijawab BUKAN angka, melainkan dashboard mana yang perlu dibaca.
+      // Membedakan keduanya penting: jawaban tanpa data yang terdengar seperti
+      // jawaban berdata adalah kegagalan diam yang paling mahal di sistem ini.
+      if (snapshotResults.length === 0) {
         const catalog = await getCatalogForUser(user);
-        const { dashboards: relevantDashboards } = await classifyRelevantDashboards(question, catalog, {});
+        const { dashboards: relevan } = await classifyRelevantDashboards(question, catalog);
 
-        if (relevantDashboards.length === 0) {
-          const answer = `Pertanyaan Anda tidak cocok dengan data yang tersedia di dashboard. Coba tanyakan hal yang lebih spesifik, atau pastikan Anda memiliki akses ke dashboard yang relevan.`;
-          await addTurn(conversationId, turnNumber, question, [], answer, { classifier: 0 });
+        if (relevan.length === 0) {
+          const jawaban = "Belum ada dashboard yang cocok dengan pertanyaan ini. Coba sebutkan area atau KPI-nya lebih spesifik, misalnya OEE, downtime, lembur, atau NC.";
+          await addTurn(conversationId, turnNumber, question, [], jawaban, { classifier: 0 });
           return res.json({
-            answer: answer + '\n\nNo dashboard found matching your question.',
+            answer: jawaban,
             dashboards_used: [],
+            saran_dashboard: [],
             conversation_id: conversationId,
             turn_id: `${conversationId}-${turnNumber}`,
             tokens: { classifier: 0 },
@@ -1295,20 +1354,28 @@ export const AiController = {
           });
         }
 
-        // Return the catalog-based answer without actual data (test mode)
-        const dashboardRefs = relevantDashboards.map(d => ({
-          id: d.id,
-          title: d.title,
-          reason: d.reason || 'catalog match',
-          confidence: d.confidence || 0.8,
-        }));
+        const saran = relevan.map((d) => {
+          const asli = catalog.find((k) => k.id === d.id);
+          return {
+            id: d.id,
+            title: asli?.title || d.title,
+            department: asli?.department || null,
+            reason: d.reason || "",
+            confidence: d.confidence || 0.8,
+            bisaDibaca: Boolean(asli?.reportGuid),
+          };
+        });
 
-        const answer = `Berdasarkan katalog dashboard, berikut yang relevan untuk pertanyaan Anda:\n\n${dashboardRefs.map(d => `- ${d.title} (${d.reason})`).join('\n')}\n\nNi Putu CIA analyzing actual data. Silakan buka dashboard tersebut di halaman utama lalu gunakan tombol CIA untuk analisa detail.`;
+        const jawaban = `Pertanyaan ini bisa dijawab dari ${saran.length === 1 ? "dashboard" : `${saran.length} dashboard`} berikut. Pilih yang ingin dibaca datanya, lalu kirim ulang pertanyaannya.`;
 
-        await addTurn(conversationId, turnNumber, question, dashboardRefs, answer, { classifier: 0 });
+        await addTurn(conversationId, turnNumber, question, saran, jawaban, { classifier: 0 });
         return res.json({
-          answer,
-          dashboards_used: dashboardRefs,
+          answer: jawaban,
+          dashboards_used: [],
+          // Dipisah dari dashboards_used dengan sengaja: ini yang DISARANKAN,
+          // bukan yang sudah dibaca. Frontend menampilkannya sebagai pilihan
+          // yang bisa diklik, bukan sebagai sumber data jawaban.
+          saran_dashboard: saran,
           conversation_id: conversationId,
           turn_id: `${conversationId}-${turnNumber}`,
           tokens: { classifier: 0 },
@@ -1330,13 +1397,25 @@ export const AiController = {
       const charBudget = TIER_CHAR_BUDGET[tierClassification.tier];
       const dataContext = buildMultiDashboardContext(snapshotsForContext, dashboardsForContext, charBudget);
 
-      // Get conversation history (last 6 turns)
+      // Riwayat utas ini (6 turn TERAKHIR, bukan 6 pertama).
       const priorTurns = turnNumber > 1 ? await getTurns(conversationId, 6) : [];
-      let historyContext = '';
-      if (priorTurns.length > 0) {
-        historyContext = priorTurns
-          .map((t) => `Turn ${t.turn_number}: Q: ${t.question.slice(0, 150)}...\nA: ${t.answer.slice(0, 150)}...`)
-          .join('\n\n');
+
+      // Ingatan lintas percakapan: apa yang PERNAH dibahas user di utas lain.
+      // Yang dikirim hanya judul, pertanyaan terakhir, dan cuplikan jawabannya,
+      // supaya model tahu topiknya ada dan bisa merujuknya, tanpa memuat ulang
+      // seluruh analisa lama ke dalam muatan.
+      const ingatanLain = await ingatanLintasPercakapan(userId, conversationId);
+      let konteksIngatan = '';
+      if (ingatanLain.length > 0) {
+        konteksIngatan = [
+          "",
+          "=== PERCAKAPAN LAIN USER INI (ingatan, BUKAN data) ===",
+          "Ini rangkuman utas lain. Angka di sini SUDAH LAMA dan belum tentu",
+          "masih berlaku. Boleh dirujuk untuk menyambungkan konteks, TAPI jangan",
+          "dipakai sebagai angka jawaban. Kalau perlu angkanya, katakan dashboard",
+          "mana yang harus dibuka lagi.",
+          ...ingatanLain.map((i) => `- [${i.judul}] tanya: ${i.pertanyaanTerakhir}\n  jawab: ${i.cuplikanJawaban}`),
+        ].join("\n");
       }
 
       // Build prompts and call Gemini
@@ -1354,7 +1433,16 @@ export const AiController = {
           { role: 'model', text: t.answer },
         ]).flat();
 
-      const userMessage = `Konteks multi-dashboard:\n${dataContext}\n\nRiwayat percakapan sebelumnya (opsional):\n${historyContext}\n\nPertanyaan user: ${question}\n\nJawab berdasarkan data dari semua dashboard di atas. Sebutkan sumbernya (mana dashboard yang menjawab pertanyaan mana).`;
+      // Riwayat utas ini TIDAK diulang di sini: sudah dikirim lewat
+      // `unifiedHistory` sebagai giliran percakapan sungguhan. Versi sebelumnya
+      // menempelkannya lagi sebagai teks, jadi model menerima riwayat yang sama
+      // dua kali dan muatannya terbuang percuma.
+      const userMessage = [
+        `Konteks multi-dashboard:\n${dataContext}`,
+        konteksIngatan,
+        `Pertanyaan user: ${question}`,
+        "Jawab berdasarkan data dashboard di atas. Sebutkan dashboard mana yang menjawab bagian mana.",
+      ].filter(Boolean).join("\n\n");
 
       const resolved = await resolveKey(userId, tierModel(tierClassification.tier));
 
@@ -1383,6 +1471,13 @@ export const AiController = {
         classifier: 0,
         gemini: result.usage?.totalTokenCount || 0,
       });
+
+      // ponytail: pemangkasan hanya dipasang di jalur ini, bukan di dua
+      // early-return di atas. Turn saran dashboard panjangnya ratusan byte;
+      // yang bisa mendekati atap 5GB adalah turn berjawaban penuh seperti ini.
+      // Kalau nanti terbukti ada user yang menumpuk turn saran sampai berat,
+      // pindahkan panggilannya ke addTurn di manager.
+      await pangkasSampaiMuat(userId);
 
       res.json({
         answer: formatted_answer,

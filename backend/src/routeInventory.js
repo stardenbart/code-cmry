@@ -73,6 +73,17 @@ export const ROUTE_CLASSIFICATION = new Map([
   ["POST /api/perf/", "authenticated"],
   ["DELETE /api/ai/history/:dashboardId", "authenticated"],
 
+  // Chat CIA lintas dashboard. authenticated dengan alasan yang sama seperti
+  // /api/ai/finding: user diambil dari token, tidak pernah dari parameter.
+  // Rute :id memang memakai parameter, tapi itu id PERCAKAPAN, dan
+  // getConversation menuntut user_id pemiliknya, jadi id milik orang lain
+  // mengembalikan 404, bukan isinya. Seluruhnya juga dijaga requireCiaAccess.
+  ["POST /api/ai/unified/ask", "authenticated"],
+  ["POST /api/ai/unified/suggest", "authenticated"],
+  ["GET /api/ai/unified/conversations", "authenticated"],
+  ["GET /api/ai/unified/conversations/:id/turns", "authenticated"],
+  ["DELETE /api/ai/unified/conversations/:id", "authenticated"],
+
   // selfOrAdmin
   ["PUT /api/users/:id/password", "selfOrAdmin"],
   ["GET /api/dashboard-access-status/:userId", "selfOrAdmin"],

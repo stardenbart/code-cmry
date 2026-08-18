@@ -32,7 +32,7 @@ const AskAIPanel          = lazy(() => import("./components/AskAIPanel"));
 const AISettingsModal     = lazy(() => import("./components/AISettingsModal"));
 const ReportSettingModal  = lazy(() => import("./components/ReportSettingModal"));
 const CodeAINavigator     = lazy(() => import("./components/CodeAINavigator"));
-const UnifiedChatModal    = lazy(() => import("./components/UnifiedChatModal"));
+const UnifiedChatPage     = lazy(() => import("./components/UnifiedChatPage"));
 // Membawa DOMPurify (~30 KB). Hanya deskripsi dashboard yang perlu disanitasi,
 // dan itu tidak pernah tampil di halaman login.
 const SafeHtml            = lazy(() => import("./components/SafeHtml"));
@@ -363,19 +363,28 @@ function Dashboard({ user, onLogout }) {
   const [showAddUser, setShowAddUser]     = useState(false);
   const [showManageUser, setShowManageUser] = useState(false);
   const [showReportSetting, setShowReportSetting] = useState(false);
-  const [showUnifiedChat, setShowUnifiedChat] = useState(false);
 
-  // Hak akses CIA, dibaca dari server.
+  // Hak akses CIA, dibaca dari server & localStorage untuk initial render.
   //
   // Ini HANYA untuk menyembunyikan pintu masuknya. Penjagaan sebenarnya ada di
   // server: endpoint CIA menolak 403 untuk user yang belum dibuka aksesnya,
   // karena siapa pun yang punya token bisa memanggilnya langsung tanpa lewat
   // tampilan ini.
   //
-  // Bawaannya null, bukan true. Kalau bawaannya true, pintu masuknya sempat
-  // muncul lalu hilang saat status datang, dan user yang tidak berhak sempat
-  // mengklik lalu menerima error.
-  const [ciaAccess, setCiaAccess] = useState(null);
+  // Initial state dari localStorage (user.ci_access) supaya tombol langsung
+  // aktif tanpa nunggu API. Lalu sync ke server kalau beda.
+  const getInitialCiaAccess = () => {
+    try {
+      const stored = localStorage.getItem("user");
+      if (stored) {
+        const u = JSON.parse(stored);
+        return Boolean(u?.cia_access);
+      }
+    } catch {}
+    return false;
+  };
+
+  const [ciaAccess, setCiaAccess] = useState(getInitialCiaAccess);
 
   useEffect(() => {
     let batal = false;
@@ -496,7 +505,7 @@ function Dashboard({ user, onLogout }) {
         onReportSettingClick={() => setShowReportSetting(true)}
         onChangePasswordClick={() => setShowChangePassword(true)}
         onAISettingsClick={ciaAccess || user?.role === "admin" ? () => setShowAISettings(true) : null}
-        onUnifiedChatClick={ciaAccess ? () => setShowUnifiedChat(true) : null}
+        onUnifiedChatClick={ciaAccess ? () => navigate("/cia-chat") : null}
         onMenuToggle={() => setSidebarOpen(true)}
       />
 
@@ -721,7 +730,6 @@ function NotificationsLayout({ user, onLogout }) {
         {showManageUser && <ManageUsers onClose={() => setShowManageUser(false)} />}
         {showReportSetting && <ReportSettingModal onClose={() => setShowReportSetting(false)} />}
         {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
-        {showUnifiedChat && <UnifiedChatModal isOpen={showUnifiedChat} onClose={() => setShowUnifiedChat(false)} />}
       </LazyBoundary>
     </div>
   );
@@ -805,6 +813,14 @@ export default function App() {
       <Route
         path="/App"
         element={user ? <Dashboard user={user} onLogout={handleLogout} /> : <Navigate to="/login" replace />}
+      />
+
+      {/* Chat CIA lintas dashboard. Yang dijaga di sini hanya "sudah login";
+          hak akses CIA-nya dijaga server pada tiap panggilan /api/ai/unified/*,
+          karena rute frontend bukan penjaga keamanan. */}
+      <Route
+        path="/cia-chat"
+        element={user ? <UnifiedChatPage /> : <Navigate to="/login" replace />}
       />
 
       <Route

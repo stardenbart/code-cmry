@@ -64,6 +64,14 @@ try {
     ["POST", "/api/ai/finding/distill", { dashboardId: 1 }],
     ["GET", "/api/ai/history/1", null],
     ["DELETE", "/api/ai/history/1", null],
+    // Chat lintas dashboard. Halamannya /cia-chat memang hanya muncul untuk
+    // yang aksesnya dibuka, tapi alamatnya bisa diketik siapa saja dan
+    // endpointnya bisa dipanggil tanpa lewat web sama sekali.
+    ["POST", "/api/ai/unified/ask", { question: "halo" }],
+    ["POST", "/api/ai/unified/suggest", { question: "halo" }],
+    ["GET", "/api/ai/unified/conversations", null],
+    ["GET", "/api/ai/unified/conversations/1/turns", null],
+    ["DELETE", "/api/ai/unified/conversations/1", null],
   ];
 
   for (const [metode, jalur, body] of rute) {

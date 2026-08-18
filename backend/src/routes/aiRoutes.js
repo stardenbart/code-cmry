@@ -2,7 +2,10 @@ import express from "express";
 import { AiController } from "../controllers/aiController.js";
 import { verifyJWT } from "../middleware/auth.js";
 import { requireAdmin, requireCiaAccess } from "../middleware/authorize.js";
-import { getUserConversations, getConversation, getTurns, clearConversation } from "../services/unifiedConversationManager.js";
+import {
+  getUserConversations, getConversation, getTurns, hapusConversation,
+  pemakaianByte, BATAS_BYTE_PER_USER,
+} from "../services/unifiedConversationManager.js";
 
 const router = express.Router();
 
@@ -41,13 +44,22 @@ router.post("/finding/distill", requireCiaAccess, AiController.distillFindings);
 router.get("/history/:dashboardId", requireCiaAccess, AiController.history);
 router.delete("/history/:dashboardId", requireCiaAccess, AiController.clearHistory);
 
-// ── Unified Chat (multi-dashboard, single conversation) ─────────────────────
+// ── Chat CIA lintas dashboard ────────────────────────────────────────────────
 router.post("/unified/ask", requireCiaAccess, AiController.unifiedAsk);
+
+// Dashboard mana yang relevan untuk pertanyaan ini, tanpa menarik datanya.
+// Inilah jalur "dashboard direkomendasikan": user melempar pertanyaan lebih
+// dulu, sistem yang memilihkan dashboardnya.
+router.post("/unified/suggest", requireCiaAccess, AiController.unifiedSuggest);
 
 router.get("/unified/conversations", requireCiaAccess, async (req, res) => {
   try {
-    const conversations = await getUserConversations(req.user.id, 10);
-    return res.json({ conversations });
+    const conversations = await getUserConversations(req.user.id, 30);
+    const terpakai = await pemakaianByte(req.user.id);
+    return res.json({
+      conversations,
+      penyimpanan: { terpakai, batas: BATAS_BYTE_PER_USER },
+    });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
@@ -55,12 +67,13 @@ router.get("/unified/conversations", requireCiaAccess, async (req, res) => {
 
 router.get("/unified/conversations/:id/turns", requireCiaAccess, async (req, res) => {
   try {
-    const { id } = req.params;
-    const conv = await getConversation(id, req.user.id);
-    if (!conv) return res.status(403).json({ error: 'Not found' });
+    const conv = await getConversation(req.params.id, req.user.id);
+    if (!conv) return res.status(404).json({ error: "Percakapan tidak ditemukan." });
 
-    const turns = await getTurns(id, 100);
-    return res.json({ turns });
+    // Seluruh isi utas saat dibuka kembali, bukan enam terakhir: yang dibatasi
+    // adalah muatan ke model, bukan yang dibaca user di layarnya sendiri.
+    const turns = await getTurns(req.params.id, 200);
+    return res.json({ conversation: conv, turns });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
@@ -68,11 +81,14 @@ router.get("/unified/conversations/:id/turns", requireCiaAccess, async (req, res
 
 router.delete("/unified/conversations/:id", requireCiaAccess, async (req, res) => {
   try {
-    const { id } = req.params;
-    const conv = await getConversation(id, req.user.id);
-    if (!conv) return res.status(403).json({ error: 'Not found' });
+    const conv = await getConversation(req.params.id, req.user.id);
+    if (!conv) return res.status(404).json({ error: "Percakapan tidak ditemukan." });
 
-    await clearConversation(id);
+    // Membuang percakapannya, bukan hanya mengosongkan turn-nya. Versi
+    // sebelumnya memanggil clearConversation, jadi baris percakapan kosong
+    // tetap tinggal di daftar riwayat dan user melihat utas yang tidak bisa
+    // dibuka isinya.
+    await hapusConversation(req.params.id);
     return res.json({ deleted: true });
   } catch (error) {
     return res.status(500).json({ error: error.message });
