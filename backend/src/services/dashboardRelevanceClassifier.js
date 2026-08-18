@@ -6,12 +6,19 @@ import { askGemini } from '../config/gemini.js';
  *
  * Uses a lightweight Gemini call with catalog only (no data) — fast tier.
  *
+ * Kuncinya WAJIB dioper dari controller lewat resolveKey, tidak diambil sendiri
+ * di sini: kunci milik user selalu didahulukan atas kunci universal, dan aturan
+ * itu hanya diketahui resolveKey. Versi sebelumnya memanggil askGemini tanpa
+ * apiKey sama sekali, jadi setiap klasifikasi jatuh ke classifier_error dan
+ * saran dashboard SELALU kosong tanpa satu pun pesan galat sampai ke user.
+ *
  * @param {string} question - User's question in Indonesian
  * @param {Array} userDashboards - [{ id, title, department, description, hasAccess }]
- * @param {object} knowledge - { text } blockers (optional)
+ * @param {string} apiKey - kunci Gemini hasil resolveKey
  * @returns {Promise<{ dashboards: [{id, title, reason, confidence}], routerDecision: string }>}
  */
-export async function classifyRelevantDashboards(question, userDashboards, knowledge = {}) {
+export async function classifyRelevantDashboards(question, userDashboards, apiKey) {
+  if (!apiKey) return { dashboards: [], routerDecision: 'no_api_key' };
   if (!Array.isArray(userDashboards) || userDashboards.length === 0) {
     return { dashboards: [], routerDecision: 'no_dashboards_available' };
   }
@@ -59,17 +66,16 @@ ${catalog}
 Berikan dashboard mana saja (dari katalog di atas) yang perlu diakses untuk menjawab pertanyaan ini. Format: JSON array dengan struktur [{ "id": number, "title": string, "reason": string, "confidence": number }]`;
 
   try {
-    const response = await askGemini({
-      systemPrompt,
-      userMessage,
-      model: 'gemini-2.0-flash',
-      temperature: 0.3,
+    const { text } = await askGemini({
+      apiKey,
+      systemInstruction: systemPrompt,
+      question: userMessage,
     });
 
     // Parse JSON from response
     let parsed = [];
     try {
-      const jsonMatch = response.match(/\[\s*{[\s\S]*}\s*\]/);
+      const jsonMatch = String(text || '').match(/\[\s*{[\s\S]*}\s*\]/);
       if (jsonMatch) {
         parsed = JSON.parse(jsonMatch[0]);
       }

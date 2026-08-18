@@ -1238,11 +1238,14 @@ export const AiController = {
         return res.status(400).json({ error: "Pertanyaan terlalu panjang (maksimal 1000 karakter)." });
       }
 
-      const pembatas = rateLimit.getRateLimiter(
-        `unified_suggest:${req.user.id}`, RATE_WINDOW_SECONDS, RATE_MAX_REQUESTS
+      const pembatas = rateLimit.hit(
+        `unified_suggest:${req.user.id}`, RATE_MAX_REQUESTS, RATE_WINDOW_SECONDS
       );
-      if (!pembatas.consume()) {
-        return res.status(429).json({ error: "Terlalu banyak permintaan." });
+      if (!pembatas.allowed) {
+        res.set("Retry-After", String(pembatas.retryAfterSeconds));
+        return res.status(429).json({
+          error: `Terlalu banyak permintaan. Coba lagi dalam ${pembatas.retryAfterSeconds} detik.`,
+        });
       }
 
       const user = await getUser(req.user.id);
@@ -1250,7 +1253,10 @@ export const AiController = {
       // classifyRelevantDashboards membuang yang hasAccess false. Jadi
       // saran tidak pernah menunjuk dashboard yang tidak boleh dibuka user.
       const katalog = await getCatalogForUser(user);
-      const { dashboards, routerDecision } = await classifyRelevantDashboards(question, katalog);
+      const kunci = await resolveKey(req.user.id);
+      const { dashboards, routerDecision } = await classifyRelevantDashboards(
+        question, katalog, kunci?.apiKey
+      );
 
       // Report GUID ikut supaya frontend tahu mana yang bisa diambil datanya.
       // Tanpa GUID, dashboard tidak bisa di-embed dan snapshot mustahil.
@@ -1298,9 +1304,12 @@ export const AiController = {
 
       // Rate limit check
       const rateLimitKey = `unified_ask:${userId}`;
-      const limiter = rateLimit.getRateLimiter(rateLimitKey, RATE_WINDOW_SECONDS, RATE_MAX_REQUESTS);
-      if (!limiter.consume()) {
-        return res.status(429).json({ error: 'Rate limit exceeded' });
+      const limiter = rateLimit.hit(rateLimitKey, RATE_MAX_REQUESTS, RATE_WINDOW_SECONDS);
+      if (!limiter.allowed) {
+        res.set("Retry-After", String(limiter.retryAfterSeconds));
+        return res.status(429).json({
+          error: `Terlalu banyak pertanyaan. Coba lagi dalam ${limiter.retryAfterSeconds} detik.`,
+        });
       }
 
       // Get or create conversation
@@ -1338,7 +1347,10 @@ export const AiController = {
       // jawaban berdata adalah kegagalan diam yang paling mahal di sistem ini.
       if (snapshotResults.length === 0) {
         const catalog = await getCatalogForUser(user);
-        const { dashboards: relevan } = await classifyRelevantDashboards(question, catalog);
+        const kunciSaran = await resolveKey(userId);
+        const { dashboards: relevan } = await classifyRelevantDashboards(
+          question, catalog, kunciSaran?.apiKey
+        );
 
         if (relevan.length === 0) {
           const jawaban = "Belum ada dashboard yang cocok dengan pertanyaan ini. Coba sebutkan area atau KPI-nya lebih spesifik, misalnya OEE, downtime, lembur, atau NC.";
