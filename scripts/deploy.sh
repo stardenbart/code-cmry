@@ -204,5 +204,11 @@ done
 echo ""
 echo "GAGAL: backend tidak menjawab sesudah 60 detik."
 echo "Log:      pm2 logs $APP --lines 50"
+# ss disebut lebih dulu daripada pm2 karena inilah yang membedakan dua sebab yang
+# tampak sama. pm2 hanya tahu prosesnya hidup, bukan apakah ada port terikat:
+# proses yang termuat penuh tapi tidak pernah memanggil app.listen() dilaporkan
+# "online" dengan uptime normal dan tanpa satu pun galat di log. Pernah terjadi
+# di server ini. Kosongnya keluaran ss yang menyingkapnya.
+echo "Port:     ss -ltnp | grep 5050      # kosong = tidak ada yang mengikat port"
 echo "Mundur:   ./scripts/deploy.sh --rollback"
 exit 1

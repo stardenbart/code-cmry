@@ -36,6 +36,10 @@ section("Denyut nadi TIDAK berada di bawah /api");
 // defaultDeny menjaga setiap jalur /api. Memindahkan endpoint ini ke
 // /api/health akan menutupnya untuk pengawas.
 const { listApiRoutes } = await import("../src/routeInventory.js");
+
+// server.js mengikat port secara bawaan. Test ini hanya membaca tabel rutenya,
+// jadi ia menyatakan tidak butuh listener; tanpa ini, port 5050 diikat dua kali.
+process.env.SKIP_SERVER_LISTEN = "true";
 const { app } = await import("../src/server.js");
 const jalurApi = listApiRoutes(app).map((r) => r.path);
 ok(

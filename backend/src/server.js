@@ -5,7 +5,7 @@ import cors from "cors";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import path from "path";
-import { fileURLToPath, pathToFileURL } from "url";
+import { fileURLToPath } from "url";
 import db from "./config/db.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import portalLinkRoutes from "./routes/portalLinkRoutes.js";
@@ -692,14 +692,24 @@ app.post("/api/refresh-token", verifyJWT, async (req, res) => {
 });
 
 // START SERVER
-// Only listen when run directly. Importing this module — a test that inspects
-// the route table does exactly that — must not bind the port a second time.
-// pathToFileURL handles Windows drive letters and backslashes correctly, which
-// a hand-rolled string comparison does not.
-const isDirectRun =
-  Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
+//
+// Bawaannya MENGIKAT port. Yang tidak ingin mengikat harus menyatakannya sendiri
+// lewat SKIP_SERVER_LISTEN=true, dan itu cuma dipakai test yang meng-import
+// `app` untuk memeriksa tabel rute.
+//
+// Arahnya sengaja begini. Versi sebelumnya membandingkan `import.meta.url`
+// dengan `process.argv[1]` untuk menebak apakah berkas ini dijalankan langsung,
+// dan bawaannya menjadi "jangan listen" bagi setiap pemanggil yang tidak
+// terduga. pm2 mode fork adalah pemanggil seperti itu: ia menjalankan
+// pembungkusnya sendiri (ProcessContainerFork.js) yang lalu meng-import berkas
+// ini, sehingga argv[1] berisi path pembungkus pm2, perbandingannya gagal, dan
+// prosesnya hidup dengan seluruh modul termuat tapi tanpa satu pun port
+// terikat. Gejalanya menipu: pm2 melaporkan "online", log mencetak
+// "MySQL pool siap", dan tidak ada galat apa pun — hanya `Server running`
+// yang tidak pernah muncul.
+const shouldListen = process.env.SKIP_SERVER_LISTEN !== "true";
 
-if (isDirectRun) {
+if (shouldListen) {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     // Didaftarkan setelah server siap, dan bawaannya MATI kecuali

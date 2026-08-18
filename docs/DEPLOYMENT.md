@@ -355,6 +355,33 @@ restart backend.
 di `pm2 logs`, dan penyebab yang paling sering adalah `.env` rusak atau port
 sudah dipakai proses lain.
 
+### Gejala paling menipu: "online" tapi tidak ada yang mengikat port
+
+Pernah terjadi di server ini, dan bacaannya berbeda dari semua kasus di atas:
+
+    pm2 list        # online, uptime jalan normal, ↺ TIDAK bertambah
+    curl localhost:5050/health   # 000, tidak ada jawaban sama sekali
+    ss -ltnp | grep 5050         # KOSONG
+
+Log berhenti di `MySQL pool siap` dan `Server running on port 5050` tidak pernah
+muncul. Tidak ada galat apa pun, jadi `pm2 logs` terlihat bersih.
+
+Artinya prosesnya hidup, seluruh modul termuat, tapi `app.listen()` tidak pernah
+terpanggil. Sebabnya dulu ada di `backend/src/server.js`: penjagaan yang menebak
+"apakah aku dijalankan langsung" dengan membandingkan `import.meta.url` terhadap
+`process.argv[1]`. pm2 mode fork tidak menjalankan `server.js` sebagai entry
+point — ia menjalankan pembungkusnya sendiri yang lalu meng-import berkas itu,
+jadi perbandingannya selalu gagal di produksi.
+
+Sudah diperbaiki: sekarang bawaannya MENGIKAT port, dan yang tidak ingin
+mengikat harus menyatakan `SKIP_SERVER_LISTEN=true` sendiri. Dijaga oleh
+`backend/tests/server-mengikat-port.test.mjs`, yang menjalankan server lewat
+pembungkus seperti pm2 lalu benar-benar menghubungi portnya.
+
+`ss -ltnp | grep 5050` adalah perintah yang membedakan keadaan ini dari yang
+lain, dan tidak tergantikan oleh `pm2 list`: pm2 hanya tahu prosesnya hidup,
+bukan apakah ada port yang terikat.
+
 Status `errored` di `pm2 list` berarti pm2 sudah menyerah sesudah 15 kali gagal.
 Watchdog sengaja TIDAK merestart yang berstatus itu: sebabnya bukan gangguan
 sesaat, dan merestartnya hanya menghapus penanda yang perlu dilihat orang.

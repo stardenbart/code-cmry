@@ -1,6 +1,13 @@
 import { ok, section } from "./harness.mjs";
-import { app } from "../src/server.js";
-import { listApiRoutes, ROUTE_CLASSIFICATION } from "../src/routeInventory.js";
+
+// Harus disetel SEBELUM server.js dievaluasi, dan itu sebabnya import `app` di
+// bawah memakai import() dinamis: import statis di-hoist ke atas berkas, jadi
+// baris ini akan berjalan terlambat. Tanpa penanda ini, meng-import server.js
+// mengikat port 5050 dan bentrok dengan backend yang sedang melayani.
+process.env.SKIP_SERVER_LISTEN = "true";
+
+const { app } = await import("../src/server.js");
+const { listApiRoutes, ROUTE_CLASSIFICATION } = await import("../src/routeInventory.js");
 
 section("Setiap route /api wajib punya klasifikasi");
 
