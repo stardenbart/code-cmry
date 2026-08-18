@@ -46,7 +46,22 @@ done
 # di situ karena sudah mencoba max_restarts kali dan selalu gagal. Merestartnya
 # dari luar hanya memulai ulang lingkaran yang sama tanpa memperbaiki sebabnya,
 # dan menghapus penanda yang seharusnya dilihat orang di `pm2 list`.
-STATUS=$(pm2 jlist 2>/dev/null | grep -o "\"name\":\"$APP\"[^}]*\"status\":\"[a-z]*\"" | grep -o '"status":"[a-z]*"' | tail -1 | cut -d'"' -f4)
+#
+# Diurai dengan node, bukan grep, karena "status" berada di dalam objek
+# "pm2_env" yang bersarang, sementara "name" ada di tingkat luar. Pola grep apa
+# pun yang mencocokkan keduanya sekaligus harus menebak isi di antaranya, dan
+# tebakan itu meleset: percobaan pertama membaca status sebagai "tidak
+# diketahui" untuk proses yang jelas online. Node sudah pasti ada di server ini.
+STATUS=$(pm2 jlist 2>/dev/null | node -e '
+  let t = "";
+  process.stdin.on("data", (d) => (t += d));
+  process.stdin.on("end", () => {
+    try {
+      const app = JSON.parse(t).find((p) => p.name === process.argv[1]);
+      process.stdout.write(app?.pm2_env?.status || app?.status || "");
+    } catch { /* keluaran bukan JSON: biarkan kosong, ditangani di bawah */ }
+  });
+' "$APP" 2>/dev/null)
 if [ "$STATUS" = "errored" ]; then
   catat "TIDAK merestart: pm2 menandai $APP 'errored', perlu diperiksa manusia"
   exit 1
@@ -60,6 +75,12 @@ pm2 restart "$APP" --update-env >> "$LOG" 2>&1
 sleep 15
 if sehat; then
   catat "restart berhasil, denyut nadi menjawab lagi"
-else
-  catat "restart TIDAK menolong, denyut nadi masih diam. Periksa: pm2 logs $APP"
+  exit 0
 fi
+
+# Keluar bukan-nol supaya cron mengirim surat kegagalannya. Restart yang tidak
+# menolong berarti sebabnya di luar jangkauan skrip ini (MySQL mati, disk penuh,
+# port dipakai proses lain), dan itu perlu dilihat orang. Keluar 0 di sini akan
+# membuat kegagalan hanya tercatat di berkas log yang tidak dibaca siapa pun.
+catat "restart TIDAK menolong, denyut nadi masih diam. Periksa: pm2 logs $APP"
+exit 1
