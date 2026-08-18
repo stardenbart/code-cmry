@@ -11,7 +11,7 @@
 // lalu menjawab dengan angkanya adalah kegagalan diam yang paling mahal di
 // sistem ini. Konfirmasi satu klik jauh lebih murah daripada jawaban salah.
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { RefreshCw, Send, Check, AlertTriangle } from 'lucide-react';
+import { RefreshCw, Send, Check, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
 import { askUnified } from '../services/unifiedChatApi';
 import SnapshotCapture from './SnapshotCapture';
@@ -181,13 +181,25 @@ export function UnifiedChatPanel({
         );
       })}
 
-      {/* Pemilihan dashboard */}
-      <div className="border-b border-cimoryGray px-5 py-3 bg-gray-50/80 shrink-0">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-cimoryBlue">
+      {/* Pemilihan dashboard.
+
+          Terlipat secara bawaan. Jalur utamanya adalah bertanya langsung dan
+          membiarkan CIA menyarankan dashboardnya, jadi daftar panjang yang
+          selalu terbuka hanya memakan ruang percakapan. Yang perlu terlihat
+          tanpa membuka daftarnya cuma dua: berapa yang terpilih dan apakah
+          datanya masih dimuat. Keduanya ada di baris ringkasannya.
+
+          Memakai <details>, bukan state React, karena buka-tutup adalah
+          perilaku bawaan elemennya: tidak ada state yang bisa melenceng dan
+          isinya tetap ada di DOM sehingga centang tidak hilang saat dilipat. */}
+      <details className="group border-b border-cimoryGray bg-gray-50/80 shrink-0">
+        <summary className="flex items-center justify-between gap-3 px-5 py-3 cursor-pointer list-none marker:content-none hover:bg-gray-100/80 transition">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-cimoryBlue">
+            <ChevronDown size={16} className="group-open:hidden" />
+            <ChevronUp size={16} className="hidden group-open:block" />
             Dashboard
             {selectedDashboardIds.length > 0 && (
-              <span className="ml-2 text-xs font-normal text-gray-500">
+              <span className="text-xs font-normal text-gray-500">
                 {selectedDashboardIds.length} terpilih
               </span>
             )}
@@ -198,8 +210,9 @@ export function UnifiedChatPanel({
               Memuat data {sedangMemuat} dashboard
             </span>
           )}
-        </div>
+        </summary>
 
+        <div className="px-5 pb-3">
         <p className="text-xs text-gray-500 mb-2">
           Pilih dashboard untuk membaca datanya, atau langsung tanya dan CIA yang
           menyarankan dashboard mana yang perlu dibuka.
@@ -249,7 +262,8 @@ export function UnifiedChatPanel({
             })}
           </div>
         )}
-      </div>
+        </div>
+      </details>
 
       {/* Percakapan */}
       <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-cimoryGray/60">
