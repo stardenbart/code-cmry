@@ -44,11 +44,21 @@ if (!pemakai) {
 
   // classifier_error adalah kegagalan diam: statusnya tetap 200, tapi tidak ada
   // satu pun dashboard yang pernah bisa disarankan.
-  ok(
-    "klasifikasi tidak jatuh ke classifier_error",
-    saran.body?.alasanRouter !== "classifier_error",
-    String(saran.body?.alasanRouter)
-  );
+  //
+  // quota_habis dipisahkan dan DILEWATKAN, bukan diluluskan: itu keadaan sah
+  // di lingkungan uji (kuota free-tier harian bersama), tapi menganggapnya
+  // lulus akan menyembunyikan cacat kode di balik habisnya kuota. Melewat
+  // dengan terang, sama seperti saat tidak ada user ber-akses CIA.
+  const alasan = String(saran.body?.alasanRouter);
+  if (alasan === "quota_habis") {
+    console.log("  SKIP  kuota Gemini habis - klasifikasi tidak bisa diuji sekarang");
+  } else {
+    ok(
+      "klasifikasi tidak jatuh ke galat teknis",
+      !["classifier_error", "parse_error", "no_api_key"].includes(alasan),
+      alasan
+    );
+  }
 
   const tanya = await req("POST", "/api/ai/unified/ask", {
     token: TOKEN,

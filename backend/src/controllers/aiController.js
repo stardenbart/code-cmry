@@ -51,6 +51,23 @@ const sql = db.promise();
 
 const RATE_WINDOW_SECONDS = Number(process.env.AI_RATE_WINDOW_SECONDS ?? 60);
 const RATE_MAX_REQUESTS = Number(process.env.AI_RATE_MAX_REQUESTS ?? 10);
+
+// Sebab kegagalan router yang BUKAN salah pertanyaan user. Alasan di luar
+// tabel ini (no_relevant_dashboards) memang berarti tidak ada yang cocok.
+const GAGAL_TEKNIS_ROUTER = {
+  classifier_error: "Layanan AI sedang tidak bisa dihubungi, jadi dashboard yang relevan belum bisa ditentukan. Pertanyaanmu sudah benar - coba kirim ulang sebentar lagi, atau pilih sendiri dashboard-nya di panel sebelah.",
+  // Kuota harian: menunggu beberapa menit tidak menolong, jatahnya baru pulih
+  // besok. Menyuruh user "coba lagi sebentar lagi" di sini membuang waktunya.
+  quota_habis: "Kuota harian AI bersama sudah habis. Pasang API key sendiri di AI Assistant Settings agar punya jatah pribadi, atau pilih sendiri dashboard-nya di panel sebelah lalu kirim ulang pertanyaannya.",
+  layanan_sibuk: "Layanan AI sedang penuh dan belum sempat menjawab. Pertanyaanmu sudah benar - coba kirim ulang sebentar lagi, atau pilih sendiri dashboard-nya di panel sebelah.",
+  kunci_tidak_valid: "API key Gemini yang terpasang tidak valid. Perbarui di AI Assistant Settings, atau hubungi admin kalau memakai key bersama.",
+  kunci_ditolak: "API key Gemini ditolak - Generative Language API belum aktif untuk key tersebut. Hubungi admin.",
+  model_pensiun: "Model AI yang dipilih sudah tidak tersedia. Buka AI Assistant Settings dan pilih model lain.",
+  parse_error: "Layanan AI mengembalikan jawaban yang tidak terbaca. Coba kirim ulang pertanyaannya, atau pilih sendiri dashboard-nya di panel sebelah.",
+  no_api_key: "API key Gemini belum terpasang untuk akun ini. Buka AI Assistant Settings untuk memasang key sendiri, atau hubungi admin agar universal key diaktifkan.",
+  no_dashboards_available: "Belum ada dashboard yang terdaftar di CODE.",
+  no_accessible_dashboards: "Belum ada dashboard yang bisa kamu akses. Hubungi admin untuk membuka aksesnya.",
+};
 // Penyaringan memanggil Gemini sampai 4 kali per permintaan (satu per dashboard
 // lain), jadi batasnya dihitung per PERMINTAAN distill, bukan per panggilan
 // model, dan jendelanya lebih longgar karena panel hanya memanggil ini saat
@@ -1347,12 +1364,18 @@ export const AiController = {
       if (snapshotResults.length === 0) {
         const catalog = await getCatalogForUser(user);
         const kunciSaran = await resolveKey(userId);
-        const { dashboards: relevan } = await classifyRelevantDashboards(
+        const { dashboards: relevan, routerDecision: alasan } = await classifyRelevantDashboards(
           question, catalog, kunciSaran?.apiKey
         );
 
         if (relevan.length === 0) {
-          const jawaban = "Belum ada dashboard yang cocok dengan pertanyaan ini. Coba sebutkan area atau KPI-nya lebih spesifik, misalnya OEE, downtime, lembur, atau NC.";
+          // Daftar kosong punya DUA sebab yang sangat berbeda, dan menyamakan
+          // keduanya menyalahkan user atas kegagalan sistem: "tidak ada yang
+          // cocok" menyuruh dia memperjelas pertanyaan, padahal yang terjadi
+          // adalah Gemini penuh atau kuncinya belum dipasang. Pertanyaannya
+          // sudah benar; mengulanginya lebih spesifik tidak akan menolong.
+          const jawaban = GAGAL_TEKNIS_ROUTER[alasan] ??
+            "Belum ada dashboard yang cocok dengan pertanyaan ini. Coba sebutkan area atau KPI-nya lebih spesifik, misalnya OEE, downtime, lembur, atau NC.";
           await addTurn(conversationId, turnNumber, question, [], jawaban, { classifier: 0 });
           return res.json({
             answer: jawaban,

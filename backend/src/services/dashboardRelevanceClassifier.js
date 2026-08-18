@@ -1,5 +1,15 @@
 import { askGemini } from '../config/gemini.js';
 
+/** Kode GeminiError yang punya tindakan-perbaikan berbeda bagi user. */
+const KODE_KE_ALASAN = {
+  QUOTA: 'quota_habis',
+  INVALID_KEY: 'kunci_tidak_valid',
+  FORBIDDEN: 'kunci_ditolak',
+  MODEL_RETIRED: 'model_pensiun',
+  MODEL_NOT_FOUND: 'model_pensiun',
+  TIMEOUT: 'layanan_sibuk',
+};
+
 /**
  * Given a user question and their accessible dashboards, determine which
  * dashboards are relevant to answer the question.
@@ -99,6 +109,12 @@ Berikan dashboard mana saja (dari katalog di atas) yang perlu diakses untuk menj
     };
   } catch (error) {
     console.error('dashboardRelevanceClassifier error:', error);
-    return { dashboards: [], routerDecision: 'classifier_error', error: error.message };
+    // Sebabnya dibedakan, tidak diratakan jadi 'classifier_error'. Tindakan
+    // yang benar untuk user berbeda per sebab: kuota habis butuh API key
+    // sendiri (menunggu tidak menolong, kuotanya harian), sedangkan layanan
+    // penuh memang cukup ditunggu. Menyamakan keduanya menyuruh user menunggu
+    // sesuatu yang tidak akan berubah sampai besok.
+    const alasan = KODE_KE_ALASAN[error?.code] || 'classifier_error';
+    return { dashboards: [], routerDecision: alasan, error: error.message };
   }
 }

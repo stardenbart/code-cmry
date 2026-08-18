@@ -43,6 +43,25 @@ export function hasServerKey() {
   return Boolean(getServerKey());
 }
 
+// ── Percobaan ulang ──────────────────────────────────────────────────────────
+// 503 UNAVAILABLE ("model is overloaded") dan 504 timeout adalah keadaan sesaat
+// di sisi Google, bukan kesalahan permintaan. Tanpa percobaan ulang, satu 503
+// membuat classifier mengembalikan daftar kosong, dan user membaca "tidak ada
+// dashboard yang cocok" untuk pertanyaan yang sebenarnya cocok.
+//
+// Jedanya naik (0.6s, 1.5s) supaya tidak menambah beban saat Google memang
+// sedang penuh. 429 TIDAK diulang: kuota habis tidak pulih dalam dua detik,
+// dan mengulanginya hanya mempercepat habisnya jatah.
+const RETRY_DELAYS_MS = [600, 1500];
+
+const tidur = (ms) => new Promise((r) => setTimeout(r, ms));
+
+export function bisaDiulang(err) {
+  if (err.code === "ECONNABORTED" || err.code === "ETIMEDOUT" || err.code === "ECONNRESET") return true;
+  const status = err.response?.status;
+  return status === 500 || status === 502 || status === 503 || status === 504;
+}
+
 function buildGenerationConfig(model, overrides = {}) {
   // maxOutputTokens must cover thinking tokens too, hence the generous default.
   const config = {
@@ -116,22 +135,30 @@ export async function askGemini({
   }
 
   let data;
-  try {
-    const res = await axios.post(
-      `${API_BASE}/models/${usedModel}:generateContent`,
-      body,
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey,
-        },
-        timeout: timeoutMs,
-      }
-    );
-    data = res.data;
-  } catch (err) {
-    throw toGeminiError(err);
+  let lastErr;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const res = await axios.post(
+        `${API_BASE}/models/${usedModel}:generateContent`,
+        body,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": apiKey,
+          },
+          timeout: timeoutMs,
+        }
+      );
+      data = res.data;
+      lastErr = null;
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (attempt === RETRY_DELAYS_MS.length || !bisaDiulang(err)) break;
+      await tidur(RETRY_DELAYS_MS[attempt]);
+    }
   }
+  if (lastErr) throw toGeminiError(lastErr);
 
   const candidate = data?.candidates?.[0];
   const text = (candidate?.content?.parts || [])
