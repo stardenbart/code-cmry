@@ -308,7 +308,12 @@ export function buildMultiDashboardContext(snapshots, dashboards, charCap = TIER
     const snapshot = snapshots[i];
     const dashboard = dashboards[i];
     lines.push(`\n--------- DASHBOARD ${(i + 1)}: ${dashboard?.title || `Dashboard ${i + 1}`} ---------`);
-    const singleContext = buildDataContext(snapshot, dashboard, perDashboardBudget);
+    // .text, BUKAN objeknya. buildDataContext mengembalikan { text, stats };
+    // menempelkan objeknya membuat SELURUH konteks jadi string "[object Object]",
+    // jadi model tidak pernah menerima satu angka pun dan menjawab "data tidak
+    // tersedia" untuk pertanyaan yang datanya jelas-jelas ada di snapshot.
+    // Kegagalan diam: statusnya 200 dan jawabannya terdengar masuk akal.
+    const { text: singleContext } = buildDataContext(snapshot, dashboard, perDashboardBudget);
     lines.push(singleContext);
     lines.push("");
   }

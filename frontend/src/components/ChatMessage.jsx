@@ -1,4 +1,5 @@
 import { DashboardReference } from './DashboardReference';
+import AnswerText from './AnswerText';
 
 /**
  * Satu gelembung percakapan.
@@ -19,8 +20,11 @@ export function ChatMessage({
         {isUser ? 'Anda' : 'CIA'}
       </div>
 
-      <div className="text-sm leading-relaxed text-gray-800 whitespace-pre-wrap">
-        {content}
+      {/* Pertanyaan user ditampilkan apa adanya; jawaban model lewat AnswerText.
+          Menjalankan perender markdown atas teks user berarti bintang atau
+          backtick yang dia ketik sendiri berubah bentuk saat dikirim. */}
+      <div className="text-sm leading-relaxed text-gray-800">
+        {isUser ? <span className="whitespace-pre-wrap">{content}</span> : <AnswerText text={content} />}
       </div>
 
       {!isUser && saran_dashboard?.length > 0 && (

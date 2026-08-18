@@ -31,7 +31,6 @@ import {
   hitungTurn, ingatanLintasPercakapan, pangkasSampaiMuat,
 } from "../services/unifiedConversationManager.js";
 import { buildMultiDashboardContext } from "../services/aiContext.js";
-import { formatUnifiedAnswer } from "../services/unifiedAnswerBuilder.js";
 import { simpanTemuan, temuanAktif, turnTerakhirTersaring, JAM_JENDELA }
   from "../models/findingModel.js";
 import {
@@ -1403,11 +1402,37 @@ export const AiController = {
         historyTurns: turnNumber - 1,
       });
 
+      // Snapshot WAJIB disanitasi sebelum menyeberang ke model, sama seperti
+      // jalur satu dashboard. Snapshot lintas dashboard justru lebih berisiko:
+      // user bisa mencentang beberapa dashboard sekaligus, dan sebagian di
+      // antaranya memuat NIK, gaji, atau data cedera. Versi sebelumnya
+      // mengirimkan snapshot mentah, dan tidak ada satu pun galat yang terbit
+      // karena kebocoran data memang tidak menimbulkan error.
+      const sanitizer = getSanitizer();
+
       // Build context from all dashboards
-      const snapshotsForContext = snapshotResults.map(r => r.snapshot);
+      const snapshotsForContext = snapshotResults.map((r) => sanitizer.sanitizeSnapshot(r.snapshot));
       const dashboardsForContext = snapshotResults.map(r => r.dashboard);
       const charBudget = TIER_CHAR_BUDGET[tierClassification.tier];
       const dataContext = buildMultiDashboardContext(snapshotsForContext, dashboardsForContext, charBudget);
+
+      // Knowledge domain: tanpa ini model tidak tahu istilah, measure, dan KPI
+      // plant, jadi ia menolak angka yang sebenarnya ADA di snapshot karena
+      // tidak mengenali namanya. Judulnya digabung supaya pencocokan semantic
+      // model mengenai semua dashboard yang ikut dibaca, bukan hanya yang pertama.
+      const judulGabungan = snapshotResults.map((r) => r.dashboard.title).join(", ");
+      const knowledge = SANITIZER_CONFIG.sendKnowledge
+        ? buildKnowledgeBlock({
+            dashboardTitle: judulGabungan,
+            department: snapshotResults[0]?.dashboard?.department,
+            question,
+            tier: tierClassification.tier,
+            dataText: dataContext,
+          })
+        : { text: "" };
+      // Paket knowledge memuat GUID tenant Azure, nama supplier, dan rentang
+      // spesifikasi produk. Semuanya digosok sebelum menyeberang.
+      const knowledgeText = sanitizer.sanitizeKnowledge(knowledge.text);
 
       // Riwayat utas ini (6 turn TERAKHIR, bukan 6 pertama).
       const priorTurns = turnNumber > 1 ? await getTurns(conversationId, 6) : [];
@@ -1428,21 +1453,24 @@ export const AiController = {
           "mana yang harus dibuka lagi.",
           ...ingatanLain.map((i) => `- [${i.judul}] tanya: ${i.pertanyaanTerakhir}\n  jawab: ${i.cuplikanJawaban}`),
         ].join("\n");
+        konteksIngatan = sanitizer.sanitizeText(konteksIngatan);
       }
 
       // Build prompts and call Gemini
       const systemPrompt = buildSystemPrompt({
         userName: user.nama,
         userDept: user.departemen,
-        dashboardTitle: `${snapshotResults.length} dashboard`, // plural if multi
-        knowledge: '',
-        sanitized: false,
+        dashboardTitle: judulGabungan,
+        knowledge: knowledgeText,
+        sanitized: sanitizer.enabled,
       });
 
+      // Riwayat ikut disanitasi: tersimpan de-tokenized di database, jadi
+      // mengirimnya mentah membocorkan apa yang sudah digosok di turn sebelumnya.
       const unifiedHistory = priorTurns
         .map((t) => [
-          { role: 'user', text: t.question },
-          { role: 'model', text: t.answer },
+          { role: 'user', text: sanitizer.sanitizeText(t.question) },
+          { role: 'model', text: sanitizer.sanitizeText(t.answer) },
         ]).flat();
 
       // Riwayat utas ini TIDAK diulang di sini: sudah dikirim lewat
@@ -1452,7 +1480,7 @@ export const AiController = {
       const userMessage = [
         `Konteks multi-dashboard:\n${dataContext}`,
         konteksIngatan,
-        `Pertanyaan user: ${question}`,
+        `Pertanyaan user: ${sanitizer.sanitizeText(question)}`,
         "Jawab berdasarkan data dashboard di atas. Sebutkan dashboard mana yang menjawab bagian mana.",
       ].filter(Boolean).join("\n\n");
 
@@ -1476,7 +1504,14 @@ export const AiController = {
         confidence: 1,
       }));
 
-      const { formatted_answer } = formatUnifiedAnswer(result.text, dashboardRefs);
+      // Token dipulihkan ke nama aslinya SEBELUM jawaban disimpan dan dikirim:
+      // yang digosok adalah apa yang menyeberang ke model, bukan apa yang dibaca
+      // user. Tanpa restore, user melihat ORANG_1 alih-alih nama sungguhan.
+      //
+      // Footer "Sumber data" TIDAK ditempelkan ke teks jawaban. UI sudah
+      // menampilkan dashboards_used sebagai chip, jadi footer teks membuat user
+      // membaca daftar sumber yang sama dua kali dalam satu gelembung.
+      const formatted_answer = sanitizer.restore(result.text);
 
       // Store turn in history
       await addTurn(conversationId, turnNumber, question, dashboardRefs, formatted_answer, {

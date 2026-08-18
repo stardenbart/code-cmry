@@ -7,59 +7,7 @@ import API from "../api/api";
 import { captureReportSnapshot, summarizeSnapshot, listReportPages } from "../utils/powerbiData";
 import { CopyButton } from "./CodeAINavigator";
 import { useConfirm } from "./ConfirmProvider";
-
-// ── Tiny markdown renderer (bold, bullets, numbered lists, headings) ─────────
-function renderInline(text, keyPrefix) {
-  const parts = String(text).split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
-  return parts.map((part, i) => {
-    if (/^\*\*[^*]+\*\*$/.test(part)) {
-      return <strong key={`${keyPrefix}-b${i}`} className="font-semibold text-cimoryBlue">{part.slice(2, -2)}</strong>;
-    }
-    if (/^`[^`]+`$/.test(part)) {
-      return <code key={`${keyPrefix}-c${i}`} className="bg-gray-100 rounded px-1 text-[11px] font-mono">{part.slice(1, -1)}</code>;
-    }
-    return <React.Fragment key={`${keyPrefix}-t${i}`}>{part}</React.Fragment>;
-  });
-}
-
-function AnswerText({ text }) {
-  const lines = String(text || "").split("\n");
-  return (
-    <div className="space-y-1.5">
-      {lines.map((raw, i) => {
-        const line = raw.trimEnd();
-        if (!line.trim()) return <div key={i} className="h-1" />;
-
-        const heading = line.match(/^#{1,4}\s+(.*)$/);
-        if (heading) {
-          return <p key={i} className="font-semibold text-cimoryBlue mt-1">{renderInline(heading[1], i)}</p>;
-        }
-
-        const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
-        if (bullet) {
-          return (
-            <div key={i} className="flex gap-2 pl-1">
-              <span className="text-cimoryRed leading-5 shrink-0">•</span>
-              <span className="flex-1">{renderInline(bullet[1], i)}</span>
-            </div>
-          );
-        }
-
-        const numbered = line.match(/^\s*(\d+)[.)]\s+(.*)$/);
-        if (numbered) {
-          return (
-            <div key={i} className="flex gap-2 pl-1">
-              <span className="text-cimoryBlue font-semibold shrink-0">{numbered[1]}.</span>
-              <span className="flex-1">{renderInline(numbered[2], i)}</span>
-            </div>
-          );
-        }
-
-        return <p key={i}>{renderInline(line, i)}</p>;
-      })}
-    </div>
-  );
-}
+import AnswerText from "./AnswerText";
 
 // ── Suggested starter questions ───────────────────────────────────────────────
 const SUGGESTIONS = [
