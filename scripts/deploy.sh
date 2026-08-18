@@ -104,6 +104,12 @@ jalan "cp backend/.env '$TUJUAN/backend.env' && chmod 600 '$TUJUAN/backend.env'"
 
 # Dump database. Ini yang paling penting dan paling sering dilupakan: kode bisa
 # dikembalikan kapan saja dari git, data tidak bisa.
+#
+# Berhasil-tidaknya dicatat, dan penanda itu dipakai di bagian migrasi di bawah.
+# Tanpa penanda, skrip pernah mencetak "backup database sudah tersimpan" padahal
+# dump dilewati, dan pesan itu justru muncul PERSIS saat orang mau menjalankan
+# migrasi, yaitu satu-satunya saat backup database benar-benar dibutuhkan.
+DUMP_ADA=0
 if command -v mysqldump >/dev/null; then
   info "membuat dump database"
   # Kredensial dibaca dari .env, tidak diketik di baris perintah, karena argumen
@@ -117,6 +123,7 @@ if command -v mysqldump >/dev/null; then
   if [ -n "${DB_NAME:-}" ]; then
     jalan "MYSQL_PWD='$DB_PASS' mysqldump -h '${DB_HOST:-localhost}' -u '$DB_USER' --single-transaction --quick '$DB_NAME' | gzip > '$TUJUAN/db.sql.gz'"
     jalan "chmod 600 '$TUJUAN/db.sql.gz'"
+    DUMP_ADA=1
   else
     echo "    PERINGATAN: DB_NAME tidak terbaca dari .env, dump database dilewati"
   fi
@@ -143,7 +150,13 @@ if [ -n "$MIGRASI_BARU" ]; then
   echo "$MIGRASI_BARU" | sed 's/^/    /'
   echo ""
   echo "Jalankan tiap berkas itu ke database produksi, lalu ulangi deploy ini."
-  echo "Backup database sudah tersimpan di $TUJUAN/db.sql.gz"
+  if [ "$DUMP_ADA" = 1 ]; then
+    echo "Backup database ada di $TUJUAN/db.sql.gz"
+  else
+    echo "PERHATIAN: TIDAK ADA backup database. Buat dulu sebelum menjalankan"
+    echo "migrasi apa pun, karena migrasi tidak bisa dibatalkan tanpa itu:"
+    echo "    mysqldump -u USER -p --single-transaction NAMA_DB | gzip > $TUJUAN/db.sql.gz"
+  fi
   exit 3
 fi
 
