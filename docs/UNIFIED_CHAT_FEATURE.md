@@ -143,7 +143,8 @@ melihat utas yang tidak bisa dibuka isinya.
 | `backend/src/controllers/aiController.js` | `unifiedAsk`, `unifiedSuggest`. |
 | `backend/src/services/unifiedConversationManager.js` | Seluruh sentuhan ke database. |
 | `backend/migrations/add_unified_chat.sql` | Tabelnya. Aman diulang. |
-| `backend/tests/unified-conversation.test.mjs` | Penjaga empat regresi di bawah. |
+| `backend/tests/unified-conversation.test.mjs` | Penjaga empat regresi pertama di bawah. |
+| `backend/tests/unified-live.test.mjs` | Satu panggilan sungguhan, menembus badan controller. |
 
 ## Anggaran token per tier
 
@@ -181,8 +182,8 @@ chat mati di `createConversation`.
 
 ## Jebakan yang sudah pernah menggigit
 
-Empat-empatnya tidak terlihat sebagai kegagalan saat berjalan, dan itu sebabnya
-`unified-conversation.test.mjs` ada.
+Tidak satu pun terlihat sebagai kegagalan saat berjalan, dan itu sebabnya
+`unified-conversation.test.mjs` dan `unified-live.test.mjs` ada.
 
 1. **Migrasi tidak pernah jalan.** Ditulis `.js` di repo tanpa runner `.js`.
 2. **`JSON.parse` atas kolom JSON.** mysql2 sudah mengembalikannya sebagai
@@ -192,6 +193,23 @@ Empat-empatnya tidak terlihat sebagai kegagalan saat berjalan, dan itu sebabnya
 3. **`getTurns` memberi yang pertama, bukan yang terakhir.**
 4. **Penomoran turn dari `turns.length`.** Bertabrakan dengan UNIQUE KEY
    begitu satu turn terhapus. Sekarang dari `MAX(turn_number)`.
+
+Dua lagi yang lolos dari 1127 asersi hijau, dan sebabnya sama: `requireCiaAccess`
+menolak SEBELUM badan controller jalan, jadi uji 403 terbit tanpa pernah
+menyentuh baris yang rusak.
+
+5. **`rateLimit.getRateLimiter` tidak ada.** Modulnya mengekspor `hit`. Urutan
+   argumennya juga terbalik, jadi mengganti namanya saja akan diam-diam
+   memasang batas yang salah. Kedua endpoint POST mati 500.
+6. **Klasifikasi dipanggil tanpa kunci.** `askGemini` dipanggil tanpa `apiKey`
+   dan dengan nama parameter yang salah semua. Statusnya tetap 200, tapi
+   `alasanRouter` selalu `classifier_error` dan saran dashboard SELALU kosong.
+   Kegagalan diam yang paling mahal: fitur terlihat hidup padahal tidak pernah
+   menyarankan apa pun.
+
+`unified-live.test.mjs` ada untuk keduanya. Ia memanggil dengan akses CIA
+dibuka, jadi ia menembus badan controller, yang strukturnya tidak bisa
+dilakukan uji 403.
 
 Satu lagi di sisi frontend: `unifiedChatApi.js` sempat memakai `fetch`
 telanjang tanpa header Authorization, jadi setiap panggilan dijawab 401
