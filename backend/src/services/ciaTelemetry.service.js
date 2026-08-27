@@ -70,7 +70,7 @@ export function safeError(error) {
   // Kode aplikasi internal yang memang sudah aman disebut apa adanya.
   const APP_CODES = new Set([
     "ROUTER_NO_MATCH", "EMPTY_RESULT", "MODEL_NOT_FOUND",
-    "DATASET_UNAUTHORIZED", "AI_PROVIDER_ERROR",
+    "DATASET_UNAUTHORIZED", "AI_PROVIDER_ERROR", "WA_DELIVERY_FAILED",
   ]);
   if (APP_CODES.has(code)) {
     return { code, message: appMessage(code) };
@@ -86,6 +86,7 @@ function appMessage(code) {
     case "MODEL_NOT_FOUND": return "Model semantik tidak ditemukan";
     case "DATASET_UNAUTHORIZED": return "Akses ke dataset ditolak";
     case "AI_PROVIDER_ERROR": return "Penyedia AI gagal merespons";
+    case "WA_DELIVERY_FAILED": return "Jawaban CIA gagal dikirim ke WhatsApp";
     default: return "Terjadi kesalahan saat memproses permintaan";
   }
 }

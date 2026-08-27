@@ -52,7 +52,7 @@ async function kunci() {
 // atau Gemini sesuai setelan admin, dan yang beralih ke Gemini bila GLM gagal,
 // timeout, atau kena batas laju. Peralihan itu dicatat, jadi seberapa sering GLM
 // gagal bisa dilihat alih-alih dikira-kira.
-async function tanya({ apiKey, instruksi, pertanyaan, maksToken = 4000 }) {
+async function tanya({ apiKey, instruksi, pertanyaan, maksToken = 4000, onResult }) {
   const hasil = await tanyaModel({
     question: pertanyaan,
     systemInstruction: instruksi,
@@ -61,6 +61,7 @@ async function tanya({ apiKey, instruksi, pertanyaan, maksToken = 4000 }) {
     geminiModel: normalizeModel(process.env.GEMINI_MODEL_VERSION || process.env.GEMINI_MODEL),
     thinkingLevel: process.env.DAX_AGENT_THINKING || "low",
   });
+  onResult?.({ provider: hasil?.provider, model: hasil?.model, usage: hasil?.usage || null });
   return String(hasil?.text || "").trim();
 }
 
@@ -173,7 +174,8 @@ export async function jawabDenganDax({ pertanyaan }) {
   const apiKey = await kunci();
   if (!apiKey) return { berhasil: false, alasan: "kunci universal CIA belum diatur" };
 
-  const jejak = { model: [], query: [], baris: 0 };
+  const jejak = { model: [], query: [], baris: 0, ai: [] };
+  const rekamAi = (hasil) => jejak.ai.push(hasil);
 
   // ── Langkah 1: pilih model ────────────────────────────────────────────────
   const daftar = await daftarModelLengkap();
@@ -196,16 +198,17 @@ export async function jawabDenganDax({ pertanyaan }) {
         `Pertanyaan: ${tanyaBersih}`,
       ].join("\n"),
       maksToken: 2000,
+      onResult: rekamAi,
     });
     const arr = JSON.parse(ambilKode(jawab));
     const sah = new Set(daftar.map((d) => d.model));
     terpilih = (Array.isArray(arr) ? arr : []).filter((m) => sah.has(m)).slice(0, MAKS_MODEL);
   } catch (err) {
-    return { berhasil: false, alasan: `gagal memilih model: ${String(err.message).slice(0, 120)}` };
+    return { berhasil: false, alasan: `gagal memilih model: ${String(err.message).slice(0, 120)}`, jejak };
   }
 
   if (!terpilih.length) {
-    return { berhasil: false, alasan: "tidak ada dashboard yang relevan dengan pertanyaan itu" };
+    return { berhasil: false, alasan: "tidak ada dashboard yang relevan dengan pertanyaan itu", jejak };
   }
   jejak.model = terpilih;
 
@@ -276,7 +279,9 @@ export async function jawabDenganDax({ pertanyaan }) {
       }
 
       try {
-        dax = ambilKode(await tanya({ apiKey, instruksi: instruksiDax, pertanyaan: isi.join("\n") }));
+        dax = ambilKode(await tanya({
+          apiKey, instruksi: instruksiDax, pertanyaan: isi.join("\n"), onResult: rekamAi,
+        }));
       } catch (err) {
         hasil = { berhasil: false, alasan: String(err.message).slice(0, 120) };
         break;
@@ -344,6 +349,7 @@ export async function jawabDenganDax({ pertanyaan }) {
         `Pertanyaan: ${tanyaBersih}`,
       ].join("\n"),
       maksToken: 6000,
+      onResult: rekamAi,
     });
 
     if (!teks) return { berhasil: false, alasan: "model tidak mengembalikan jawaban", jejak };

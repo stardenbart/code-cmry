@@ -140,8 +140,9 @@ router.get("/access", async (req, res) => {
 });
 
 router.put("/access", async (req, res) => {
-  const connection = await sql.getConnection();
+  let connection = null;
   try {
+    connection = await sql.getConnection();
     const { userIds, enabled } = req.body || {};
     const ids = [...new Set(Array.isArray(userIds) ? userIds.map(Number) : [])];
     if (!ids.length || ids.length > 500 || ids.some((id) => !Number.isInteger(id) || id <= 0)) {
@@ -170,7 +171,7 @@ router.put("/access", async (req, res) => {
     try { await connection.rollback(); } catch {}
     handle(res, err);
   } finally {
-    connection.release();
+    connection?.release();
   }
 });
 

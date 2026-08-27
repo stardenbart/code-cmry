@@ -262,6 +262,8 @@ async function tanyakanKeModel({ tanya, dicurigai, jendela, domains, sumber }) {
       sumber,
       periode: `${jendela.mulaiTanggal} sampai ${jendela.selesaiTanggal}`,
       modelVersion: hasil.model,
+      provider: hasil.provider,
+      usage: hasil.usage || null,
       muatanByte: Buffer.byteLength(JSON.stringify(muatan), "utf8"),
     };
   } catch (err) {

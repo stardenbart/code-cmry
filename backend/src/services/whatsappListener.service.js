@@ -459,9 +459,25 @@ export function pasangListener(sock) {
 async function balas(sock, jid, msg, teks) {
   try {
     await sock.sendMessage(jid, { text: teks }, { quoted: msg });
+    return true;
   } catch (err) {
     console.error("[WA] gagal membalas:", err?.message || err);
+    return false;
   }
+}
+
+function tokenTelemetry(usage = {}) {
+  const inputTokens = Number(
+    usage.promptTokenCount ?? usage.inputTokens ?? usage.input_tokens ?? usage.prompt_tokens
+  ) || 0;
+  const outputTokens = Number(
+    usage.candidatesTokenCount ?? usage.outputTokens ?? usage.output_tokens ?? usage.completion_tokens
+  ) || 0;
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: Number(usage.totalTokenCount ?? usage.totalTokens ?? usage.total_tokens) || inputTokens + outputTokens,
+  };
 }
 
 /**
@@ -602,7 +618,13 @@ export async function jawabPertanyaanUmum(sock, jid, msg, teks, overrides = {}) 
     telemetry = null;
   }
 
-  await balas(sock, jid, msg, "Sebentar, saya cek datanya.");
+  const progressSent = await balas(sock, jid, msg, "Sebentar, saya cek datanya.");
+  if (!progressSent) {
+    await telemetry?.fail({ code: "WA_DELIVERY_FAILED" }, {
+      retrievalMethod: "none", latencyMs: Date.now() - mulai,
+    });
+    return;
+  }
 
   // AGEN DAX DICOBA LEBIH DULU. Ia memilih dashboard, menyusun query sendiri,
   // menjalankannya, lalu menganalisis hasilnya, jadi bisa menjawab pertanyaan
@@ -620,6 +642,13 @@ export async function jawabPertanyaanUmum(sock, jid, msg, teks, overrides = {}) 
     await balas(sock, jid, msg, "Maaf, CIA sedang gagal mengambil data. Silakan coba lagi.");
     return;
   }
+  for (const call of agen?.jejak?.ai || []) {
+    await telemetry?.event("ai_synthesis", {
+      provider: call.provider || null,
+      aiModel: call.model || null,
+      ...tokenTelemetry(call.usage),
+    });
+  }
   for (const query of agen?.jejak?.query || []) {
     await telemetry?.event("execute_dax", {
       semanticModel: query.model || null,
@@ -630,7 +659,13 @@ export async function jawabPertanyaanUmum(sock, jid, msg, teks, overrides = {}) 
     });
   }
   if (agen.berhasil) {
-    await balas(sock, jid, msg, agen.teks);
+    const sent = await balas(sock, jid, msg, agen.teks);
+    if (!sent) {
+      await telemetry?.fail({ code: "WA_DELIVERY_FAILED" }, {
+        retrievalMethod: "live_dax", latencyMs: Date.now() - mulai,
+      });
+      return;
+    }
     await telemetry?.event("response_sent");
     await telemetry?.finish({
       status: "success",
@@ -657,10 +692,10 @@ export async function jawabPertanyaanUmum(sock, jid, msg, teks, overrides = {}) 
   }
 
   if (!r.berhasil) {
-    await balas(sock, jid, msg,
+    const sent = await balas(sock, jid, msg,
       `Maaf, belum bisa saya jawab: ${r.alasan}. ` +
       "Untuk laporan lengkap, tag saya dengan kata update atau ringkasan.");
-    await telemetry?.fail({ code: "EMPTY_RESULT" }, {
+    await telemetry?.fail({ code: sent ? "EMPTY_RESULT" : "WA_DELIVERY_FAILED" }, {
       retrievalMethod: "none",
       latencyMs: Date.now() - mulai,
     });
@@ -669,9 +704,20 @@ export async function jawabPertanyaanUmum(sock, jid, msg, teks, overrides = {}) 
 
   // Periode DISEBUT di setiap jawaban. Tanpa itu, angka minggu lalu bisa terbaca
   // sebagai angka minggu ini, dan pembacanya tidak punya cara mengetahuinya.
-  await balas(sock, jid, msg, `${r.teks}
+  await telemetry?.event("ai_synthesis", {
+    provider: r.provider || null,
+    aiModel: r.modelVersion || null,
+    ...tokenTelemetry(r.usage),
+  });
+  const sent = await balas(sock, jid, msg, `${r.teks}
 
 _Berdasarkan data periode ${r.periode}._`);
+  if (!sent) {
+    await telemetry?.fail({ code: "WA_DELIVERY_FAILED" }, {
+      retrievalMethod: "snapshot", latencyMs: Date.now() - mulai,
+    });
+    return;
+  }
   await telemetry?.event("snapshot_read");
   await telemetry?.event("response_sent");
   await telemetry?.finish({
