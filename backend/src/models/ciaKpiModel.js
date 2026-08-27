@@ -375,4 +375,63 @@ export async function restoreRevision(id, revisionId, actorId = null, reason = "
   });
 }
 
-export { KpiError };
+// ── Binding helpers (dipakai import & sync) ─────────────────────────────────
+//
+// binding_key = SHA-256 dari enam bagian identitas binding. Deterministik dan
+// unik → dasar idempotensi: import/sync yang mengenai binding sama tidak pernah
+// menduplikasi baris.
+export function computeBindingKey({
+  dashboardId = null, semanticModel = null, tableName = null,
+  measureName = null, pageName = null, visualTitle = null,
+} = {}) {
+  const raw = [dashboardId, semanticModel, tableName, measureName, pageName, visualTitle]
+    .map((v) => String(v ?? "").trim().toLowerCase())
+    .join("|");
+  return crypto.createHash("sha256").update(raw, "utf8").digest("hex");
+}
+
+// Upsert satu binding. Pada duplikat: refresh last_seen_at, hidupkan lagi bila
+// sebelumnya missing, isi field teknis yang baru diketahui — TETAPI JANGAN
+// menurunkan verification_status yang sudah 'confirmed'/'rejected' oleh Admin.
+export async function upsertBinding(binding, conn = pool) {
+  const key = binding.bindingKey || computeBindingKey(binding);
+  // SELECT dulu untuk penentuan created yang deterministik: affectedRows dari
+  // ON DUPLICATE KEY UPDATE ambigu antar versi MySQL (1 untuk insert, 2 untuk
+  // update, 0 untuk no-op) sehingga tidak bisa diandalkan untuk menghitung
+  // "binding baru vs refresh".
+  const [existingRows] = await conn.query(
+    "SELECT id FROM cia_kpi_bindings WHERE binding_key = ? LIMIT 1", [key]);
+  const created = existingRows.length === 0;
+  await conn.query(
+    `INSERT INTO cia_kpi_bindings
+       (binding_key, kpi_id, dashboard_id, report_id, page_name, visual_title,
+        semantic_model, table_name, measure_name, display_caption, dimensions_json,
+        date_table, date_column, date_logic, source, verification_status,
+        first_seen_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered', NOW(), NOW())
+     ON DUPLICATE KEY UPDATE
+       last_seen_at    = NOW(),
+       missing_since   = NULL,
+       dashboard_id    = COALESCE(VALUES(dashboard_id), dashboard_id),
+       report_id       = COALESCE(VALUES(report_id), report_id),
+       page_name       = COALESCE(VALUES(page_name), page_name),
+       visual_title    = COALESCE(VALUES(visual_title), visual_title),
+       table_name      = COALESCE(VALUES(table_name), table_name),
+       display_caption = COALESCE(VALUES(display_caption), display_caption),
+       dimensions_json = COALESCE(VALUES(dimensions_json), dimensions_json),
+       date_table      = COALESCE(VALUES(date_table), date_table),
+       date_column     = COALESCE(VALUES(date_column), date_column),
+       date_logic      = COALESCE(VALUES(date_logic), date_logic),
+       verification_status = IF(verification_status IN ('confirmed','rejected'),
+                                verification_status, 'discovered')`,
+    [key, binding.kpiId, binding.dashboardId ?? null, binding.reportId ?? null,
+     binding.pageName ?? null, binding.visualTitle ?? null, binding.semanticModel ?? null,
+     binding.tableName ?? null, binding.measureName ?? null, binding.displayCaption ?? null,
+     binding.dimensions ? JSON.stringify(binding.dimensions) : null,
+     binding.dateTable ?? null, binding.dateColumn ?? null, binding.dateLogic ?? null,
+     binding.source ?? null]
+  );
+  return { key, created };
+}
+
+export { KpiError, slugify };

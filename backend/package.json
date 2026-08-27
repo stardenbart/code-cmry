@@ -7,6 +7,7 @@
     "dev": "nodemon src/server.js",
     "test": "node tests/run-all.mjs",
     "cia:backfill-telemetry": "node scripts/backfill-cia-telemetry.mjs",
+    "cia:import-kpis": "node scripts/import-cia-kpi-catalog.mjs",
     "wa:groups": "node scripts/wa-groups.mjs"
   },
   "dependencies": {
