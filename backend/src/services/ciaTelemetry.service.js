@@ -31,6 +31,14 @@ export function safeError(error) {
     return { code: "UNKNOWN", message: "Terjadi kesalahan yang tidak diketahui" };
   }
 
+  // Pemanggil boleh menyerahkan error yang SUDAH disanitasi (mis. wrapper
+  // permukaan yang mengklasifikasi dari HTTP status). Ditandai eksplisit supaya
+  // tidak tertukar dengan error mentah yang harus dinormalisasi di bawah.
+  if (error.__telemetrySafe === true &&
+      typeof error.code === "string" && typeof error.message === "string") {
+    return { code: error.code, message: error.message };
+  }
+
   const code = typeof error.code === "string" ? error.code : "";
   const msg = typeof error.message === "string" ? error.message : "";
   const status = Number(error?.response?.status) || null;

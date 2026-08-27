@@ -1,4 +1,6 @@
+import crypto from "crypto";
 import db from "../config/db.js";
+import { startCiaTelemetry } from "../services/ciaTelemetry.service.js";
 import { AiModel } from "../models/aiModel.js";
 import { maskSecret } from "../config/secretBox.js";
 import {
@@ -190,6 +192,84 @@ async function resolveKey(userId, requestedModel) {
 }
 
 // ── Controller ───────────────────────────────────────────────────────────────
+
+// Membungkus handler CIA yang sudah ada dengan telemetry best-effort TANPA
+// mengubah alurnya. res.json dibungkus sekali: requestId disisipkan ke body,
+// lalu status akhir diklasifikasi dari res.statusCode (>= 400 = gagal) sehingga
+// jalur sukses maupun jalur error yang membalas via res.status().json() sama-
+// sama tercatat benar. Exception yang benar-benar dilempar tetap dilempar ulang
+// supaya penanganan error lama tidak berubah. Deklarasi function (bukan const)
+// dipakai sengaja: ia ter-hoist sehingga bisa membungkus method di object
+// literal AiController di bawahnya.
+export function withCiaTelemetry(surface, handler, deps = {}) {
+  const starter = deps.startCiaTelemetry || startCiaTelemetry;
+  return async (req, res) => {
+    const requestId = crypto.randomUUID();
+    let telemetry = null;
+    try {
+      telemetry = await starter({
+        requestId,
+        surface,
+        user: req.dbUser || req.user,
+        question: req.body?.question,
+        conversationId: req.body?.conversationId || req.body?.conversation_id || null,
+      });
+    } catch {
+      // Memulai telemetry pun best-effort: kegagalannya tidak boleh terasa user.
+      telemetry = null;
+    }
+    req.ciaTelemetry = telemetry;
+    if (telemetry) Promise.resolve(telemetry.event("request_received")).catch(() => {});
+
+    const startedAt = Date.now();
+    const originalJson = res.json.bind(res);
+    let settled = false;
+
+    res.json = (payload) => {
+      const isPlainObject =
+        payload && typeof payload === "object" && !Array.isArray(payload);
+      const body = isPlainObject ? { ...payload, requestId } : payload;
+
+      if (!settled) {
+        settled = true;
+        if (telemetry) {
+          const latencyMs = Date.now() - startedAt;
+          if (res.statusCode >= 400) {
+            telemetry
+              .fail(
+                {
+                  __telemetrySafe: true,
+                  code: `HTTP_${res.statusCode}`,
+                  message: String(
+                    (isPlainObject && (payload.message || payload.error)) || "Permintaan gagal"
+                  ).slice(0, 500),
+                },
+                { latencyMs }
+              )
+              .catch(() => {});
+          } else {
+            Promise.resolve(telemetry.event("response_sent"))
+              .then(() =>
+                telemetry.finish({ status: "success", retrievalMethod: "snapshot", latencyMs })
+              )
+              .catch(() => {});
+          }
+        }
+      }
+      return originalJson(body);
+    };
+
+    try {
+      return await handler(req, res);
+    } catch (err) {
+      if (!settled) {
+        settled = true;
+        if (telemetry) telemetry.fail(err, { latencyMs: Date.now() - startedAt }).catch(() => {});
+      }
+      throw err;
+    }
+  };
+}
 
 export const AiController = {
   /** GET /api/ai/status — what the frontend needs to render the AI entry point. */
@@ -782,7 +862,7 @@ export const AiController = {
    * body: { dashboardId, question, snapshot, model?, useHistory? }
    * snapshot = data captured client-side from the embedded report's visuals.
    */
-  ask: async (req, res) => {
+  ask: withCiaTelemetry("dashboard", async (req, res) => {
     const {
       dashboardId, question, snapshot, model,
       useHistory = true,
@@ -837,6 +917,13 @@ export const AiController = {
             "Data dashboard belum berhasil dibaca. Tunggu sampai dashboard selesai loading lalu klik Refresh Data.",
         });
       }
+
+      // Best-effort, guarded (?.): tak pernah mengubah alur snapshot/DAX.
+      req.ciaTelemetry?.event("snapshot_read", {
+        dashboardId: dashboard.id,
+        dashboardName: dashboard.title,
+        rowsReturned: (snapshot?.visuals || []).reduce((s, v) => s + (v?.rows?.length || 0), 0),
+      }).catch?.(() => {});
 
       // ── Fase A: jawab dari snapshot, tanpa model ─────────────────────────
       //
@@ -1162,6 +1249,14 @@ export const AiController = {
 
       const quotaAfter = await aiQuota.summary(user.id, resolved.source).catch(() => quota);
 
+      req.ciaTelemetry?.event("ai_synthesis", {
+        provider: "gemini",
+        aiModel: result.model,
+        inputTokens: result.usage?.promptTokenCount || 0,
+        outputTokens: result.usage?.candidatesTokenCount || 0,
+        totalTokens: result.usage?.totalTokenCount || 0,
+      }).catch?.(() => {});
+
       res.json({
         answer,
         meta: {
@@ -1232,7 +1327,7 @@ export const AiController = {
 
       res.status(status).json({ message });
     }
-  },
+  }),
 
   /**
    * Dashboard mana yang relevan untuk sebuah pertanyaan, tanpa menarik datanya.
@@ -1302,7 +1397,7 @@ export const AiController = {
    * Snapshot diambil di browser user, bukan oleh server: embed Power BI beserta
    * tokennya hidup di sana.
    */
-  unifiedAsk: async (req, res) => {
+  unifiedAsk: withCiaTelemetry("multi_chat", async (req, res) => {
     try {
       const { question, conversationId: providedConvId, snapshots = [] } = req.body;
       const userId = req.user.id;
@@ -1355,6 +1450,13 @@ export const AiController = {
         if (dashboard) {
           snapshotResults.push({ dashboard, snapshot: snap.snapshot, dashboard_id: snap.dashboard_id });
         }
+      }
+
+      if (snapshotResults.length) {
+        req.ciaTelemetry?.event("snapshot_read", {
+          rowsReturned: snapshotResults.length,
+          metadata: { dashboards: snapshotResults.map((r) => r.dashboard_id) },
+        }).catch?.(() => {});
       }
 
       // Tidak ada snapshot: user bertanya tanpa memilih dashboard. Yang
@@ -1536,6 +1638,14 @@ export const AiController = {
       // membaca daftar sumber yang sama dua kali dalam satu gelembung.
       const formatted_answer = sanitizer.restore(result.text);
 
+      req.ciaTelemetry?.event("ai_synthesis", {
+        provider: "gemini",
+        aiModel: result.model || null,
+        inputTokens: result.usage?.promptTokenCount || 0,
+        outputTokens: result.usage?.candidatesTokenCount || 0,
+        totalTokens: result.usage?.totalTokenCount || 0,
+      }).catch?.(() => {});
+
       // Store turn in history
       await addTurn(conversationId, turnNumber, question, dashboardRefs, formatted_answer, {
         classifier: 0,
@@ -1565,5 +1675,5 @@ export const AiController = {
         message: error.message,
       });
     }
-  },
+  }),
 };
