@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Activity, ArrowLeft, HeartPulse, Settings, ShieldCheck, Users } from "lucide-react";
 import * as ciaAdminApi from "../../services/ciaAdminApi.js";
+import CiaAnalyticsFilters, { defaultDateRange } from "./CiaAnalyticsFilters.jsx";
+import CiaOverviewTab from "./CiaOverviewTab.jsx";
+import CiaUsageTab from "./CiaUsageTab.jsx";
+import CiaHealthTab from "./CiaHealthTab.jsx";
 
 const TABS = [
   { id: "overview", label: "Overview", icon: Activity },
@@ -11,15 +15,17 @@ const TABS = [
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-function LoadedSummary({ tab, data }) {
+const FILTER_KEYS = ["from", "to", "userId", "department", "dashboardId", "surface", "status", "retrievalMethod"];
+
+function LoadedContent({ tab, data, dimension, onDimensionChange }) {
   if (tab === "overview") {
-    return <p>{data?.totals?.requests || 0} request tercatat pada rentang aktif.</p>;
+    return <CiaOverviewTab data={data} />;
   }
   if (tab === "usage") {
-    return <p>{data?.series?.length || 0} titik waktu penggunaan tersedia.</p>;
+    return <CiaUsageTab data={data} dimension={dimension} onDimensionChange={onDimensionChange} />;
   }
   if (tab === "health") {
-    return <p>{data?.errorsByCode?.length || 0} jenis error retrieval tercatat.</p>;
+    return <CiaHealthTab data={data} />;
   }
   if (tab === "access") {
     return <p>{data?.total || 0} user tersedia untuk pengaturan akses CIA.</p>;
@@ -32,16 +38,32 @@ export default function CiaAdminPage() {
   const [params, setParams] = useSearchParams();
   const requestedTab = params.get("tab") || "overview";
   const tab = TABS.some((item) => item.id === requestedTab) ? requestedTab : "overview";
+  const defaults = useMemo(() => defaultDateRange(), []);
+  const filterSignature = FILTER_KEYS.map((key) => `${key}:${params.get(key) || ""}`).join("|");
+  const filters = useMemo(() => Object.fromEntries(FILTER_KEYS.map((key) => [
+    key,
+    params.get(key) || defaults[key] || "",
+  ])), [filterSignature, defaults]);
+  const dimension = params.get("dimension") || "surface";
   const [state, setState] = useState({ loading: true, data: null, error: "" });
+  const [filterOptions, setFilterOptions] = useState({});
   const [reload, setReload] = useState(0);
 
   const loader = useMemo(() => ({
-    overview: () => ciaAdminApi.getOverview(),
-    usage: () => ciaAdminApi.getUsage(),
-    health: () => ciaAdminApi.getHealth(),
+    overview: () => ciaAdminApi.getOverview(filters),
+    usage: () => ciaAdminApi.getUsage(filters, dimension),
+    health: () => ciaAdminApi.getHealth(filters),
     access: () => ciaAdminApi.getAccess(),
     settings: async () => ({}),
-  })[tab], [tab]);
+  })[tab], [tab, filterSignature, dimension]);
+
+  useEffect(() => {
+    let cancelled = false;
+    ciaAdminApi.getFilters(filters)
+      .then((data) => { if (!cancelled) setFilterOptions(data); })
+      .catch(() => { if (!cancelled) setFilterOptions({}); });
+    return () => { cancelled = true; };
+  }, [filterSignature]);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +83,21 @@ export default function CiaAdminPage() {
   const selectTab = useCallback((id) => {
     const next = new URLSearchParams(params);
     next.set("tab", id);
+    setParams(next);
+  }, [params, setParams]);
+
+  const applyFilters = useCallback((values) => {
+    const next = new URLSearchParams(params);
+    for (const key of FILTER_KEYS) {
+      if (values[key]) next.set(key, values[key]);
+      else next.delete(key);
+    }
+    setParams(next);
+  }, [params, setParams]);
+
+  const changeDimension = useCallback((value) => {
+    const next = new URLSearchParams(params);
+    next.set("dimension", value);
     setParams(next);
   }, [params, setParams]);
 
@@ -99,7 +136,11 @@ export default function CiaAdminPage() {
           ))}
         </nav>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        {["overview", "usage", "health"].includes(tab) && (
+          <CiaAnalyticsFilters value={filters} options={filterOptions} onApply={applyFilters} />
+        )}
+
+        <section>
           <h2 className="mb-3 text-lg font-semibold">{TABS.find((item) => item.id === tab)?.label}</h2>
           {state.loading && <p className="text-slate-500">Memuat data CIA...</p>}
           {state.error && (
@@ -114,7 +155,9 @@ export default function CiaAdminPage() {
               </button>
             </div>
           )}
-          {!state.loading && !state.error && <LoadedSummary tab={tab} data={state.data} />}
+          {!state.loading && !state.error && (
+            <LoadedContent tab={tab} data={state.data} dimension={dimension} onDimensionChange={changeDimension} />
+          )}
         </section>
       </div>
     </main>
