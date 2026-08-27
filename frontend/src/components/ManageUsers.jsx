@@ -3,7 +3,7 @@
   import { Trash2, RefreshCw, Edit, Search, ChevronDown, ShieldCheck } from "lucide-react";
 import PerfSummary from "./PerfSummary";
 import LazyBoundary from "./LazyBoundary";
-const VisualHarvestPanel = lazy(() => import("./VisualHarvestPanel"));
+// Visual Harvest dipindah ke Admin CIA > KPI Library (satu langkah dengan sync).
   // Ringan, tidak mengimpor SDK Power BI, tapi tetap lazy supaya konsisten dan
   // tidak menambah berat chunk Manage Users.
   const SummaryJobPanel = lazy(() => import("./SummaryJobPanel"));
@@ -257,10 +257,6 @@ import { useConfirm } from "./ConfirmProvider";
               kali admin membuka daftar user. */}
           <LazyBoundary>
             <SummaryJobPanel />
-          </LazyBoundary>
-
-          <LazyBoundary>
-            <VisualHarvestPanel />
           </LazyBoundary>
         </div>
 

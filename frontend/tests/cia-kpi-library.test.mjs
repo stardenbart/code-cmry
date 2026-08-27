@@ -6,6 +6,8 @@ const api = read("src/services/ciaAdminApi.js");
 const page = read("src/components/admin/CiaAdminPage.jsx");
 const tab = read("src/components/admin/CiaKpiLibraryTab.jsx");
 const editor = read("src/components/admin/CiaKpiEditor.jsx");
+const syncPanel = read("src/components/admin/CiaKpiSyncPanel.jsx");
+const manageUsers = read("src/components/ManageUsers.jsx");
 let failed = 0;
 const check = (name, cond) => { console.log(`  ${cond ? "PASS" : "FAIL"}  ${name}`); if (!cond) failed += 1; };
 
@@ -43,6 +45,18 @@ check("riwayat revisi tersedia", /getKpiRevisions/.test(editor));
 check("restore memanggil API restore", /restoreKpiRevision/.test(editor));
 check("restore membuat versi baru (bukan mundur)", /versi baru/i.test(editor));
 check("binding teknis read-only monospace", /read-only/i.test(editor) && /font-mono/.test(editor));
+
+console.log("\n=== Sync panel & pemindahan Visual Harvest ===");
+check("Manage Users tidak lagi memiliki Visual Harvest", !/VisualHarvestPanel/.test(manageUsers));
+check("KPI tab merender sync panel", /CiaKpiSyncPanel/.test(tab));
+check("sync panel: langkah 1 panen metadata visual", /Panen metadata visual/.test(syncPanel));
+check("sync panel: memuat VisualHarvestPanel", /VisualHarvestPanel/.test(syncPanel));
+check("sync panel: langkah 2 sinkronkan KPI Library", /Sinkronkan KPI Library/.test(syncPanel));
+check("sync panel: memulai sync", /startKpiSync/.test(syncPanel));
+check("sync panel: polling status 2 detik", /getKpiSyncStatus/.test(syncPanel) && /2000/.test(syncPanel));
+check("sync panel: tombol disabled saat running", /disabled=\{running\}/.test(syncPanel));
+check("sync panel: ringkasan created/refreshed/missing/error",
+  /Dibuat:/.test(syncPanel) && /Diperbarui:/.test(syncPanel) && /Missing:/.test(syncPanel) && /Error:/.test(syncPanel));
 
 console.log(failed === 0 ? "\nSemua lulus" : `\n${failed} gagal`);
 process.exit(failed === 0 ? 0 : 1);

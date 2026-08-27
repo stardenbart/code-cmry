@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import * as ciaAdminApi from "../../services/ciaAdminApi.js";
 import CiaKpiEditor from "./CiaKpiEditor.jsx";
+import CiaKpiSyncPanel from "./CiaKpiSyncPanel.jsx";
 
 // Tab KPI Library. Human name = teks utama; measure teknis = teks sekunder
 // monospace. Deep-link ke detail lewat ?kpiId=<id>. Filter: search, domain,
@@ -54,6 +55,7 @@ export default function CiaKpiLibraryTab() {
 
   return (
     <div>
+      <CiaKpiSyncPanel />
       <div className="mb-4 flex flex-wrap items-end gap-2">
         <label className="text-sm">Cari KPI
           <input name="q" value={draft.q} onKeyDown={onKey}
