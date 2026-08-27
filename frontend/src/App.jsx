@@ -402,6 +402,12 @@ function Dashboard({ user, onLogout }) {
   const [dashboards, setDashboards]       = useState({});
   const navigate = useNavigate();
 
+  useEffect(() => {
+    if (user?.role !== "admin" || !window.location.search.includes("open=cia-settings")) return;
+    setShowAISettings(true);
+    navigate("/App", { replace: true });
+  }, [navigate, user?.role]);
+
   const fetchDashboards = async () => {
     try {
       const res = await API.get("/api/dashboards");

@@ -41,3 +41,7 @@ export async function updateAccess(userId, enabled) {
     enabled: Boolean(enabled),
   })).data;
 }
+
+export async function getSettings() {
+  return (await API.get(`${BASE}/settings`)).data;
+}

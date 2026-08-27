@@ -54,6 +54,7 @@ try {
     ["GET", "/api/admin/cia/health"],
     ["GET", "/api/admin/cia/filters"],
     ["GET", "/api/admin/cia/access"],
+    ["GET", "/api/admin/cia/settings"],
   ];
 
   section("Tanpa token -> 401");
@@ -101,6 +102,15 @@ try {
       ok("access 200", access.status === 200, `dapat ${access.status}`);
       ok("access mengembalikan daftar user", Array.isArray(access.body?.users));
       ok("access tidak membocorkan password", JSON.stringify(access.body || {}).indexOf("password") === -1);
+
+      const settings = await call("GET", "/api/admin/cia/settings", { token });
+      ok("settings 200", settings.status === 200, `dapat ${settings.status}`);
+      ok("settings mengembalikan feature flags boolean",
+        typeof settings.body?.flags?.CIA_TELEMETRY_ENABLED === "boolean" &&
+        typeof settings.body?.flags?.CIA_ADMIN_ANALYTICS_ENABLED === "boolean");
+      ok("settings mengembalikan timezone efektif", typeof settings.body?.timezone === "string");
+      ok("settings tidak membocorkan secret",
+        !/(api.?key|password|secret|token)/i.test(JSON.stringify(settings.body || {})));
     }
 
     section("Dimensi injeksi -> 400 (bukan 500)");

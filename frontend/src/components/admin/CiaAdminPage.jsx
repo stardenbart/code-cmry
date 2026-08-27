@@ -6,6 +6,8 @@ import CiaAnalyticsFilters, { defaultDateRange } from "./CiaAnalyticsFilters.jsx
 import CiaOverviewTab from "./CiaOverviewTab.jsx";
 import CiaUsageTab from "./CiaUsageTab.jsx";
 import CiaHealthTab from "./CiaHealthTab.jsx";
+import CiaAccessTab from "./CiaAccessTab.jsx";
+import CiaSettingsTab from "./CiaSettingsTab.jsx";
 
 const TABS = [
   { id: "overview", label: "Overview", icon: Activity },
@@ -17,7 +19,7 @@ const TABS = [
 
 const FILTER_KEYS = ["from", "to", "userId", "department", "dashboardId", "surface", "status", "retrievalMethod"];
 
-function LoadedContent({ tab, data, dimension, onDimensionChange }) {
+function LoadedContent({ tab, data, dimension, onDimensionChange, onOpenProvider }) {
   if (tab === "overview") {
     return <CiaOverviewTab data={data} />;
   }
@@ -28,9 +30,9 @@ function LoadedContent({ tab, data, dimension, onDimensionChange }) {
     return <CiaHealthTab data={data} />;
   }
   if (tab === "access") {
-    return <p>{data?.total || 0} user tersedia untuk pengaturan akses CIA.</p>;
+    return <CiaAccessTab data={data} />;
   }
-  return <p>Konfigurasi CIA ditampilkan sebagai nilai runtime read-only.</p>;
+  return <CiaSettingsTab data={data} onOpenProvider={onOpenProvider} />;
 }
 
 export default function CiaAdminPage() {
@@ -54,7 +56,7 @@ export default function CiaAdminPage() {
     usage: () => ciaAdminApi.getUsage(filters, dimension),
     health: () => ciaAdminApi.getHealth(filters),
     access: () => ciaAdminApi.getAccess(),
-    settings: async () => ({}),
+    settings: () => ciaAdminApi.getSettings(),
   })[tab], [tab, filterSignature, dimension]);
 
   useEffect(() => {
@@ -156,7 +158,13 @@ export default function CiaAdminPage() {
             </div>
           )}
           {!state.loading && !state.error && (
-            <LoadedContent tab={tab} data={state.data} dimension={dimension} onDimensionChange={changeDimension} />
+            <LoadedContent
+              tab={tab}
+              data={state.data}
+              dimension={dimension}
+              onDimensionChange={changeDimension}
+              onOpenProvider={() => navigate("/App?open=cia-settings")}
+            />
           )}
         </section>
       </div>

@@ -27,6 +27,21 @@ function handle(res, err) {
   return res.status(500).json({ message: "Gagal memuat data analytics CIA" });
 }
 
+function envFlag(name) {
+  return /^(1|true|yes|on)$/i.test(String(process.env[name] || ""));
+}
+
+router.get("/settings", (_req, res) => {
+  res.json({
+    flags: {
+      CIA_TELEMETRY_ENABLED: envFlag("CIA_TELEMETRY_ENABLED"),
+      CIA_ADMIN_ANALYTICS_ENABLED: envFlag("CIA_ADMIN_ANALYTICS_ENABLED"),
+    },
+    timezone: process.env.SCHEDULER_TIMEZONE || "Asia/Jakarta",
+    maxAnalyticsRangeDays: 366,
+  });
+});
+
 router.get("/overview", async (req, res) => {
   try {
     const filters = normalizeAnalyticsFilters(req.query);

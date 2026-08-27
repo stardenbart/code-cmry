@@ -142,4 +142,5 @@ export const ROUTE_CLASSIFICATION = new Map([
   ["GET /api/admin/cia/requests/:requestId", "adminOnly"],
   ["GET /api/admin/cia/access", "adminOnly"],
   ["PUT /api/admin/cia/access/:userId", "adminOnly"],
+  ["GET /api/admin/cia/settings", "adminOnly"],
 ]);
