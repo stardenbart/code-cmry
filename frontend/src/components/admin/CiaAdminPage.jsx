@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Activity, ArrowLeft, HeartPulse, Settings, ShieldCheck, Users } from "lucide-react";
+import { Activity, ArrowLeft, HeartPulse, Library, Settings, ShieldCheck, Users } from "lucide-react";
 import * as ciaAdminApi from "../../services/ciaAdminApi.js";
 import CiaAnalyticsFilters, { defaultDateRange } from "./CiaAnalyticsFilters.jsx";
 import CiaOverviewTab from "./CiaOverviewTab.jsx";
@@ -8,14 +8,20 @@ import CiaUsageTab from "./CiaUsageTab.jsx";
 import CiaHealthTab from "./CiaHealthTab.jsx";
 import CiaAccessTab from "./CiaAccessTab.jsx";
 import CiaSettingsTab from "./CiaSettingsTab.jsx";
+import CiaKpiLibraryTab from "./CiaKpiLibraryTab.jsx";
 
 const TABS = [
   { id: "overview", label: "Overview", icon: Activity },
   { id: "usage", label: "Usage Analytics", icon: Users },
   { id: "health", label: "Retrieval Health", icon: HeartPulse },
+  { id: "kpi", label: "KPI Library", icon: Library },
   { id: "access", label: "CIA Access", icon: ShieldCheck },
   { id: "settings", label: "Settings", icon: Settings },
 ];
+
+// Tab yang selalu tersedia walau analytics dimatikan (mengelola KPI & akses
+// tidak bergantung pada CIA_ADMIN_ANALYTICS_ENABLED).
+const ALWAYS_TABS = ["kpi", "access", "settings"];
 
 const FILTER_KEYS = [
   "from", "to", "userId", "department", "dashboardId", "surface", "status",
@@ -32,6 +38,9 @@ function LoadedContent({ tab, data, dimension, onDimensionChange, onOpenProvider
   if (tab === "health") {
     return <CiaHealthTab data={data} />;
   }
+  if (tab === "kpi") {
+    return <CiaKpiLibraryTab />;
+  }
   if (tab === "access") {
     return <CiaAccessTab data={data} />;
   }
@@ -46,7 +55,7 @@ export default function CiaAdminPage() {
   const analyticsEnabled = runtime?.flags?.CIA_ADMIN_ANALYTICS_ENABLED !== false;
   const availableTabs = analyticsEnabled
     ? TABS
-    : TABS.filter((item) => ["access", "settings"].includes(item.id));
+    : TABS.filter((item) => ALWAYS_TABS.includes(item.id));
   const tab = availableTabs.some((item) => item.id === requestedTab)
     ? requestedTab
     : (analyticsEnabled ? "overview" : "access");
@@ -65,6 +74,8 @@ export default function CiaAdminPage() {
     overview: () => ciaAdminApi.getOverview(filters),
     usage: () => ciaAdminApi.getUsage(filters, dimension),
     health: () => ciaAdminApi.getHealth(filters),
+    // Tab KPI mengambil datanya sendiri (list/detail/sync); page loader no-op.
+    kpi: () => Promise.resolve(null),
     access: () => ciaAdminApi.getAccess(),
     settings: () => runtime ? Promise.resolve(runtime) : ciaAdminApi.getSettings(),
   })[tab], [tab, filterSignature, dimension, runtime]);

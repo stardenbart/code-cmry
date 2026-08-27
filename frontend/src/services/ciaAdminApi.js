@@ -52,3 +52,44 @@ export async function updateAccessBulk(userIds, enabled) {
 export async function getSettings() {
   return (await API.get(`${BASE}/settings`)).data;
 }
+
+// ── KPI Library ─────────────────────────────────────────────────────────────
+export async function listKpis(filters) {
+  return (await API.get(`${BASE}/kpis${query(filters)}`)).data;
+}
+
+export async function getKpiDetail(id) {
+  return (await API.get(`${BASE}/kpis/${encodeURIComponent(id)}`)).data;
+}
+
+export async function createKpi(payload) {
+  return (await API.post(`${BASE}/kpis`, payload)).data;
+}
+
+// payload wajib memuat reason non-kosong (divalidasi server juga).
+export async function updateKpi(id, payload) {
+  return (await API.put(`${BASE}/kpis/${encodeURIComponent(id)}`, payload)).data;
+}
+
+export async function confirmKpi(id, reason) {
+  return (await API.post(`${BASE}/kpis/${encodeURIComponent(id)}/confirm`, { reason })).data;
+}
+
+export async function getKpiRevisions(id) {
+  return (await API.get(`${BASE}/kpis/${encodeURIComponent(id)}/revisions`)).data;
+}
+
+export async function restoreKpiRevision(id, revisionId, reason) {
+  return (await API.post(
+    `${BASE}/kpis/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/restore`,
+    { reason },
+  )).data;
+}
+
+export async function startKpiSync(dashboardIds) {
+  return (await API.post(`${BASE}/kpis/sync`, { dashboardIds: dashboardIds || null })).data;
+}
+
+export async function getKpiSyncStatus(runId) {
+  return (await API.get(`${BASE}/kpis/sync/${encodeURIComponent(runId)}`)).data;
+}
