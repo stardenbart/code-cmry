@@ -42,8 +42,16 @@ const { listApiRoutes } = await import("../src/routeInventory.js");
 process.env.SKIP_SERVER_LISTEN = "true";
 const { app } = await import("../src/server.js");
 const jalurApi = listApiRoutes(app).map((r) => r.path);
+// Yang dijaga: denyut nadi pengawas TIDAK boleh pindah ke bawah /api (di sana
+// defaultDeny akan menutupnya). Namespace Admin CIA dikecualikan: rute
+// /api/admin/cia/health adalah "Retrieval Health" — analitik kesehatan
+// retrieval yang dijaga requireAdmin, sama sekali bukan endpoint heartbeat, dan
+// memang seharusnya berada di balik /api.
+const healthDiApi = jalurApi.filter(
+  (p) => p.includes("health") && !p.startsWith("/api/admin/cia/")
+);
 ok(
-  "tidak ada /api/health yang terdaftar",
-  !jalurApi.some((p) => p.includes("health")),
-  jalurApi.filter((p) => p.includes("health")).join(", ")
+  "tidak ada /api/health (heartbeat) yang terdaftar di bawah /api",
+  healthDiApi.length === 0,
+  healthDiApi.join(", ")
 );

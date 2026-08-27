@@ -15,6 +15,7 @@ import userRoutes from "./routes/userRoutes.js";
 import summaryRoutes from "./routes/summaryRoutes.js";
 import { daftarkanScheduler } from "./config/scheduler.js";
 import perfRoutes from "./routes/perfRoutes.js";
+import adminCiaRoutes from "./routes/adminCiaRoutes.js";
 import { SERVER_CONFIG } from "./config/config.js";
 import { getEmbedConfig, getEmbedConfigByReportId } from "./config/powerbi.js";
 import { verifyJWT } from "./middleware/auth.js";
@@ -77,6 +78,8 @@ app.use("/api/report-setting", reportSettingRoutes);
 app.use("/api", userRoutes);
 app.use("/api/perf", perfRoutes);
 app.use("/api/summary", summaryRoutes);
+// Control-plane Admin CIA. requireAdmin dipasang di dalam router-nya sendiri.
+app.use("/api/admin/cia", adminCiaRoutes);
 
 // REGISTER
 app.post("/api/register", async (req, res) => {

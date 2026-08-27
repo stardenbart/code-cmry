@@ -132,4 +132,14 @@ export const ROUTE_CLASSIFICATION = new Map([
   ["POST /api/summary/send", "adminOnly"],
   ["POST /api/summary/run-and-send", "adminOnly"],
   ["GET /api/summary/job-status", "adminOnly"],
+
+  // Control-plane Admin CIA. Semuanya adminOnly: analytics penggunaan seluruh
+  // kanal, trace request, dan pengelolaan hak akses CIA per user.
+  ["GET /api/admin/cia/overview", "adminOnly"],
+  ["GET /api/admin/cia/usage", "adminOnly"],
+  ["GET /api/admin/cia/health", "adminOnly"],
+  ["GET /api/admin/cia/filters", "adminOnly"],
+  ["GET /api/admin/cia/requests/:requestId", "adminOnly"],
+  ["GET /api/admin/cia/access", "adminOnly"],
+  ["PUT /api/admin/cia/access/:userId", "adminOnly"],
 ]);
