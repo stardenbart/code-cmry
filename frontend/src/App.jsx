@@ -33,6 +33,7 @@ const AISettingsModal     = lazy(() => import("./components/AISettingsModal"));
 const ReportSettingModal  = lazy(() => import("./components/ReportSettingModal"));
 const CodeAINavigator     = lazy(() => import("./components/CodeAINavigator"));
 const UnifiedChatPage     = lazy(() => import("./components/UnifiedChatPage"));
+const CiaAdminPage        = lazy(() => import("./components/admin/CiaAdminPage"));
 // Membawa DOMPurify (~30 KB). Hanya deskripsi dashboard yang perlu disanitasi,
 // dan itu tidak pernah tampil di halaman login.
 const SafeHtml            = lazy(() => import("./components/SafeHtml"));
@@ -854,6 +855,17 @@ export default function App() {
         element={
           isAdmin(user)
             ? <LandingPageManager />
+            : user
+              ? <Navigate to="/App" replace />
+              : <Navigate to="/login" replace />
+        }
+      />
+
+      <Route
+        path="/admin/cia"
+        element={
+          isAdmin(user)
+            ? <CiaAdminPage />
             : user
               ? <Navigate to="/App" replace />
               : <Navigate to="/login" replace />

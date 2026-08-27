@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   UserPlus, Users, KeyRound, LogOut, LayoutDashboard, Home,
-  Menu, MoreVertical, Globe, Sparkles, CalendarClock, MessageSquare
+  Menu, MoreVertical, Globe, Sparkles, CalendarClock, MessageSquare, Activity
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -100,6 +100,8 @@ export default function Header({
                   color="bg-purple-500 hover:bg-purple-600" tooltip="Dashboard Manager" />
                 <IconButton onClick={() => navigate("/portal-manager")} icon={Globe}
                   color="bg-teal-500 hover:bg-teal-600" tooltip="Portal Link Manager" />
+                <IconButton onClick={() => navigate("/admin/cia")} icon={Activity}
+                  color="bg-sky-500 hover:bg-sky-600" tooltip="Admin CIA" />
                 <IconButton onClick={onAddUserClick} icon={UserPlus}
                   color="bg-green-500 hover:bg-green-600" tooltip="Add User" />
                 <IconButton onClick={onManageUserClick} icon={Users}
@@ -154,6 +156,8 @@ export default function Header({
                       label="Admin Dashboard" color="hover:bg-purple-600/60" />
                     <MobileAction onClick={() => navigate("/portal-manager")} icon={Globe}
                       label="Portal Link Manager" color="hover:bg-teal-600/60" />
+                    <MobileAction onClick={() => navigate("/admin/cia")} icon={Activity}
+                      label="Admin CIA" color="hover:bg-sky-600/60" />
                     <MobileAction onClick={onAddUserClick} icon={UserPlus}
                       label="Add User" color="hover:bg-green-600/60" />
                     <MobileAction onClick={onManageUserClick} icon={Users}
