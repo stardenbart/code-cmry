@@ -20,8 +20,15 @@ const fixtures = [
     measures: ["NC_CMD3_TOP"], unit: "", dateLogic: "harian", notes: "penjelasan issue deviasi" },
   { domain: "planning", kpi: "Akurasi PO dan Forecast", modelName: "Dashboard PPIC",
     measures: ["PO_ACC"], unit: "%", dateLogic: "bulanan" },
+  // Katalog nyata kadang menaruh PROSA di field unit ("satuannya belum
+  // dipastikan..."), lebih panjang dari kolom VARCHAR(40). Import tidak boleh
+  // gagal karenanya.
+  { domain: "maintenance", kpi: "Top mesin downtime tertinggi (uji unit panjang RDR)",
+    modelName: "Maintenance Downtime", measures: ["DT_TECH_HR"],
+    unit: "menit atau jam, satuannya belum dipastikan pemilik", dateLogic: "harian" },
 ];
-const slugs = ["cost-jam-lembur", "quality-kategori-nc-tertinggi-cmd-3", "planning-akurasi-po-dan-forecast"];
+const slugs = ["cost-jam-lembur", "quality-kategori-nc-tertinggi-cmd-3", "planning-akurasi-po-dan-forecast",
+  "maintenance-top-mesin-downtime-tertinggi-uji-unit-panjang-rdr"];
 
 async function cleanup() {
   for (const s of slugs) await sql.query("DELETE FROM cia_kpis WHERE slug = ?", [s]);
@@ -32,7 +39,7 @@ try {
 
   section("buildImportPlan: mapping deterministik");
   const plan = buildImportPlan(fixtures);
-  ok("tiga KPI terpetakan", plan.length === 3, String(plan.length));
+  ok("empat KPI terpetakan", plan.length === 4, String(plan.length));
 
   const lembur = plan.find((p) => p.slug === "cost-jam-lembur");
   ok("human name lembur = 'Jam lembur'", lembur.humanName === "Jam lembur", lembur.humanName);
@@ -53,21 +60,28 @@ try {
 
   section("applyImport idempoten (dua kali tanpa duplikat)");
   const r1 = await applyImport(plan, null);
-  ok("run pertama membuat 3 KPI", r1.kpisCreated === 3, JSON.stringify(r1));
-  ok("run pertama membuat 4 binding", r1.bindingsCreated === 4, JSON.stringify(r1));
+  ok("run pertama membuat 4 KPI", r1.kpisCreated === 4, JSON.stringify(r1));
+  ok("run pertama membuat 5 binding", r1.bindingsCreated === 5, JSON.stringify(r1));
 
   const r2 = await applyImport(plan, null);
   ok("run kedua tidak membuat KPI baru", r2.kpisCreated === 0, JSON.stringify(r2));
   ok("run kedua tidak membuat binding baru", r2.bindingsCreated === 0, JSON.stringify(r2));
 
-  const [kpiCount] = await sql.query(
-    `SELECT COUNT(*) AS n FROM cia_kpis WHERE slug IN (?, ?, ?)`, slugs);
-  ok("tetap 3 KPI di database", Number(kpiCount[0].n) === 3, String(kpiCount[0].n));
+  const ph = slugs.map(() => "?").join(", ");
+  const [kpiCount] = await sql.query(`SELECT COUNT(*) AS n FROM cia_kpis WHERE slug IN (${ph})`, slugs);
+  ok("tetap 4 KPI di database", Number(kpiCount[0].n) === 4, String(kpiCount[0].n));
 
   const [bindCount] = await sql.query(
     `SELECT COUNT(*) AS n FROM cia_kpi_bindings b
-       JOIN cia_kpis k ON k.id = b.kpi_id WHERE k.slug IN (?, ?, ?)`, slugs);
-  ok("tetap 4 binding di database", Number(bindCount[0].n) === 4, String(bindCount[0].n));
+       JOIN cia_kpis k ON k.id = b.kpi_id WHERE k.slug IN (${ph})`, slugs);
+  ok("tetap 5 binding di database", Number(bindCount[0].n) === 5, String(bindCount[0].n));
+
+  section("unit prosa panjang di-clamp <= 40, import tidak gagal");
+  const [longUnit] = await sql.query(
+    "SELECT unit FROM cia_kpis WHERE slug = ?",
+    ["maintenance-top-mesin-downtime-tertinggi-uji-unit-panjang-rdr"]);
+  ok("KPI unit panjang tetap terimport", longUnit.length === 1, String(longUnit.length));
+  ok("unit di-clamp <= 40 karakter", (longUnit[0].unit || "").length <= 40, String((longUnit[0].unit||"").length));
 } finally {
   await cleanup();
 }

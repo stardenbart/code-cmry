@@ -34,9 +34,18 @@ function uniqueStrings(list) {
   return out;
 }
 
+// Sebagian entri katalog menaruh prosa pada field pendek (mis. unit berisi
+// "satuannya belum dipastikan pemilik"). Clamp ke lebar kolom supaya import
+// tidak gagal; Admin merapikan kemudian.
+function clamp(value, max) {
+  if (value == null) return null;
+  const s = String(value).trim();
+  return s ? s.slice(0, max) : null;
+}
+
 export function buildImportPlan(catalog = KATALOG_KPI) {
   return catalog.map((entry) => {
-    const humanName = String(entry.kpi || "").trim();
+    const humanName = clamp(entry.kpi, 200) || "";
     const measures = Array.isArray(entry.measures) ? entry.measures : [];
     return {
       slug: slugify(`${entry.domain || ""}-${humanName}`),
@@ -49,8 +58,8 @@ export function buildImportPlan(catalog = KATALOG_KPI) {
       definition: String(entry.notes || ""),
       businessFunction: "",
       answerableQuestions: [],
-      domain: entry.domain || null,
-      unit: entry.unit || null,
+      domain: clamp(entry.domain, 60),
+      unit: clamp(entry.unit, 40),
       status: "draft",
       source: "catalog_import",
       dateLogic: entry.dateLogic || null,
