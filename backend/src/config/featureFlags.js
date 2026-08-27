@@ -6,3 +6,4 @@ export function envFlag(name, fallback = false) {
 
 export const ciaTelemetryEnabled = () => envFlag("CIA_TELEMETRY_ENABLED");
 export const ciaAdminAnalyticsEnabled = () => envFlag("CIA_ADMIN_ANALYTICS_ENABLED");
+export const ciaKpiLibraryEnabled = () => envFlag("CIA_KPI_LIBRARY_ENABLED");

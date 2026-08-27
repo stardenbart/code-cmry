@@ -79,18 +79,32 @@ async function buildKpiResolver() {
   return map;
 }
 
-export async function syncKpiBindings({ actorId = null, dashboardIds = null, inventory = null } = {}) {
+export async function createSyncRun(actorId = null) {
+  const runUuid = crypto.randomUUID();
+  const [runIns] = await pool.query(
+    "INSERT INTO cia_kpi_sync_runs (run_uuid, status, actor_id) VALUES (?, 'running', ?)",
+    [runUuid, actorId]);
+  return { runDbId: runIns.insertId, runUuid };
+}
+
+// Ada sync yang masih berjalan? (jendela 10 menit supaya run yang crash tidak
+// mengunci selamanya). Route memakai ini untuk membalas 409.
+export async function hasActiveSyncRun() {
+  const [rows] = await pool.query(
+    `SELECT id FROM cia_kpi_sync_runs
+      WHERE status = 'running' AND started_at > (NOW() - INTERVAL 10 MINUTE) LIMIT 1`);
+  return rows.length > 0;
+}
+
+// Jalankan reconcile untuk run yang SUDAH dibuat. Dipisah dari createSyncRun
+// supaya route bisa membalas 202 { runId } lalu membiarkan pekerjaan berjalan di
+// background.
+export async function runSync(runDbId, runUuid, { dashboardIds = null, inventory = null } = {}) {
   const inv = inventory || {
     listDashboards: defaultListDashboards,
     listVisualFields: defaultListVisualFields,
     measureIndex: defaultMeasureIndex,
   };
-
-  const runUuid = crypto.randomUUID();
-  const [runIns] = await pool.query(
-    "INSERT INTO cia_kpi_sync_runs (run_uuid, status, actor_id) VALUES (?, 'running', ?)",
-    [runUuid, actorId]);
-  const runDbId = runIns.insertId;
 
   const result = {
     runId: runUuid, startedAt: new Date(), finishedAt: null, status: "running",
@@ -205,6 +219,12 @@ export async function syncKpiBindings({ actorId = null, dashboardIds = null, inv
      result.errors.length ? JSON.stringify(result.errors) : null, runDbId]
   );
   return result;
+}
+
+// Bungkus lengkap: buat run lalu jalankan. Dipakai uji & pemanggilan sinkron.
+export async function syncKpiBindings(opts = {}) {
+  const { runDbId, runUuid } = await createSyncRun(opts.actorId ?? null);
+  return runSync(runDbId, runUuid, opts);
 }
 
 export async function getSyncRun(runUuid) {

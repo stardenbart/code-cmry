@@ -13,6 +13,12 @@ import {
   getRetrievalHealth, getFilterOptions, getRequestTrace, AnalyticsValidationError,
 } from "../services/ciaAdminAnalytics.service.js";
 import { ciaAdminAnalyticsEnabled, envFlag } from "../config/featureFlags.js";
+import {
+  listKpis, getKpi, createKpi, updateKpi, confirmKpi, listRevisions, restoreRevision,
+} from "../models/ciaKpiModel.js";
+import {
+  createSyncRun, runSync, getSyncRun, hasActiveSyncRun,
+} from "../services/ciaKpiSync.service.js";
 
 const sql = db.promise();
 const router = express.Router();
@@ -23,10 +29,16 @@ function handle(res, err) {
   if (err instanceof AnalyticsValidationError) {
     return res.status(400).json({ message: err.message, code: err.code });
   }
+  // Error domain (KpiError dll) membawa statusCode + code yang aman ditampilkan.
+  if (err && Number.isInteger(err.statusCode) && err.statusCode < 500) {
+    return res.status(err.statusCode).json({ message: err.message, code: err.code });
+  }
   // Log kode/pesan singkat saja — tidak pernah objek error mentah.
   console.error("❌ admin cia error:", err?.code || err?.message);
   return res.status(500).json({ message: "Gagal memuat data analytics CIA" });
 }
+
+function actorId(req) { return req.dbUser?.id ?? req.user?.id ?? null; }
 
 router.get("/settings", (_req, res) => {
   res.json({
@@ -195,6 +207,112 @@ router.put("/access/:userId", async (req, res) => {
       return res.status(404).json({ message: "User tidak ditemukan" });
     }
     res.json({ userId, ciaAccess: enabled });
+  } catch (err) { handle(res, err); }
+});
+
+// ── KPI Library ─────────────────────────────────────────────────────────────
+// Manajemen KPI tersedia untuk Admin terlepas dari CIA_KPI_LIBRARY_ENABLED
+// (flag itu mengatur read-through reader, bukan hak kelola). Semua tetap
+// requireAdmin lewat router.use di atas.
+
+router.get("/kpis", async (req, res) => {
+  try {
+    res.json(await listKpis({
+      q: req.query.q, domain: req.query.domain, status: req.query.status,
+      dashboardId: req.query.dashboardId, limit: req.query.limit, offset: req.query.offset,
+    }));
+  } catch (err) { handle(res, err); }
+});
+
+router.post("/kpis", async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!b.humanName || !String(b.humanName).trim()) {
+      return res.status(400).json({ message: "humanName wajib diisi" });
+    }
+    const kpi = await createKpi(b, actorId(req), b.reason);
+    res.status(201).json(kpi);
+  } catch (err) { handle(res, err); }
+});
+
+// sync didaftarkan SEBELUM :id agar "/kpis/sync/:runId" tidak tertangkap :id.
+router.post("/kpis/sync", async (req, res) => {
+  try {
+    if (await hasActiveSyncRun()) {
+      return res.status(409).json({ message: "Sync KPI masih berjalan", code: "SYNC_RUNNING" });
+    }
+    const dashboardIds = Array.isArray(req.body?.dashboardIds) ? req.body.dashboardIds : null;
+    const { runDbId, runUuid } = await createSyncRun(actorId(req));
+    // Background: jangan menahan HTTP sampai seluruh dashboard selesai. Catch
+    // terpasang supaya kegagalan tidak menjadi unhandled rejection.
+    runSync(runDbId, runUuid, { dashboardIds }).catch((err) => {
+      console.error("❌ cia kpi sync gagal:", err?.code || err?.message);
+    });
+    res.status(202).json({ runId: runUuid, status: "running" });
+  } catch (err) { handle(res, err); }
+});
+
+router.get("/kpis/sync/:runId", async (req, res) => {
+  try {
+    const run = await getSyncRun(String(req.params.runId));
+    if (!run) return res.status(404).json({ message: "Sync run tidak ditemukan" });
+    res.json(run);
+  } catch (err) { handle(res, err); }
+});
+
+router.get("/kpis/:id", async (req, res) => {
+  try {
+    const kpi = await getKpi(Number(req.params.id));
+    if (!kpi) return res.status(404).json({ message: "KPI tidak ditemukan" });
+    res.json(kpi);
+  } catch (err) { handle(res, err); }
+});
+
+router.put("/kpis/:id", async (req, res) => {
+  try {
+    const { reason, expectedVersion, ...patch } = req.body || {};
+    if (!reason || !String(reason).trim()) {
+      return res.status(400).json({ message: "reason wajib diisi", code: "REASON_REQUIRED" });
+    }
+    // Validasi tipe field array sebelum menyentuh DB.
+    for (const f of ["synonyms", "answerableQuestions"]) {
+      if (patch[f] !== undefined && !Array.isArray(patch[f])) {
+        return res.status(400).json({ message: `Field '${f}' harus array`, code: "INVALID_TYPE" });
+      }
+    }
+    const kpi = await updateKpi(Number(req.params.id), patch, actorId(req), reason, { expectedVersion });
+    res.json(kpi);
+  } catch (err) { handle(res, err); }
+});
+
+router.post("/kpis/:id/confirm", async (req, res) => {
+  try {
+    const { reason } = req.body || {};
+    if (!reason || !String(reason).trim()) {
+      return res.status(400).json({ message: "reason wajib diisi", code: "REASON_REQUIRED" });
+    }
+    const kpi = await confirmKpi(Number(req.params.id), actorId(req), reason);
+    res.json(kpi);
+  } catch (err) { handle(res, err); }
+});
+
+router.get("/kpis/:id/revisions", async (req, res) => {
+  try {
+    const kpi = await getKpi(Number(req.params.id));
+    if (!kpi) return res.status(404).json({ message: "KPI tidak ditemukan" });
+    res.json(await listRevisions(Number(req.params.id)));
+  } catch (err) { handle(res, err); }
+});
+
+router.post("/kpis/:id/revisions/:revisionId/restore", async (req, res) => {
+  try {
+    const { reason } = req.body || {};
+    if (!reason || !String(reason).trim()) {
+      return res.status(400).json({ message: "reason wajib diisi", code: "REASON_REQUIRED" });
+    }
+    const kpi = await restoreRevision(
+      Number(req.params.id), Number(req.params.revisionId), actorId(req), reason);
+    res.json(kpi);
   } catch (err) { handle(res, err); }
 });
 

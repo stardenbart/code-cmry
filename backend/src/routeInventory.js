@@ -144,4 +144,16 @@ export const ROUTE_CLASSIFICATION = new Map([
   ["PUT /api/admin/cia/access", "adminOnly"],
   ["PUT /api/admin/cia/access/:userId", "adminOnly"],
   ["GET /api/admin/cia/settings", "adminOnly"],
+
+  // KPI Library (Fase 2). adminOnly: mengelola konsep bisnis, binding teknis,
+  // konfirmasi, revisi/restore, dan sinkronisasi dari inventory Power BI.
+  ["GET /api/admin/cia/kpis", "adminOnly"],
+  ["POST /api/admin/cia/kpis", "adminOnly"],
+  ["POST /api/admin/cia/kpis/sync", "adminOnly"],
+  ["GET /api/admin/cia/kpis/sync/:runId", "adminOnly"],
+  ["GET /api/admin/cia/kpis/:id", "adminOnly"],
+  ["PUT /api/admin/cia/kpis/:id", "adminOnly"],
+  ["POST /api/admin/cia/kpis/:id/confirm", "adminOnly"],
+  ["GET /api/admin/cia/kpis/:id/revisions", "adminOnly"],
+  ["POST /api/admin/cia/kpis/:id/revisions/:revisionId/restore", "adminOnly"],
 ]);
