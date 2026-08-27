@@ -31,6 +31,14 @@ const huge = normalizeAnalyticsFilters(
 const hugeSpan = Math.round((huge.to - huge.from) / DAY);
 ok("rentang sangat besar diklem <= 366 hari", hugeSpan <= 366, String(hugeSpan));
 
+const oneWibDay = normalizeAnalyticsFilters({ from: "2026-08-27", to: "2026-08-27" }, now);
+ok("tanggal from dimulai pukul 00:00 WIB",
+  oneWibDay.from.toISOString() === "2026-08-26T17:00:00.000Z",
+  oneWibDay.from.toISOString());
+ok("tanggal to berakhir pukul 23:59:59.999 WIB",
+  oneWibDay.to.toISOString() === "2026-08-27T16:59:59.999Z",
+  oneWibDay.to.toISOString());
+
 section("normalizeAnalyticsFilters: sanitasi nilai");
 
 const f = normalizeAnalyticsFilters({

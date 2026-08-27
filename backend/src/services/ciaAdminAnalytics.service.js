@@ -40,9 +40,16 @@ function endOfWibDay(date) {
   wib.setUTCHours(23, 59, 59, 999);
   return new Date(wib.getTime() - WIB_MS);
 }
-function parseIsoBoundary(value, fallback) {
+function parseIsoBoundary(value, fallback, endOfDay = false) {
   if (typeof value !== "string" || !value.trim()) return fallback;
-  const d = new Date(value);
+  const text = value.trim();
+  const dateOnly = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    const [, year, month, day] = dateOnly;
+    const startWib = Date.UTC(Number(year), Number(month) - 1, Number(day)) - WIB_MS;
+    return new Date(startWib + (endOfDay ? DAY_MS - 1 : 0));
+  }
+  const d = new Date(text);
   return Number.isNaN(d.getTime()) ? fallback : d;
 }
 function positiveIntOrNull(value) {
@@ -61,7 +68,7 @@ function oneOfOrNull(value, allowed) {
 
 export function normalizeAnalyticsFilters(query = {}, now = new Date()) {
   let from = parseIsoBoundary(query.from, startOfWibDay(addDays(now, -29)));
-  let to = parseIsoBoundary(query.to, endOfWibDay(now));
+  let to = parseIsoBoundary(query.to, endOfWibDay(now), true);
 
   // from harus <= to; tukar bila terbalik.
   if (from > to) { const tmp = from; from = to; to = tmp; }
