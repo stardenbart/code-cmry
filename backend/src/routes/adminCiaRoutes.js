@@ -17,7 +17,7 @@ import {
   listKpis, getKpi, createKpi, updateKpi, confirmKpi, listRevisions, restoreRevision,
 } from "../models/ciaKpiModel.js";
 import {
-  createSyncRun, runSync, getSyncRun, hasActiveSyncRun,
+  createSyncRun, runSync, getSyncRun, hasActiveSyncRun, markSyncRunError,
 } from "../services/ciaKpiSync.service.js";
 
 const sql = db.promise();
@@ -245,8 +245,10 @@ router.post("/kpis/sync", async (req, res) => {
     const { runDbId, runUuid } = await createSyncRun(actorId(req));
     // Background: jangan menahan HTTP sampai seluruh dashboard selesai. Catch
     // terpasang supaya kegagalan tidak menjadi unhandled rejection.
-    runSync(runDbId, runUuid, { dashboardIds }).catch((err) => {
+    runSync(runDbId, runUuid, { dashboardIds }).catch(async (err) => {
       console.error("❌ cia kpi sync gagal:", err?.code || err?.message);
+      // Jaring pengaman: jangan biarkan run menggantung di 'running'.
+      try { await markSyncRunError(runUuid); } catch { /* best-effort */ }
     });
     res.status(202).json({ runId: runUuid, status: "running" });
   } catch (err) { handle(res, err); }

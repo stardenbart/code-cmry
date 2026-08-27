@@ -120,6 +120,24 @@ try {
     await restoreRevision(other.id, target.id, ACTOR, "salah kpi");
   } catch (e) { notFound = e?.statusCode === 404; }
   ok("restore revisi lintas-KPI -> 404", notFound);
+
+  section("Restore snapshot PARSIAL tidak menghapus field yang tak tercatat");
+  const partialKpi = await createKpi(
+    { humanName: "Partial Base", domain: "test", synonyms: ["alpha", "beta"], definition: "definisi awal" },
+    ACTOR);
+  cleanup.push(partialKpi.id);
+  // Revisi dengan after_json PARSIAL (hanya humanName), meniru revisi 'create'
+  // lama dari import yang tak menyimpan synonyms/definition.
+  const [pins] = await sql.query(
+    `INSERT INTO cia_kpi_revisions (kpi_id, version, before_json, after_json, action, reason, actor_id)
+     VALUES (?, 1, NULL, ?, 'create', 'fixture parsial', ?)`,
+    [partialKpi.id, JSON.stringify({ humanName: "Hanya Nama" }), ACTOR]);
+  const restoredP = await restoreRevision(partialKpi.id, pins.insertId, ACTOR, "restore parsial");
+  ok("humanName dari snapshot diterapkan", restoredP.humanName === "Hanya Nama", restoredP.humanName);
+  ok("synonyms TIDAK terhapus (absen di snapshot)", restoredP.synonyms.length === 2,
+    JSON.stringify(restoredP.synonyms));
+  ok("definition TIDAK terhapus (absen di snapshot)", restoredP.definition === "definisi awal",
+    restoredP.definition);
 } finally {
   __setRevisionWriterForTests(null);
   for (const id of cleanup) await removeKpi(id);

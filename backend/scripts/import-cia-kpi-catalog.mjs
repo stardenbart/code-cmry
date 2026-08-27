@@ -99,12 +99,18 @@ export async function applyImport(plan, actorId = null) {
       kpiId = ins.insertId;
       kpisCreated += 1;
       // Satu revisi 'create' untuk audit KPI yang benar-benar baru.
+      // Snapshot LENGKAP (semua field editable) supaya revisi 'create' adalah
+      // gambaran utuh KPI saat dibuat — restore ke revisi ini memulihkan
+      // synonyms/definition/dst dengan benar, bukan mengosongkannya.
       await pool.query(
         `INSERT INTO cia_kpi_revisions (kpi_id, version, before_json, after_json, action, reason, actor_id)
          VALUES (?, 1, NULL, ?, 'create', 'Import dari KATALOG_KPI', ?)`,
         [kpiId, JSON.stringify({
-          slug: item.slug, humanName: item.humanName, domain: item.domain,
-          unit: item.unit, status: item.status, source: item.source,
+          slug: item.slug, humanName: item.humanName, synonyms: item.synonyms,
+          definition: item.definition, businessFunction: item.businessFunction,
+          answerableQuestions: item.answerableQuestions, domain: item.domain,
+          unit: item.unit, numberFormat: null, status: item.status,
+          version: 1, source: item.source,
         }), actorId]
       );
     }

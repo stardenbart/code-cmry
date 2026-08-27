@@ -13,28 +13,38 @@ import LazyBoundary from "../LazyBoundary.jsx";
 const VisualHarvestPanel = lazy(() => import("../VisualHarvestPanel.jsx"));
 
 const TERMINAL = ["success", "partial", "error"];
+// Batas polling: 150 x 2 dtk = 5 menit. Mencegah panel berputar selamanya bila
+// run macet (mis. proses mati sebelum status jadi terminal).
+const MAX_POLLS = 150;
 
 export default function CiaKpiSyncPanel() {
   const [run, setRun] = useState(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
+  const [polls, setPolls] = useState(0);
   const timer = useRef(null);
 
   const running = starting || (run != null && !TERMINAL.includes(run.status));
 
-  // Polling status tiap 2 detik selama run belum terminal.
+  // Polling status tiap 2 detik selama run belum terminal, dengan batas.
   useEffect(() => {
     if (!run?.runId || TERMINAL.includes(run.status)) return undefined;
+    if (polls >= MAX_POLLS) {
+      setError("Sinkronisasi belum selesai setelah beberapa menit. Muat ulang halaman untuk memeriksa status.");
+      return undefined;
+    }
     timer.current = setTimeout(() => {
+      setPolls((n) => n + 1);
       ciaAdminApi.getKpiSyncStatus(run.runId)
         .then((data) => setRun(data))
         .catch(() => setError("Gagal memuat status sync."));
     }, 2000);
     return () => clearTimeout(timer.current);
-  }, [run]);
+  }, [run, polls]);
 
   const startSync = async () => {
     setError("");
+    setPolls(0);
     setStarting(true);
     try {
       const res = await ciaAdminApi.startKpiSync(null); // semua dashboard

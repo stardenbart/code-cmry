@@ -37,8 +37,12 @@ function uniqueStrings(list) {
 
 // ── Default inventory (DB) ──────────────────────────────────────────────────
 async function defaultListDashboards() {
+  // DISTINCT hanya pada dashboard_id: sebuah dashboard bisa punya beberapa
+  // report_id di visual_field_usage, dan report_id per baris visual sudah
+  // dibawa listVisualFields. Tanpa dedupe ini, dashboard multi-report discan
+  // berkali-kali dan statistiknya menggembung.
   const [rows] = await pool.query(
-    `SELECT DISTINCT dashboard_id AS id, report_id
+    `SELECT DISTINCT dashboard_id AS id
        FROM visual_field_usage WHERE dashboard_id IS NOT NULL`);
   return rows;
 }
@@ -87,13 +91,38 @@ export async function createSyncRun(actorId = null) {
   return { runDbId: runIns.insertId, runUuid };
 }
 
-// Ada sync yang masih berjalan? (jendela 10 menit supaya run yang crash tidak
-// mengunci selamanya). Route memakai ini untuk membalas 409.
+const STALE_RUN_MINUTES = 15;
+
+// Tandai run yang MACET (proses mati sebelum UPDATE penutup runSync) sebagai
+// 'error' supaya getSyncRun melaporkan status terminal dan run baru tidak
+// terhalang selamanya. Ambang jauh di atas durasi sync normal.
+export async function reconcileStaleRuns(thresholdMinutes = STALE_RUN_MINUTES) {
+  const [res] = await pool.query(
+    `UPDATE cia_kpi_sync_runs
+        SET status = 'error', finished_at = NOW(), errors_json = ?
+      WHERE status = 'running' AND started_at < (NOW() - INTERVAL ? MINUTE)`,
+    [JSON.stringify([{ error: { code: "STALE_RUN", message: "Run tidak selesai (proses berhenti)" } }]),
+     thresholdMinutes]
+  );
+  return res.affectedRows || 0;
+}
+
+// Ada sync yang benar-benar berjalan? Membersihkan run macet dulu, lalu memblokir
+// bila MASIH ada run 'running' — tanpa jendela waktu, sehingga sync yang
+// legit-lama pun tetap mencegah run kedua yang concurrent (fix double-run).
 export async function hasActiveSyncRun() {
+  await reconcileStaleRuns();
   const [rows] = await pool.query(
-    `SELECT id FROM cia_kpi_sync_runs
-      WHERE status = 'running' AND started_at > (NOW() - INTERVAL 10 MINUTE) LIMIT 1`);
+    "SELECT id FROM cia_kpi_sync_runs WHERE status = 'running' LIMIT 1");
   return rows.length > 0;
+}
+
+// Dipakai route sebagai jaring pengaman: bila runSync rejeksi tak terduga,
+// tandai run tsb 'error' agar tidak menggantung di 'running'.
+export async function markSyncRunError(runUuid) {
+  await pool.query(
+    `UPDATE cia_kpi_sync_runs SET status = 'error', finished_at = NOW()
+      WHERE run_uuid = ? AND status = 'running'`, [runUuid]);
 }
 
 // Jalankan reconcile untuk run yang SUDAH dibuat. Dipisah dari createSyncRun

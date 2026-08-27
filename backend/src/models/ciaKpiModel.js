@@ -360,16 +360,21 @@ export async function restoreRevision(id, revisionId, actorId = null, reason = "
   return mutateKpi(id, {
     action: "restore", reason: safeReason, actorId,
     apply(kpi) {
-      // Terapkan hanya field editable dari snapshot target; slug tetap.
-      if (after.humanName != null) kpi.humanName = String(after.humanName);
-      kpi.synonyms = uniqueStrings(after.synonyms);
-      kpi.definition = after.definition != null ? String(after.definition) : "";
-      kpi.businessFunction = after.businessFunction != null ? String(after.businessFunction) : "";
-      kpi.answerableQuestions = uniqueStrings(after.answerableQuestions);
-      kpi.domain = after.domain ?? null;
-      kpi.unit = after.unit ?? null;
-      kpi.numberFormat = after.numberFormat ?? null;
-      if (["draft", "confirmed", "deprecated"].includes(after.status)) kpi.status = after.status;
+      // Terapkan HANYA field yang benar-benar ADA di snapshot target (cek
+      // `in`), bukan yang kebetulan null/undefined. Ini mencegah snapshot
+      // PARSIAL (mis. revisi 'create' lama dari import yang tidak menyimpan
+      // synonyms/definition) menghapus field yang tidak pernah tercatat di
+      // snapshot itu. slug tidak pernah diubah.
+      const has = (key) => Object.prototype.hasOwnProperty.call(after, key);
+      if (has("humanName") && after.humanName != null) kpi.humanName = String(after.humanName);
+      if (has("synonyms")) kpi.synonyms = uniqueStrings(after.synonyms);
+      if (has("definition")) kpi.definition = after.definition != null ? String(after.definition) : "";
+      if (has("businessFunction")) kpi.businessFunction = after.businessFunction != null ? String(after.businessFunction) : "";
+      if (has("answerableQuestions")) kpi.answerableQuestions = uniqueStrings(after.answerableQuestions);
+      if (has("domain")) kpi.domain = after.domain ?? null;
+      if (has("unit")) kpi.unit = after.unit ?? null;
+      if (has("numberFormat")) kpi.numberFormat = after.numberFormat ?? null;
+      if (has("status") && ["draft", "confirmed", "deprecated"].includes(after.status)) kpi.status = after.status;
       return kpi;
     },
   });
