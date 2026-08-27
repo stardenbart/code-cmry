@@ -1,0 +1,77 @@
+// Translasi hasil DAX -> label bisnis manusiawi.
+//
+// Nama measure teknis TIDAK boleh muncul di jawaban user. Lookup harus mengenali
+// keempat bentuk identifier DAX/ExecuteQueries: 'Table'[Measure], Table[Measure],
+// [Measure], dan Measure. Bila label tak ditemukan, identifier di-humanize dan
+// bracket/table prefix dibuang — bukan diekspos mentah.
+import { pathToFileURL } from "url";
+import { ok, section, summary } from "./harness.mjs";
+import {
+  buildLabelMap, labelDaxRows, describeKpi, humanizeIdentifier,
+} from "../src/services/ciaHumanLabels.service.js";
+
+section("buildLabelMap mengenali semua varian kunci");
+const bindings = [{
+  tableName: "MeasureTable", measureName: "OT_HOURS",
+  humanName: "Jam lembur", definition: "Total jam lembur", unit: "jam", numberFormat: "#,##0",
+}];
+const map = buildLabelMap(bindings);
+ok("'MeasureTable'[OT_HOURS] -> Jam lembur", map.get("'MeasureTable'[OT_HOURS]") === "Jam lembur");
+ok("MeasureTable[OT_HOURS] -> Jam lembur", map.get("MeasureTable[OT_HOURS]") === "Jam lembur");
+ok("[OT_HOURS] -> Jam lembur", map.get("[OT_HOURS]") === "Jam lembur");
+ok("OT_HOURS -> Jam lembur", map.get("OT_HOURS") === "Jam lembur");
+
+section("labelDaxRows mengubah nama kolom, mempertahankan nilai dimensi");
+const res = labelDaxRows({
+  rows: [
+    { "'MeasureTable'[OT_HOURS]": 128.5, "Departemen": "Produksi A" },
+    { "'MeasureTable'[OT_HOURS]": 90, "Departemen": "Produksi B" },
+  ],
+  bindings,
+});
+ok("kolom measure jadi label manusia", res.columns.some((c) => c.label === "Jam lembur"),
+  JSON.stringify(res.columns));
+ok("tidak ada label yang membocorkan bracket/measure teknis",
+  res.columns.every((c) => !/\[|OT_HOURS/.test(c.label)), JSON.stringify(res.columns));
+ok("nilai measure dipetakan ke label", res.rows[0]["Jam lembur"] === 128.5, JSON.stringify(res.rows[0]));
+ok("nilai dimensi dipertahankan", res.rows[0]["Departemen"] === "Produksi A", JSON.stringify(res.rows[0]));
+
+section("Kolisi label -> suffix yang jelas");
+const collide = labelDaxRows({
+  rows: [{ "TblA[OT_HOURS]": 10, "TblB[OT_JAM]": 20 }],
+  bindings: [
+    { tableName: "TblA", measureName: "OT_HOURS", humanName: "Jam lembur", dashboardName: "Dashboard Overtime" },
+    { tableName: "TblB", measureName: "OT_JAM", humanName: "Jam lembur", dashboardName: "Dashboard Lembur Plant" },
+  ],
+});
+const labels = collide.columns.map((c) => c.label);
+ok("dua label unik (tidak tabrakan)", new Set(labels).size === 2, JSON.stringify(labels));
+ok("suffix menyebut dashboard pembeda",
+  labels.some((l) => l.includes("Overtime")) && labels.some((l) => l.includes("Lembur Plant")),
+  JSON.stringify(labels));
+
+section("Identifier tak dikenal di-humanize (tanpa bracket/table)");
+const unknown = labelDaxRows({
+  rows: [{ "Fact[Actual_Production_Qty]": 5, "ActualProductionQty2": 7 }],
+  bindings: [],
+});
+ok("Actual_Production_Qty -> 'Actual production qty'",
+  unknown.columns.some((c) => c.label === "Actual production qty"), JSON.stringify(unknown.columns));
+ok("tidak ada bracket/underscore tersisa di label",
+  unknown.columns.every((c) => !/[[\]_]/.test(c.label)), JSON.stringify(unknown.columns));
+
+section("humanizeIdentifier langsung");
+ok("strip table prefix + bracket", humanizeIdentifier("'MeasureTable'[OT_HOURS]") === "Ot hours",
+  humanizeIdentifier("'MeasureTable'[OT_HOURS]"));
+ok("camelCase dipisah", humanizeIdentifier("ActualProductionQty") === "Actual production qty",
+  humanizeIdentifier("ActualProductionQty"));
+
+section("describeKpi");
+const d = describeKpi(bindings[0]);
+ok("name = human name", d.name === "Jam lembur", d.name);
+ok("definition/unit/format terbawa", d.definition === "Total jam lembur" && d.unit === "jam" && d.numberFormat === "#,##0",
+  JSON.stringify(d));
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  process.exit(summary() ? 0 : 1);
+}
