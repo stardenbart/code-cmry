@@ -28,6 +28,7 @@ export default function CiaOverviewTab({ data }) {
       <Card label="Fallback rate" value={percent(rates.fallback)} />
       <Card label="Error rate" value={percent(rates.error)} />
       <Card label="Latency rata-rata" value={data?.latency?.averageMs == null ? "-" : `${number(data.latency.averageMs)} ms`} />
+      <Card label="Median latency" value={data?.latency?.medianMs == null ? "-" : `${number(data.latency.medianMs)} ms`} />
       <Card label="Latency p95" value={data?.latency?.p95Ms == null ? "-" : `${number(data.latency.p95Ms)} ms`} />
     </div>
   );

@@ -23,6 +23,7 @@
 import { jendelaLaporan } from "../utils/dateWindow.util.js";
 import { getCiaIdentityText, isCiaIdentityQuestion } from "./ciaIdentity.js";
 import { sudahDisapa, tandaiSudahDisapa } from "../models/waGroupIntroModel.js";
+import { startCiaTelemetry } from "./ciaTelemetry.service.js";
 
 // ── Topik terakhir per grup ───────────────────────────────────────────────────
 //
@@ -581,9 +582,25 @@ async function jawabPertanyaanMesin(sock, jid, msg, mesin) {
  * dan orang yang bertanya di grup menunggu jawaban, bukan laporan. Snapshot
  * disegarkan tiap penarikan, jadi datanya sama dengan laporan terakhir.
  */
-async function jawabPertanyaanUmum(sock, jid, msg, teks) {
-  const { jawabDariSnapshot } = await import("./whatsappQA.service.js");
-  const { jawabDenganDax } = await import("./daxAgent.service.js");
+export async function jawabPertanyaanUmum(sock, jid, msg, teks, overrides = {}) {
+  const { jawabDariSnapshot: defaultSnapshot } = await import("./whatsappQA.service.js");
+  const { jawabDenganDax: defaultDax } = await import("./daxAgent.service.js");
+  const jawabDariSnapshot = overrides.jawabDariSnapshot || defaultSnapshot;
+  const jawabDenganDax = overrides.jawabDenganDax || defaultDax;
+  const starter = overrides.startCiaTelemetry || startCiaTelemetry;
+  const mulai = Date.now();
+  let telemetry = null;
+  try {
+    telemetry = await starter({
+      surface: "whatsapp",
+      user: { name: "WhatsApp" },
+      question: teks,
+      conversationId: String(jid),
+    });
+    await telemetry?.event("request_received");
+  } catch {
+    telemetry = null;
+  }
 
   await balas(sock, jid, msg, "Sebentar, saya cek datanya.");
 
@@ -595,19 +612,58 @@ async function jawabPertanyaanUmum(sock, jid, msg, teks) {
   // Snapshot tetap jadi cadangan. Agen memakai tiga panggilan model per
   // pertanyaan, jadi kuota habis atau query gagal harus tetap menghasilkan
   // jawaban, bukan diam.
-  const agen = await jawabDenganDax({ pertanyaan: teks });
+  let agen;
+  try {
+    agen = await jawabDenganDax({ pertanyaan: teks });
+  } catch (err) {
+    await telemetry?.fail(err, { retrievalMethod: "none", latencyMs: Date.now() - mulai });
+    await balas(sock, jid, msg, "Maaf, CIA sedang gagal mengambil data. Silakan coba lagi.");
+    return;
+  }
+  for (const query of agen?.jejak?.query || []) {
+    await telemetry?.event("execute_dax", {
+      semanticModel: query.model || null,
+      rowsReturned: agen?.jejak?.baris || null,
+      status: query.berhasil ? "success" : "error",
+      errorCode: query.berhasil ? null : "DAX_EXECUTION_FAILED",
+      errorMessage: query.berhasil ? null : "Kueri DAX WhatsApp gagal dijalankan",
+    });
+  }
   if (agen.berhasil) {
     await balas(sock, jid, msg, agen.teks);
+    await telemetry?.event("response_sent");
+    await telemetry?.finish({
+      status: "success",
+      retrievalMethod: "live_dax",
+      latencyMs: Date.now() - mulai,
+      retrievalRounds: Math.max(1, agen?.jejak?.model?.length || 0),
+    });
     return;
   }
   console.warn("[WA] agen DAX gagal, memakai snapshot:", agen.alasan);
+  await telemetry?.event("fallback", {
+    status: "error",
+    errorCode: /tidak ada dashboard/i.test(String(agen.alasan)) ? "ROUTER_NO_MATCH" : "DAX_AGENT_FAILED",
+    errorMessage: "Agen DAX WhatsApp gagal; memakai snapshot",
+  });
 
-  const r = await jawabDariSnapshot({ pertanyaan: teks });
+  let r;
+  try {
+    r = await jawabDariSnapshot({ pertanyaan: teks });
+  } catch (err) {
+    await telemetry?.fail(err, { retrievalMethod: "none", latencyMs: Date.now() - mulai });
+    await balas(sock, jid, msg, "Maaf, CIA sedang gagal membaca data cadangan. Silakan coba lagi.");
+    return;
+  }
 
   if (!r.berhasil) {
     await balas(sock, jid, msg,
       `Maaf, belum bisa saya jawab: ${r.alasan}. ` +
       "Untuk laporan lengkap, tag saya dengan kata update atau ringkasan.");
+    await telemetry?.fail({ code: "EMPTY_RESULT" }, {
+      retrievalMethod: "none",
+      latencyMs: Date.now() - mulai,
+    });
     return;
   }
 
@@ -616,6 +672,14 @@ async function jawabPertanyaanUmum(sock, jid, msg, teks) {
   await balas(sock, jid, msg, `${r.teks}
 
 _Berdasarkan data periode ${r.periode}._`);
+  await telemetry?.event("snapshot_read");
+  await telemetry?.event("response_sent");
+  await telemetry?.finish({
+    status: "fallback",
+    retrievalMethod: "snapshot",
+    latencyMs: Date.now() - mulai,
+    retrievalRounds: 1,
+  });
 }
 
 /** Keadaan listener, untuk endpoint status. */

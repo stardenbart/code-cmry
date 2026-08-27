@@ -238,11 +238,7 @@ export function withCiaTelemetry(surface, handler, deps = {}) {
             telemetry
               .fail(
                 {
-                  __telemetrySafe: true,
                   code: `HTTP_${res.statusCode}`,
-                  message: String(
-                    (isPlainObject && (payload.message || payload.error)) || "Permintaan gagal"
-                  ).slice(0, 500),
                 },
                 { latencyMs }
               )

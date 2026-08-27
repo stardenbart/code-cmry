@@ -24,7 +24,8 @@ const spanDays = Math.round((def.to - def.from) / DAY);
 ok("default rentang ~30 hari", spanDays >= 29 && spanDays <= 31, String(spanDays));
 ok("filter opsional default null",
   def.userId === null && def.department === null && def.dashboardId === null &&
-  def.surface === null && def.status === null && def.retrievalMethod === null);
+  def.surface === null && def.status === null && def.retrievalMethod === null &&
+  def.semanticModel === null && def.provider === null && def.aiModel === null);
 
 const huge = normalizeAnalyticsFilters(
   { from: "2000-01-01T00:00:00.000Z", to: "2026-08-27T00:00:00.000Z" }, now);
@@ -44,11 +45,13 @@ section("normalizeAnalyticsFilters: sanitasi nilai");
 const f = normalizeAnalyticsFilters({
   userId: "12", department: "Produksi A", surface: "dashboard",
   status: "success", retrievalMethod: "live_dax", dashboardId: "7",
+  semanticModel: "Model Produksi", provider: "gemini", aiModel: "gemini-test",
 }, now);
 ok("userId jadi integer positif", f.userId === 12, String(f.userId));
 ok("surface valid diterima", f.surface === "dashboard");
 ok("status valid diterima", f.status === "success");
 ok("retrievalMethod valid diterima", f.retrievalMethod === "live_dax");
+ok("filter model/provider diterima", f.semanticModel === "Model Produksi" && f.provider === "gemini" && f.aiModel === "gemini-test");
 
 const bad = normalizeAnalyticsFilters({
   userId: "-5", surface: "xxx", status: "meledak", retrievalMethod: "zzz",
@@ -84,6 +87,7 @@ const overview = await getOverview(f);
 ok("overview punya totals", overview && typeof overview.totals === "object");
 ok("overview punya rates", overview && typeof overview.rates === "object");
 ok("overview punya latency", overview && typeof overview.latency === "object");
+ok("overview punya median latency", Object.prototype.hasOwnProperty.call(overview.latency, "medianMs"));
 ok("overview punya retrieval", overview && typeof overview.retrieval === "object");
 ok("totals.requests numerik", Number.isFinite(Number(overview.totals.requests)));
 ok("totals token in/out/total numerik",
@@ -100,6 +104,8 @@ ok("breakdown dashboard berupa array", Array.isArray(byDashboard));
 const options = await getFilterOptions(def);
 ok("filter options punya surfaces", Array.isArray(options.surfaces));
 ok("filter options punya departments", Array.isArray(options.departments));
+ok("filter options punya semantic model/provider/AI model",
+  Array.isArray(options.semanticModels) && Array.isArray(options.providers) && Array.isArray(options.aiModels));
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exit(summary() ? 0 : 1);

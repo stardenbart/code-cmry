@@ -17,7 +17,10 @@ const TABS = [
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-const FILTER_KEYS = ["from", "to", "userId", "department", "dashboardId", "surface", "status", "retrievalMethod"];
+const FILTER_KEYS = [
+  "from", "to", "userId", "department", "dashboardId", "surface", "status",
+  "retrievalMethod", "semanticModel", "provider", "aiModel",
+];
 
 function LoadedContent({ tab, data, dimension, onDimensionChange, onOpenProvider }) {
   if (tab === "overview") {
@@ -38,8 +41,15 @@ function LoadedContent({ tab, data, dimension, onDimensionChange, onOpenProvider
 export default function CiaAdminPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
+  const [runtime, setRuntime] = useState(null);
   const requestedTab = params.get("tab") || "overview";
-  const tab = TABS.some((item) => item.id === requestedTab) ? requestedTab : "overview";
+  const analyticsEnabled = runtime?.flags?.CIA_ADMIN_ANALYTICS_ENABLED !== false;
+  const availableTabs = analyticsEnabled
+    ? TABS
+    : TABS.filter((item) => ["access", "settings"].includes(item.id));
+  const tab = availableTabs.some((item) => item.id === requestedTab)
+    ? requestedTab
+    : (analyticsEnabled ? "overview" : "access");
   const defaults = useMemo(() => defaultDateRange(), []);
   const filterSignature = FILTER_KEYS.map((key) => `${key}:${params.get(key) || ""}`).join("|");
   const filters = useMemo(() => Object.fromEntries(FILTER_KEYS.map((key) => [
@@ -56,16 +66,25 @@ export default function CiaAdminPage() {
     usage: () => ciaAdminApi.getUsage(filters, dimension),
     health: () => ciaAdminApi.getHealth(filters),
     access: () => ciaAdminApi.getAccess(),
-    settings: () => ciaAdminApi.getSettings(),
-  })[tab], [tab, filterSignature, dimension]);
+    settings: () => runtime ? Promise.resolve(runtime) : ciaAdminApi.getSettings(),
+  })[tab], [tab, filterSignature, dimension, runtime]);
 
   useEffect(() => {
     let cancelled = false;
+    ciaAdminApi.getSettings()
+      .then((data) => { if (!cancelled) setRuntime(data); })
+      .catch(() => { if (!cancelled) setRuntime(null); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!analyticsEnabled) return undefined;
     ciaAdminApi.getFilters(filters)
       .then((data) => { if (!cancelled) setFilterOptions(data); })
       .catch(() => { if (!cancelled) setFilterOptions({}); });
     return () => { cancelled = true; };
-  }, [filterSignature]);
+  }, [filterSignature, analyticsEnabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -124,7 +143,7 @@ export default function CiaAdminPage() {
 
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
         <nav className="mb-6 flex gap-2 overflow-x-auto" aria-label="Menu Admin CIA">
-          {TABS.map(({ id, label, icon: Icon }) => (
+          {availableTabs.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               type="button"

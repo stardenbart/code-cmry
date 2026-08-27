@@ -9,7 +9,7 @@
 import { pathToFileURL } from "url";
 import { ok, section, summary } from "./harness.mjs";
 import {
-  safeError, previewQuestion, fingerprintQuestion,
+  safeError, previewQuestion, fingerprintQuestion, sanitizeMetadata,
 } from "../src/services/ciaTelemetry.service.js";
 
 section("safeError hanya mengeluarkan code + message");
@@ -41,6 +41,15 @@ const bocor = ["SUPERSECRETTOKEN", "Authorization", "hunter2", "password",
 ok("tidak ada satupun nilai/field sensitif yang bocor",
   bocor.every((s) => !dump.includes(s)), dump);
 
+section("penanda aman dari pemanggil tidak dapat melewati sanitizer");
+const forged = safeError({
+  __telemetrySafe: true,
+  code: "HTTP_500",
+  message: "Bearer RAHASIA response provider mentah",
+});
+ok("pesan buatan pemanggil tidak diteruskan", !JSON.stringify(forged).includes("RAHASIA"), JSON.stringify(forged));
+ok("hasil tetap pesan allowlist", forged.code === "HTTP_ERROR", JSON.stringify(forged));
+
 section("safeError tahan input aneh");
 
 for (const input of [null, undefined, "string biasa", 42, {}]) {
@@ -67,6 +76,14 @@ ok("fingerprint 64 hex", /^[0-9a-f]{64}$/.test(fp1), fp1);
 ok("fingerprint stabil untuk input sama", fp1 === fp2);
 ok("fingerprint berbeda untuk input berbeda",
   fp1 !== fingerprintQuestion("pertanyaan lain"));
+
+section("metadata memakai allowlist dan membuang secret");
+const metadata = sanitizeMetadata({
+  dashboards: [1, 2], candidates: 3, period: "2026-08",
+  Authorization: "Bearer RAHASIA", access_token: "XYZ", nested: { password: "x" },
+});
+ok("field operasional aman dipertahankan", metadata.candidates === 3 && metadata.dashboards.length === 2);
+ok("field di luar allowlist dibuang", !JSON.stringify(metadata).includes("RAHASIA") && !("nested" in metadata));
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exit(summary() ? 0 : 1);

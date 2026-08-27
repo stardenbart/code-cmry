@@ -12,6 +12,7 @@ import {
   normalizeAnalyticsFilters, getOverview, getUsageSeries, getUsageBreakdown,
   getRetrievalHealth, getFilterOptions, getRequestTrace, AnalyticsValidationError,
 } from "../services/ciaAdminAnalytics.service.js";
+import { ciaAdminAnalyticsEnabled, envFlag } from "../config/featureFlags.js";
 
 const sql = db.promise();
 const router = express.Router();
@@ -27,10 +28,6 @@ function handle(res, err) {
   return res.status(500).json({ message: "Gagal memuat data analytics CIA" });
 }
 
-function envFlag(name) {
-  return /^(1|true|yes|on)$/i.test(String(process.env[name] || ""));
-}
-
 router.get("/settings", (_req, res) => {
   res.json({
     flags: {
@@ -42,14 +39,21 @@ router.get("/settings", (_req, res) => {
   });
 });
 
-router.get("/overview", async (req, res) => {
+function requireAnalyticsEnabled(_req, res, next) {
+  if (!ciaAdminAnalyticsEnabled()) {
+    return res.status(404).json({ message: "Analytics CIA belum diaktifkan" });
+  }
+  next();
+}
+
+router.get("/overview", requireAnalyticsEnabled, async (req, res) => {
   try {
     const filters = normalizeAnalyticsFilters(req.query);
     res.json(await getOverview(filters));
   } catch (err) { handle(res, err); }
 });
 
-router.get("/usage", async (req, res) => {
+router.get("/usage", requireAnalyticsEnabled, async (req, res) => {
   try {
     const filters = normalizeAnalyticsFilters(req.query);
     const dimension = typeof req.query.dimension === "string" && req.query.dimension
@@ -64,21 +68,21 @@ router.get("/usage", async (req, res) => {
   } catch (err) { handle(res, err); }
 });
 
-router.get("/health", async (req, res) => {
+router.get("/health", requireAnalyticsEnabled, async (req, res) => {
   try {
     const filters = normalizeAnalyticsFilters(req.query);
     res.json(await getRetrievalHealth(filters));
   } catch (err) { handle(res, err); }
 });
 
-router.get("/filters", async (req, res) => {
+router.get("/filters", requireAnalyticsEnabled, async (req, res) => {
   try {
     const filters = normalizeAnalyticsFilters(req.query);
     res.json(await getFilterOptions(filters));
   } catch (err) { handle(res, err); }
 });
 
-router.get("/requests/:requestId", async (req, res) => {
+router.get("/requests/:requestId", requireAnalyticsEnabled, async (req, res) => {
   try {
     const trace = await getRequestTrace(String(req.params.requestId));
     if (!trace) return res.status(404).json({ message: "Request tidak ditemukan" });
@@ -113,11 +117,15 @@ router.get("/access", async (req, res) => {
         LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );
+    const [departmentRows] = await sql.query(
+      "SELECT DISTINCT departemen FROM users WHERE departemen IS NOT NULL AND departemen <> '' ORDER BY departemen"
+    );
 
     res.json({
       total: Number(countRows[0].total) || 0,
       limit,
       offset,
+      departments: departmentRows.map((row) => row.departemen),
       users: rows.map((u) => ({
         id: u.id,
         name: u.nama,
@@ -129,6 +137,41 @@ router.get("/access", async (req, res) => {
       })),
     });
   } catch (err) { handle(res, err); }
+});
+
+router.put("/access", async (req, res) => {
+  const connection = await sql.getConnection();
+  try {
+    const { userIds, enabled } = req.body || {};
+    const ids = [...new Set(Array.isArray(userIds) ? userIds.map(Number) : [])];
+    if (!ids.length || ids.length > 500 || ids.some((id) => !Number.isInteger(id) || id <= 0)) {
+      return res.status(400).json({ message: "userIds tidak valid" });
+    }
+    if (typeof enabled !== "boolean") {
+      return res.status(400).json({ message: "Field 'enabled' harus boolean" });
+    }
+
+    await connection.beginTransaction();
+    const placeholders = ids.map(() => "?").join(",");
+    const [found] = await connection.query(
+      `SELECT id FROM users WHERE id IN (${placeholders}) FOR UPDATE`, ids
+    );
+    if (found.length !== ids.length) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Satu atau lebih user tidak ditemukan" });
+    }
+    await connection.query(
+      `UPDATE users SET cia_access = ? WHERE id IN (${placeholders})`,
+      [enabled ? 1 : 0, ...ids]
+    );
+    await connection.commit();
+    res.json({ userIds: ids, ciaAccess: enabled, updated: ids.length });
+  } catch (err) {
+    try { await connection.rollback(); } catch {}
+    handle(res, err);
+  } finally {
+    connection.release();
+  }
 });
 
 router.put("/access/:userId", async (req, res) => {

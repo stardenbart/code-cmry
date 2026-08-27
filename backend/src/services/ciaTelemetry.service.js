@@ -11,11 +11,15 @@
 // menyaring error lama, sebab menyaring bocor lewat field yang belum terpikir.
 import crypto from "crypto";
 import * as telemetryModel from "../models/ciaTelemetryModel.js";
+import { ciaTelemetryEnabled } from "../config/featureFlags.js";
 
 const PREVIEW_MAX = 300;
+const METADATA_KEYS = new Set([
+  "dashboards", "candidates", "joinKeys", "period", "preferredDashboardCount",
+]);
 
 export function telemetryEnabled() {
-  return process.env.CIA_TELEMETRY_ENABLED === "true";
+  return ciaTelemetryEnabled();
 }
 
 function daxTimeoutSeconds() {
@@ -29,14 +33,6 @@ export function safeError(error) {
   // Non-objek: tidak ada yang bisa dibaca dengan aman.
   if (!error || typeof error !== "object") {
     return { code: "UNKNOWN", message: "Terjadi kesalahan yang tidak diketahui" };
-  }
-
-  // Pemanggil boleh menyerahkan error yang SUDAH disanitasi (mis. wrapper
-  // permukaan yang mengklasifikasi dari HTTP status). Ditandai eksplisit supaya
-  // tidak tertukar dengan error mentah yang harus dinormalisasi di bawah.
-  if (error.__telemetrySafe === true &&
-      typeof error.code === "string" && typeof error.message === "string") {
-    return { code: error.code, message: error.message };
   }
 
   const code = typeof error.code === "string" ? error.code : "";
@@ -66,6 +62,9 @@ export function safeError(error) {
   }
   if (code === "ECONNREFUSED" || code === "ENOTFOUND" || code === "EAI_AGAIN") {
     return { code: "POWERBI_UNAVAILABLE", message: "Tidak dapat menjangkau sumber data" };
+  }
+  if (/^HTTP_[45]\d\d$/.test(code)) {
+    return { code: "HTTP_ERROR", message: "Permintaan CIA gagal diproses" };
   }
 
   // Kode aplikasi internal yang memang sudah aman disebut apa adanya.
@@ -101,6 +100,27 @@ export function previewQuestion(text) {
 export function fingerprintQuestion(text) {
   const normalized = (typeof text === "string" ? text : "").trim().toLowerCase();
   return crypto.createHash("sha256").update(normalized, "utf8").digest("hex");
+}
+
+export function sanitizeMetadata(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const safe = {};
+  const scalar = (item) => {
+    if (typeof item === "number" && Number.isFinite(item)) return item;
+    if (typeof item === "boolean") return item;
+    if (typeof item === "string") return item.slice(0, 120);
+    return undefined;
+  };
+  for (const [key, item] of Object.entries(value)) {
+    if (!METADATA_KEYS.has(key)) continue;
+    if (Array.isArray(item)) {
+      safe[key] = item.slice(0, 50).map(scalar).filter((entry) => entry !== undefined);
+    } else {
+      const normalized = scalar(item);
+      if (normalized !== undefined) safe[key] = normalized;
+    }
+  }
+  return Object.keys(safe).length ? safe : null;
 }
 
 function positiveIntOrNull(v) {
@@ -150,7 +170,10 @@ function createTracker(requestId, dbId, store) {
       sequenceNo += 1;
       accumulate(data);
       try {
-        await store.insertEvent(dbId, { sequenceNo, stage, ...data });
+        await store.insertEvent(dbId, {
+          sequenceNo, stage, ...data,
+          metadata: sanitizeMetadata(data.metadata),
+        });
       } catch (err) {
         logSafe("insertEvent", err);
       }

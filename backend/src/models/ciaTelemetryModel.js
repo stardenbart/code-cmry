@@ -97,6 +97,15 @@ function buildRequestWhere(filters, alias = "r") {
                    WHERE e2.request_id = ${alias}.id AND e2.dashboard_id = ?)`);
     params.push(filters.dashboardId);
   }
+  for (const [filterKey, column] of [
+    ["semanticModel", "semantic_model"], ["provider", "provider"], ["aiModel", "ai_model"],
+  ]) {
+    if (filters[filterKey]) {
+      clauses.push(`EXISTS (SELECT 1 FROM cia_request_events ef
+                     WHERE ef.request_id = ${alias}.id AND ef.${column} = ?)`);
+      params.push(filters[filterKey]);
+    }
+  }
   return { clause: clauses.join(" AND "), params };
 }
 
@@ -136,6 +145,24 @@ export async function p95Latency(filters) {
     params
   );
   return rows.length ? Number(rows[0].latency_ms) : null;
+}
+
+export async function medianLatency(filters) {
+  const { clause, params } = buildRequestWhere(filters);
+  const [rows] = await sql.query(
+    `WITH ranked AS (
+       SELECT r.latency_ms,
+              ROW_NUMBER() OVER (ORDER BY r.latency_ms) AS rn,
+              COUNT(*) OVER () AS cnt
+         FROM cia_requests r
+        WHERE ${clause} AND r.latency_ms IS NOT NULL
+     )
+     SELECT AVG(latency_ms) AS median_latency
+       FROM ranked
+      WHERE rn IN (FLOOR((cnt + 1) / 2), FLOOR((cnt + 2) / 2))`,
+    params
+  );
+  return rows[0]?.median_latency == null ? null : Number(rows[0].median_latency);
 }
 
 export async function aggregateEvents(filters) {
@@ -179,6 +206,9 @@ const BREAKDOWN_SPECS = {
   status: { key: "r.status", label: "r.status", source: "request" },
   retrieval_method: { key: "r.retrieval_method", label: "r.retrieval_method", source: "request" },
   dashboard: { key: "e.dashboard_id", label: "e.dashboard_name", source: "event" },
+  semantic_model: { key: "e.semantic_model", label: "e.semantic_model", source: "event" },
+  provider: { key: "e.provider", label: "e.provider", source: "event" },
+  ai_model: { key: "e.ai_model", label: "e.ai_model", source: "event" },
 };
 
 export async function breakdownBy(filters, dimension) {
@@ -280,5 +310,20 @@ export async function filterOptionRows(filters) {
       GROUP BY e.dashboard_id ORDER BY name ASC LIMIT 200`,
     params
   );
-  return { users, departments, surfaces, dashboards };
+  async function distinctEvent(column, maxLength) {
+    const allowed = new Set(["semantic_model", "provider", "ai_model"]);
+    if (!allowed.has(column)) throw new Error("kolom opsi event tidak valid");
+    const [rows] = await sql.query(
+      `SELECT DISTINCT e.${column} AS value
+         FROM cia_request_events e JOIN cia_requests r ON r.id = e.request_id
+        WHERE ${clause} AND e.${column} IS NOT NULL
+        ORDER BY value ASC LIMIT ${maxLength}`,
+      params
+    );
+    return rows;
+  }
+  const [semanticModels, providers, aiModels] = await Promise.all([
+    distinctEvent("semantic_model", 500), distinctEvent("provider", 50), distinctEvent("ai_model", 200),
+  ]);
+  return { users, departments, surfaces, dashboards, semanticModels, providers, aiModels };
 }

@@ -1,4 +1,7 @@
-const DIMENSIONS = ["user", "department", "dashboard", "surface", "status", "retrieval_method"];
+const DIMENSIONS = [
+  "user", "department", "dashboard", "surface", "status", "retrieval_method",
+  "semantic_model", "provider", "ai_model",
+];
 
 function number(value) {
   return new Intl.NumberFormat("id-ID").format(Number(value) || 0);

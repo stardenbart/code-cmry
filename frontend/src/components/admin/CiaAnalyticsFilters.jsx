@@ -18,7 +18,7 @@ export function defaultDateRange(now = new Date()) {
 
 const EMPTY = {
   userId: "", department: "", dashboardId: "", surface: "",
-  status: "", retrievalMethod: "",
+  status: "", retrievalMethod: "", semanticModel: "", provider: "", aiModel: "",
 };
 
 export default function CiaAnalyticsFilters({ value = {}, options = {}, onApply }) {
@@ -115,6 +115,27 @@ export default function CiaAnalyticsFilters({ value = {}, options = {}, onApply 
           <select className={fieldClass} name="retrievalMethod" value={draft.retrievalMethod} onChange={change}>
             <option value="">Semua metode</option>
             {['live_dax', 'mixed', 'snapshot', 'none'].map((item) => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-slate-600">
+          Semantic model
+          <select className={fieldClass} name="semanticModel" value={draft.semanticModel} onChange={change}>
+            <option value="">Semua semantic model</option>
+            {(options.semanticModels || []).map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-slate-600">
+          Provider
+          <select className={fieldClass} name="provider" value={draft.provider} onChange={change}>
+            <option value="">Semua provider</option>
+            {(options.providers || []).map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-slate-600">
+          AI model
+          <select className={fieldClass} name="aiModel" value={draft.aiModel} onChange={change}>
+            <option value="">Semua AI model</option>
+            {(options.aiModels || []).map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
         </label>
       </div>

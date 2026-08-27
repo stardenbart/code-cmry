@@ -56,6 +56,7 @@ console.log("\n=== Analytics filters and accessible views ===");
 
 for (const name of [
   "from", "to", "userId", "department", "dashboardId", "surface", "status", "retrievalMethod",
+  "semanticModel", "provider", "aiModel",
 ]) {
   check(`filter ${name} tersedia`, filters.includes(`name="${name}"`));
 }
@@ -65,6 +66,7 @@ check("reset memakai rentang 30 hari", /defaultDateRange/.test(filters) && /setD
 check("rentang maksimal 366 hari divalidasi", /366/.test(filters));
 check("filter disimpan ke URL", /FILTER_KEYS/.test(page) && /next\.set\(key/.test(page));
 check("overview menampilkan token input dan output", /Token input/.test(overview) && /Token output/.test(overview));
+check("overview menampilkan median latency", /Median/.test(overview));
 check("usage mempunyai visual tren native", /<svg/.test(usage) && /<polyline/.test(usage));
 check("usage menyediakan tabel fallback", /<table/.test(usage) && /Tanggal/.test(usage));
 check("health menampilkan metode retrieval", /Metode retrieval/.test(health));
@@ -80,7 +82,11 @@ check("access menampilkan status approved", /Approved/.test(access));
 check("access memakai dialog konfirmasi bersama", /useConfirm/.test(access));
 check("access mengirim update melalui API khusus", /updateAccess/.test(access));
 check("access melakukan rollback optimistik", /previousUsers/.test(access) && /setUsers\(previousUsers\)/.test(access));
+check("access memakai bulk API atomik", /updateAccessBulk/.test(access));
+check("access melakukan pencarian server-side", /getAccess\(\{[\s\S]*q:/.test(access));
+check("access menyediakan pagination", /Sebelumnya/.test(access) && /Berikutnya/.test(access));
 check("settings memuat konfigurasi efektif", /getSettings/.test(page));
+check("feature flag menyembunyikan tab analytics", /analyticsEnabled/.test(page) && /availableTabs/.test(page));
 check("settings menampilkan telemetry flag", /CIA_TELEMETRY_ENABLED/.test(settings));
 check("settings menampilkan analytics flag", /CIA_ADMIN_ANALYTICS_ENABLED/.test(settings));
 check("settings menampilkan timezone", /Asia\/Jakarta/.test(settings));

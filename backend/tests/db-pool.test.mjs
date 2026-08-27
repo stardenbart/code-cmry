@@ -18,6 +18,10 @@ section("Bentuknya pool, bukan koneksi tunggal");
 ok("mengekspos getConnection", typeof db.getConnection === "function", typeof db.getConnection);
 ok("mengekspos promise()", typeof db.promise === "function", typeof db.promise);
 
+section("Koneksi database memakai UTC");
+const [zona] = await sql.query("SELECT @@session.time_zone AS zone");
+ok("session MySQL dipaksa UTC", ["+00:00", "UTC"].includes(zona?.[0]?.zone), String(zona?.[0]?.zone));
+
 section("Query dasar jalan");
 
 const [dasar] = await sql.query("SELECT 1 AS ok");

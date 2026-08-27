@@ -22,11 +22,18 @@ const db = mysql.createPool({
   // Ditolak berarti error yang sampai ke user padahal databasenya sehat.
   queueLimit: 0,
   connectionLimit: Number(process.env.DB_POOL_SIZE) || 10,
+  timezone: "Z",
   // Koneksi yang diam lama sering diputus sepihak oleh server atau perangkat di
   // tengah tanpa memberi tahu klien. Keepalive membuat pemutusan itu terdeteksi
   // dan koneksinya diganti, bukan dipakai lagi lalu gagal.
   enableKeepAlive: true,
   keepAliveInitialDelay: 10_000,
+});
+
+db.on("connection", (connection) => {
+  connection.query("SET time_zone = '+00:00'", (err) => {
+    if (err) console.error(`âŒ Gagal mengatur timezone MySQL: ${err.code || "UNKNOWN"}`);
+  });
 });
 
 // Pemeriksaan awal ini hanya untuk memberi kabar cepat saat menyalakan backend.

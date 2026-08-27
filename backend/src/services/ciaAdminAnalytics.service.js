@@ -10,7 +10,10 @@ import * as telemetry from "../models/ciaTelemetryModel.js";
 export const SURFACES = ["dashboard", "multi_chat", "whatsapp", "schedule", "navigator"];
 export const STATUSES = ["success", "partial", "fallback", "error"];
 export const METHODS = ["live_dax", "mixed", "snapshot", "none"];
-export const VALID_DIMENSIONS = ["user", "department", "surface", "dashboard", "status", "retrieval_method"];
+export const VALID_DIMENSIONS = [
+  "user", "department", "surface", "dashboard", "status", "retrieval_method",
+  "semantic_model", "provider", "ai_model",
+];
 
 const DAY_MS = 86400000;
 const MAX_RANGE_DAYS = 366;
@@ -87,6 +90,9 @@ export function normalizeAnalyticsFilters(query = {}, now = new Date()) {
     surface: oneOfOrNull(query.surface, SURFACES),
     status: oneOfOrNull(query.status, STATUSES),
     retrievalMethod: oneOfOrNull(query.retrievalMethod, METHODS),
+    semanticModel: textOrNull(query.semanticModel, 200),
+    provider: textOrNull(query.provider, 40),
+    aiModel: textOrNull(query.aiModel, 100),
   };
 }
 
@@ -98,10 +104,11 @@ function rate(numerator, total) {
 function num(v) { return v == null ? null : Number(v); }
 
 export async function getOverview(filters) {
-  const [req, ev, p95] = await Promise.all([
+  const [req, ev, p95, median] = await Promise.all([
     telemetry.aggregateRequests(filters),
     telemetry.aggregateEvents(filters),
     telemetry.p95Latency(filters),
+    telemetry.medianLatency(filters),
   ]);
   const requests = Number(req.requests) || 0;
   return {
@@ -120,6 +127,7 @@ export async function getOverview(filters) {
     },
     latency: {
       averageMs: req.avg_latency == null ? null : Math.round(Number(req.avg_latency)),
+      medianMs: median == null ? null : Math.round(median),
       p95Ms: p95 == null ? null : Math.round(p95),
     },
     retrieval: {
@@ -183,6 +191,9 @@ export async function getFilterOptions(filters) {
     departments: o.departments.map((r) => r.department),
     surfaces: o.surfaces.map((r) => r.surface),
     dashboards: o.dashboards.map((r) => ({ id: num(r.id), name: r.name || `Dashboard ${r.id}` })),
+    semanticModels: o.semanticModels.map((r) => r.value),
+    providers: o.providers.map((r) => r.value),
+    aiModels: o.aiModels.map((r) => r.value),
   };
 }
 

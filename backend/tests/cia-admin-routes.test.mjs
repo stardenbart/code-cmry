@@ -9,6 +9,7 @@
 // akun yang tidak ada -> 403; dan PUT access TIDAK PERNAH membaca userId dari
 // body (hanya dari path param).
 process.env.SKIP_SERVER_LISTEN = "true";
+process.env.CIA_ADMIN_ANALYTICS_ENABLED = "true";
 
 import { pathToFileURL } from "url";
 import { ok, section, summary, tokenFor } from "./harness.mjs";
@@ -102,6 +103,10 @@ try {
       ok("access 200", access.status === 200, `dapat ${access.status}`);
       ok("access mengembalikan daftar user", Array.isArray(access.body?.users));
       ok("access tidak membocorkan password", JSON.stringify(access.body || {}).indexOf("password") === -1);
+      ok("access membawa pilihan departemen lengkap", Array.isArray(access.body?.departments));
+
+      const paged = await call("GET", "/api/admin/cia/access?limit=1&offset=0", { token });
+      ok("access menghormati pagination", paged.status === 200 && paged.body?.users?.length <= 1);
 
       const settings = await call("GET", "/api/admin/cia/settings", { token });
       ok("settings 200", settings.status === 200, `dapat ${settings.status}`);
@@ -119,6 +124,16 @@ try {
         "/api/admin/cia/usage?dimension=" + encodeURIComponent("started_at);DROP TABLE users"),
         { token });
       ok("dimensi injeksi ditolak 400", r.status === 400, `dapat ${r.status}`);
+    }
+
+    section("Feature flag analytics menutup route agregasi");
+    {
+      process.env.CIA_ADMIN_ANALYTICS_ENABLED = "false";
+      const disabled = await call("GET", "/api/admin/cia/overview", { token });
+      ok("overview ditutup saat flag mati", disabled.status === 404, `dapat ${disabled.status}`);
+      const accessStillOpen = await call("GET", "/api/admin/cia/access", { token });
+      ok("control akses tetap tersedia", accessStillOpen.status === 200, `dapat ${accessStillOpen.status}`);
+      process.env.CIA_ADMIN_ANALYTICS_ENABLED = "true";
     }
 
     section("Request trace tak ada -> 404");
@@ -156,6 +171,24 @@ try {
         // Kembalikan ke nilai semula supaya uji idempotent.
         await sql.query("UPDATE users SET cia_access=? WHERE id=?",
           [original ? 1 : 0, normal.id]);
+      }
+
+
+      section("PUT bulk access bersifat atomik");
+      const originalBulk = Number(normal.cia_access) ? true : false;
+      try {
+        const bulk = await call("PUT", "/api/admin/cia/access", {
+          token, body: { userIds: [normal.id], enabled: !originalBulk },
+        });
+        ok("bulk access 200", bulk.status === 200, `dapat ${bulk.status}`);
+        const invalidBulk = await call("PUT", "/api/admin/cia/access", {
+          token, body: { userIds: [normal.id, 99999999], enabled: originalBulk },
+        });
+        ok("bulk dengan user hilang ditolak utuh", invalidBulk.status === 404, `dapat ${invalidBulk.status}`);
+        const [afterInvalid] = await sql.query("SELECT cia_access FROM users WHERE id=?", [normal.id]);
+        ok("bulk gagal tidak mengubah user valid", Boolean(Number(afterInvalid[0].cia_access)) === !originalBulk);
+      } finally {
+        await sql.query("UPDATE users SET cia_access=? WHERE id=?", [originalBulk ? 1 : 0, normal.id]);
       }
     }
   }
