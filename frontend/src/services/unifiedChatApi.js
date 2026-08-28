@@ -17,9 +17,17 @@ function pesanError(err, bawaan) {
   return err?.response?.data?.error || err?.message || bawaan;
 }
 
-export async function askUnified(question, conversationId = null, snapshots = []) {
+export async function askUnified(options, conversationId = null, legacySnapshots = []) {
   try {
-    const { data } = await API.post(`${BASE}/ask`, { question, conversationId, snapshots });
+    const input = typeof options === "string"
+      ? { question: options, conversationId, preferredDashboardIds: [], legacySnapshots }
+      : options;
+    const { data } = await API.post(`${BASE}/ask`, {
+      question: input.question,
+      conversationId: input.conversationId || null,
+      preferredDashboardIds: input.preferredDashboardIds || [],
+      snapshots: input.legacySnapshots || [],
+    });
     return data;
   } catch (err) {
     throw new Error(pesanError(err, "Gagal mengirim pertanyaan."));

@@ -52,10 +52,16 @@ try {
 
   section("Kolom JSON kembali sebagai objek, bukan string");
 
-  await addTurn(conv.id, 1, "tanya satu", [{ id: 7, title: "OEE" }], "jawab satu", { gemini: 10 });
+  await addTurn(conv.id, 1, "tanya satu", [{ id: 7, title: "OEE" }], "jawab satu", {
+    gemini: 10, retrievalMethod: "live_dax", confidence: "high",
+    sources: [{ dashboardId: "7", dashboardName: "OEE" }], warnings: ["UJI"],
+  });
   const [satu] = await getTurns(conv.id, 6);
   ok("dashboards_queried berupa array", Array.isArray(satu.dashboards_queried), typeof satu.dashboards_queried);
   ok("isi array utuh", satu.dashboards_queried[0]?.id === 7, JSON.stringify(satu.dashboards_queried));
+  ok("metadata evidence tersimpan", satu.retrieval_method === "live_dax"
+    && satu.confidence === "high" && satu.sources?.length === 1 && satu.warnings?.[0] === "UJI",
+  JSON.stringify(satu));
 
   section("getTurns memberi yang TERAKHIR, urut maju");
 

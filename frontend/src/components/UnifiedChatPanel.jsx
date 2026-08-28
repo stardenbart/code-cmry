@@ -17,6 +17,8 @@ import { askUnified } from '../services/unifiedChatApi';
 import SnapshotCapture from './SnapshotCapture';
 import API from '../api/api.js';
 
+const LEGACY_SNAPSHOT_FALLBACK = import.meta.env.VITE_CIA_LEGACY_SNAPSHOT_FALLBACK === 'true';
+
 export function UnifiedChatPanel({
   conversationId,
   onConversationId,
@@ -58,6 +60,10 @@ export function UnifiedChatPanel({
           role: 'assistant',
           content: t.answer,
           dashboards_used: t.dashboards_queried,
+          retrievalMethod: t.retrieval_method,
+          confidence: t.confidence,
+          sources: t.sources,
+          warnings: t.warnings,
           timestamp: t.created_at,
         },
       ])
@@ -80,7 +86,9 @@ export function UnifiedChatPanel({
     );
   };
 
-  const pendingCaptureIds = selectedDashboardIds.filter((id) => !snapshots[id]);
+  const pendingCaptureIds = LEGACY_SNAPSHOT_FALLBACK
+    ? selectedDashboardIds.filter((id) => !snapshots[id])
+    : [];
 
   const kirim = useCallback(async (pertanyaan, idsTerpilih) => {
     setLoading(true);
@@ -90,7 +98,12 @@ export function UnifiedChatPanel({
         .map((id) => (snapshots[id]?.data ? { dashboard_id: id, snapshot: snapshots[id].data } : null))
         .filter(Boolean);
 
-      const hasil = await askUnified(pertanyaan, conversationId, snapshotsToSend);
+      const hasil = await askUnified({
+        question: pertanyaan,
+        conversationId,
+        preferredDashboardIds: idsTerpilih,
+        legacySnapshots: snapshotsToSend,
+      });
 
       onConversationId?.(hasil.conversation_id);
       setMessages((prev) => [...prev, {
@@ -98,6 +111,10 @@ export function UnifiedChatPanel({
         content: hasil.answer,
         dashboards_used: hasil.dashboards_used,
         saran_dashboard: hasil.saran_dashboard,
+        retrievalMethod: hasil.retrieval_method,
+        confidence: hasil.confidence,
+        sources: hasil.sources,
+        warnings: hasil.warnings,
         timestamp: new Date(),
       }]);
 
@@ -117,11 +134,6 @@ export function UnifiedChatPanel({
     const pertanyaan = input.trim();
     if (!pertanyaan || loading) return;
 
-    if (pendingCaptureIds.length > 0) {
-      setError('Tunggu dashboard selesai memuat datanya sebentar lagi.');
-      return;
-    }
-
     setInput('');
     setMessages((prev) => [...prev, { role: 'user', content: pertanyaan, timestamp: new Date() }]);
     // Tanpa dashboard terpilih, server yang menyarankan. Itu jalur otomatisnya.
@@ -136,6 +148,13 @@ export function UnifiedChatPanel({
   const pilihSaran = (id) => {
     if (!pertanyaanTertunda) return;
     setSelectedDashboardIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    if (!LEGACY_SNAPSHOT_FALLBACK) {
+      const pertanyaan = pertanyaanTertunda;
+      setPertanyaanTertunda(null);
+      setMessages((prev) => [...prev, { role: 'user', content: pertanyaan, timestamp: new Date() }]);
+      kirim(pertanyaan, [...new Set([...selectedDashboardIds, id])]);
+      return;
+    }
     setMenungguSaran(id);
   };
 
@@ -169,7 +188,7 @@ export function UnifiedChatPanel({
     <div className="flex flex-col h-full min-h-0 bg-white">
       {/* Penarikan snapshot di latar, satu mount per dashboard terpilih yang
           datanya belum pernah diambil. */}
-      {pendingCaptureIds.map((id) => {
+      {LEGACY_SNAPSHOT_FALLBACK && pendingCaptureIds.map((id) => {
         const dash = dashboardById(id);
         if (!dash) return null;
         return (
@@ -214,8 +233,8 @@ export function UnifiedChatPanel({
 
         <div className="px-5 pb-3">
         <p className="text-xs text-gray-500 mb-2">
-          Pilih dashboard untuk membaca datanya, atau langsung tanya dan CIA yang
-          menyarankan dashboard mana yang perlu dibuka.
+          Pilihan ini hanya menjadi petunjuk awal. CIA tetap dapat membaca
+          dashboard lain yang relevan sesuai aksesmu dan periode pertanyaan.
         </p>
 
         {dashboards.length === 0 ? (
@@ -243,7 +262,7 @@ export function UnifiedChatPanel({
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-gray-900 truncate">{dash.title}</p>
                     {dash.department && <p className="text-xs text-gray-500">{dash.department}</p>}
-                    {isSelected && !entry && (
+                    {LEGACY_SNAPSHOT_FALLBACK && isSelected && !entry && (
                       <p className="text-xs text-cimoryBlue mt-0.5">Memuat data...</p>
                     )}
                     {entry?.data && (
@@ -304,7 +323,7 @@ export function UnifiedChatPanel({
           />
           <button
             onClick={handleSend}
-            disabled={loading || !input.trim() || pendingCaptureIds.length > 0}
+            disabled={loading || !input.trim()}
             className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-cimoryBlue to-cimoryRed text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition"
           >
             {loading ? <RefreshCw size={16} className="animate-spin" /> : <Send size={16} />}

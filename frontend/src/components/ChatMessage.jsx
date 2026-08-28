@@ -1,5 +1,6 @@
 import { DashboardReference } from './DashboardReference';
 import AnswerText from './AnswerText';
+import CiaEvidenceMeta from './chat/CiaEvidenceMeta';
 
 /**
  * Satu gelembung percakapan.
@@ -11,6 +12,7 @@ import AnswerText from './AnswerText';
  */
 export function ChatMessage({
   role, content, dashboards_used, saran_dashboard, timestamp, onPilihSaran,
+  retrievalMethod, confidence, sources, warnings,
 }) {
   const isUser = role === 'user';
 
@@ -74,6 +76,11 @@ export function ChatMessage({
             ))}
           </div>
         </div>
+      )}
+
+      {!isUser && (
+        <CiaEvidenceMeta retrievalMethod={retrievalMethod} confidence={confidence}
+          sources={sources} warnings={warnings} />
       )}
 
       {timestamp && (

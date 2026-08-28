@@ -1488,6 +1488,60 @@ export const AiController = {
         }
       }
 
+      const multiSanitizer = getSanitizer();
+      const multiSnapshotFallback = snapshotResults.length
+        ? {
+            text: buildMultiDashboardContext(
+              snapshotResults.map((r) => multiSanitizer.sanitizeSnapshot(r.snapshot)),
+              snapshotResults.map((r) => r.dashboard),
+              TIER_CHAR_BUDGET.cepat,
+            ),
+            dashboards: snapshotResults.map((r) => ({ id: r.dashboard_id, name: r.dashboard.title })),
+          }
+        : null;
+      const evidenceResponse = await runWebEvidence({
+        surface: "multi_chat",
+        requestId: req.ciaRequestId,
+        tracker: req.ciaTelemetry,
+        user,
+        body: {
+          ...req.body,
+          conversationId,
+          preferredDashboardIds: [
+            ...(Array.isArray(req.body.preferredDashboardIds) ? req.body.preferredDashboardIds : []),
+            ...snapshotResults.map((r) => r.dashboard_id),
+          ],
+        },
+        snapshotFallback: multiSnapshotFallback,
+      }, {
+        enabled: ciaOrchestratorWebEnabled(),
+        onFallback: (warning) => {
+          console.warn("[CIA] orchestrator Multi-Chat fallback ke legacy:", warning.message);
+          req.ciaTelemetry?.event("snapshot_fallback", {
+            metadata: { reason: warning.code },
+          }).catch?.(() => {});
+        },
+      });
+      if (evidenceResponse) {
+        const dashboardRefs = evidenceResponse.dashboards_used || [];
+        await addTurn(conversationId, turnNumber, question, dashboardRefs, evidenceResponse.answer, {
+          classifier: 0,
+          evidence: evidenceResponse.tokens?.totalTokens || 0,
+          retrievalMethod: evidenceResponse.retrieval_method,
+          confidence: evidenceResponse.confidence,
+          sources: evidenceResponse.sources,
+          warnings: evidenceResponse.warnings,
+        });
+        await pangkasSampaiMuat(userId);
+        req.ciaTelemetrySettled = true;
+        return res.json({
+          ...evidenceResponse,
+          conversation_id: conversationId,
+          turn_id: `${conversationId}-${turnNumber}`,
+          tier: "evidence",
+        });
+      }
+
       if (snapshotResults.length) {
         req.ciaTelemetry?.event("snapshot_read", {
           rowsReturned: snapshotResults.length,

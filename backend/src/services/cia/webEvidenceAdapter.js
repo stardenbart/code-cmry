@@ -27,6 +27,24 @@ function dashboardPayload(answer) {
   };
 }
 
+function multiChatPayload(answer) {
+  return {
+    answer: answer.answer,
+    dashboards_used: (answer.sources || []).map((source) => ({
+      id: source.dashboardId,
+      title: source.dashboardName || `Dashboard ${source.dashboardId}`,
+      reason: [source.kpis?.join(", "), source.period].filter(Boolean).join(" · "),
+      confidence: answer.confidence === "high" ? 1 : answer.confidence === "medium" ? 0.75 : 0.5,
+    })),
+    sources: answer.sources || [],
+    warnings: answer.warnings || [],
+    confidence: answer.confidence,
+    retrieval_method: answer.retrievalMethod,
+    rounds: answer.rounds,
+    tokens: answer.usage,
+  };
+}
+
 /**
  * Thin compatibility boundary between existing web endpoints and the shared
  * evidence orchestrator. A null result deliberately means "continue legacy".
@@ -46,7 +64,7 @@ export async function runWebEvidence(input = {}, injected = {}) {
       snapshotFallback: input.snapshotFallback || null,
     }, input.tracker ? { tracker: input.tracker } : {});
     if (!answer?.answer?.trim()) throw new Error("EMPTY_ORCHESTRATOR_ANSWER");
-    return input.surface === "multi_chat" ? answer : dashboardPayload(answer);
+    return input.surface === "multi_chat" ? multiChatPayload(answer) : dashboardPayload(answer);
   } catch (error) {
     injected.onFallback?.({
       code: "ORCHESTRATOR_WEB_FALLBACK",
@@ -55,4 +73,3 @@ export async function runWebEvidence(input = {}, injected = {}) {
     return null;
   }
 }
-

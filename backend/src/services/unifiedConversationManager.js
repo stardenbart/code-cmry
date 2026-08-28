@@ -95,20 +95,27 @@ export async function addTurn(conversationId, turnNumber, question, dashboards, 
  */
 export async function getTurns(conversationId, limit = 6) {
   const [rows] = await sql.query(
-    `SELECT turn_number, question, answer, dashboards_queried, created_at
+    `SELECT turn_number, question, answer, dashboards_queried, tokens_used, created_at
        FROM ai_unified_turns
       WHERE conversation_id = ?
       ORDER BY turn_number DESC
       LIMIT ?`,
     [conversationId, limit]
   );
-  return rows.reverse().map((row) => ({
-    turn_number: row.turn_number,
-    question: row.question,
-    answer: row.answer,
-    dashboards_queried: row.dashboards_queried || [],
-    created_at: row.created_at,
-  }));
+  return rows.reverse().map((row) => {
+    const metadata = row.tokens_used || {};
+    return {
+      turn_number: row.turn_number,
+      question: row.question,
+      answer: row.answer,
+      dashboards_queried: row.dashboards_queried || [],
+      retrieval_method: metadata.retrievalMethod || null,
+      confidence: metadata.confidence || null,
+      sources: Array.isArray(metadata.sources) ? metadata.sources : [],
+      warnings: Array.isArray(metadata.warnings) ? metadata.warnings : [],
+      created_at: row.created_at,
+    };
+  });
 }
 
 /** Jumlah turn, dipakai untuk menomori turn berikutnya tanpa menarik isinya. */

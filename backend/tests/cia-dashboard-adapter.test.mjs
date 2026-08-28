@@ -68,6 +68,29 @@ section("Kegagalan orchestrator meminta legacy fallback, bukan blank");
   ok("warning fallback transparan", warnings[0]?.code === "ORCHESTRATOR_WEB_FALLBACK");
 }
 
+section("Multi-Chat mendapat kontrak lama plus metadata evidence");
+{
+  const result = await runWebEvidence({
+    ...request({ dashboardId: undefined, preferredDashboardIds: [20, 30] }),
+    surface: "multi_chat",
+  }, {
+    enabled: true,
+    answerWithEvidence: async () => ({
+      answer: "PO dan lembur berkorelasi.", requestId: "req-web-1",
+      confidence: "medium", retrievalMethod: "live_dax", rounds: 2,
+      warnings: ["CORRELATION_ONLY"], usage: { inputTokens: 5, outputTokens: 6, totalTokens: 11 },
+      sources: [
+        { dashboardId: "20", dashboardName: "Lembur", period: "2026-07", kpis: ["Jam lembur"], rowCount: 5 },
+        { dashboardId: "30", dashboardName: "PPIC", period: "2026-07", kpis: ["PO"], rowCount: 3 },
+      ],
+    }),
+  });
+  ok("kontrak dashboards_used tersedia", result.dashboards_used?.length === 2);
+  ok("conversation contract tetap disiapkan controller", result.answer === "PO dan lembur berkorelasi.");
+  ok("metadata evidence tersedia", result.retrieval_method === "live_dax"
+    && result.confidence === "medium" && result.warnings[0] === "CORRELATION_ONLY");
+}
+
 section("Controller memasang adapter sebelum syarat snapshot legacy");
 {
   const source = fs.readFileSync("src/controllers/aiController.js", "utf8");
