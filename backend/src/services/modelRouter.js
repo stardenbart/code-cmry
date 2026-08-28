@@ -179,3 +179,18 @@ export async function tanyaModel({
     return keGemini(alasan);
   }
 }
+
+/**
+ * Jalur ringkas untuk pemanggilan yang kontraknya JSON terstruktur.
+ * Metadata provider/model/usage sengaja tidak dibuang karena planner ikut
+ * dihitung dalam telemetry request yang sama dengan retrieval dan synthesis.
+ */
+export async function tanyaModelTerstruktur(args = {}) {
+  const result = await tanyaModel(args);
+  return {
+    text: typeof result?.text === "string" ? result.text : "",
+    provider: result?.provider || null,
+    model: result?.model || null,
+    usage: result?.usage || null,
+  };
+}
