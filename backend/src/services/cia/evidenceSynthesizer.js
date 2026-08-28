@@ -164,13 +164,19 @@ export async function synthesizeEvidence(input = {}, injected = {}) {
     .some((item) => item?.causalMechanism === true);
   const asksCausality = /\b(karena|penyebab|menyebabkan|memicu|akibat|korelasi|berkorelasi|hubungan)\b/i
     .test(String(input.question || ""));
+  let correlationInsufficient = false;
   if (asksCausality && !hasMechanism) {
     const citedLive = citations.map((index) => sources[index]).filter((source) => source?.kind === "live_dax");
     const compatiblePair = citedLive.some((left, index) => citedLive.slice(index + 1).some((right) =>
       left.dashboardId !== right.dashboardId && left.period === right.period));
-    if (!compatiblePair) warnings.push("CORRELATION_EVIDENCE_INSUFFICIENT");
+    if (!compatiblePair) {
+      correlationInsufficient = true;
+      warnings.push("CORRELATION_EVIDENCE_INSUFFICIENT");
+    }
   }
-  let answer = correlationLanguage(clean(parsed.answer), hasMechanism);
+  let answer = correlationInsufficient
+    ? "Bukti yang tersedia belum cukup untuk menyimpulkan korelasi atau penyebab. CIA memerlukan sedikitnya dua sumber live pada periode yang sama."
+    : correlationLanguage(clean(parsed.answer), hasMechanism);
   const cited = citationText(citations, sources);
   if (cited) answer = `${answer}\n\n${cited}`;
   if (snapshots.length) {

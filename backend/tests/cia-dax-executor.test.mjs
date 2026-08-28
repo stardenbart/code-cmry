@@ -99,6 +99,8 @@ for (const [label, dax] of [
   ["constant rows", "EVALUATE ROW(\"Jam lembur\", 999999)"],
   ["period dibuang", "EVALUATE TOPN(500, SUMMARIZECOLUMNS('Overtime'[Department], \"Jam lembur\", 'Measures'[OT_HOURS]), [Jam lembur], DESC)"],
   ["metadata function", "EVALUATE INFO.TABLES()"],
+  ["comment smuggling", `EVALUATE SecretTable
+// TOPN(500, CALCULATETABLE(SUMMARIZECOLUMNS('Overtime'[Department], "Jam lembur", 'Measures'[OT_HOURS]), KEEPFILTERS('Date'[Date] >= DATE(2026, 8, 1) && 'Date'[Date] <= DATE(2026, 8, 28))))`],
 ]) {
   let count = 0;
   const rejected = await executeEvidencePlan(plan, {

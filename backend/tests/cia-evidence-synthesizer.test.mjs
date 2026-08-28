@@ -75,6 +75,8 @@ const causalSingle = await synthesizeEvidence({
 ok("memicu/menyebabkan/akibat tidak lolos sebagai kausal", !/memicu|menyebabkan|akibat/i.test(causalSingle.answer), causalSingle.answer);
 ok("warning bukti korelasi tidak cukup", causalSingle.warnings.includes("CORRELATION_EVIDENCE_INSUFFICIENT"),
   JSON.stringify(causalSingle));
+ok("klaim korelasi ditahan menjadi limitation", /belum cukup|sedikitnya dua sumber/i.test(causalSingle.answer),
+  causalSingle.answer);
 
 section("Invalid citation dibuang dan confidence diturunkan");
 const invalidCitation = await synthesizeEvidence({

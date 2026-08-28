@@ -20,6 +20,7 @@ function normalizeIdentifier(value) {
 function validRepair(dax, plan) {
   const query = String(dax || "").trim();
   if (!query || query.length > 4_000 || !/^EVALUATE\b/i.test(query)) return false;
+  if (/\/\/|--|\/\*|\*\//.test(query)) return false;
   const allowed = new Set((plan.allowedDaxIdentifiers || []).map(normalizeIdentifier).filter(Boolean));
   const allowedColumns = new Set([...allowed].map((item) => item.slice(item.indexOf("[") + 1, -1)));
   for (const kpi of plan.selectedKpis || []) allowedColumns.add(String(kpi.humanName || "").toLowerCase());
@@ -57,6 +58,19 @@ function validRepair(dax, plan) {
     const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
     if (!parts || !compact.includes(`DATE(${Number(parts[1])},${Number(parts[2])},${Number(parts[3])})`)) return false;
   }
+
+  // Setelah seluruh token yang memang diizinkan dibuang, tidak boleh tersisa
+  // identifier alfabet apa pun. Ini menutup bare table (`EVALUATE SecretTable`)
+  // yang tidak memakai bentuk Table[Column].
+  const residue = query
+    .replace(/('(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_ ]*)\[([^\]]+)\]/g, " ")
+    .replace(/"(?:[^"]|"")*"/g, " ")
+    .replace(/\[[^\]]+\]/g, " ")
+    .replace(/\b[A-Za-z_][A-Za-z0-9_.]*(?=\s*\()/g, " ")
+    .replace(/\b(?:EVALUATE|DESC|ASC)\b/gi, " ")
+    .replace(/\b\d+(?:\.\d+)?\b/g, " ")
+    .replace(/[\s(),><=+*/&|!-]+/g, " ");
+  if (/[A-Za-z_]/.test(residue)) return false;
   return true;
 }
 
