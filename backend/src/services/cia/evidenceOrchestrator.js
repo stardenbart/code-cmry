@@ -91,7 +91,7 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
   const allowCentralized = INTERNAL_SURFACES.has(rawEnvelope?.surface);
   const env = d.normalizeEnvelope(rawEnvelope, { allowCentralized });
 
-  const tracker = await d.startCiaTelemetry({
+  const tracker = deps.tracker || await d.startCiaTelemetry({
     requestId: env.requestId, surface: env.surface, user: env.actor,
     question: env.question, conversationId: env.conversationId,
   }, deps.telemetryStore);

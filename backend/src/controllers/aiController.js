@@ -48,6 +48,8 @@ import { hasGlmKey } from "../config/glm.js";
 import { tryAnswerLocally, AMBANG_KEYAKINAN } from "../services/aiLocalAnswer.js";
 import * as rateLimit from "../services/rateLimiter.js";
 import { getSanitizer, SANITIZER_CONFIG } from "../services/aiSanitizer.js";
+import { ciaOrchestratorWebEnabled } from "../config/featureFlags.js";
+import { runWebEvidence } from "../services/cia/webEvidenceAdapter.js";
 
 const sql = db.promise();
 
@@ -201,6 +203,34 @@ async function resolveKey(userId, requestedModel) {
 // supaya penanganan error lama tidak berubah. Deklarasi function (bukan const)
 // dipakai sengaja: ia ter-hoist sehingga bisa membungkus method di object
 // literal AiController di bawahnya.
+async function tryDashboardEvidence(req, user, dashboard, snapshot) {
+  const sanitizedSnapshot = getSanitizer().sanitizeSnapshot(snapshot);
+  const snapshotFallback = Array.isArray(sanitizedSnapshot?.visuals)
+    && sanitizedSnapshot.visuals.some((v) => Array.isArray(v?.rows) && v.rows.length)
+    ? {
+        text: buildDataContext(sanitizedSnapshot, dashboard, TIER_CHAR_BUDGET.cepat),
+        period: sanitizedSnapshot.period || null,
+        dashboards: [{ id: dashboard.id, name: dashboard.title }],
+      }
+    : null;
+  return runWebEvidence({
+    surface: "dashboard",
+    requestId: req.ciaRequestId,
+    tracker: req.ciaTelemetry,
+    user,
+    body: req.body,
+    snapshotFallback,
+  }, {
+    enabled: ciaOrchestratorWebEnabled(),
+    onFallback: (warning) => {
+      console.warn("[CIA] orchestrator dashboard fallback ke legacy:", warning.message);
+      req.ciaTelemetry?.event("snapshot_fallback", {
+        metadata: { reason: warning.code },
+      }).catch?.(() => {});
+    },
+  });
+}
+
 export function withCiaTelemetry(surface, handler, deps = {}) {
   const starter = deps.startCiaTelemetry || startCiaTelemetry;
   return async (req, res) => {
@@ -219,6 +249,7 @@ export function withCiaTelemetry(surface, handler, deps = {}) {
       telemetry = null;
     }
     req.ciaTelemetry = telemetry;
+    req.ciaRequestId = requestId;
     if (telemetry) Promise.resolve(telemetry.event("request_received")).catch(() => {});
 
     const startedAt = Date.now();
@@ -230,7 +261,7 @@ export function withCiaTelemetry(surface, handler, deps = {}) {
         payload && typeof payload === "object" && !Array.isArray(payload);
       const body = isPlainObject ? { ...payload, requestId } : payload;
 
-      if (!settled) {
+      if (!settled && !req.ciaTelemetrySettled) {
         settled = true;
         if (telemetry) {
           const latencyMs = Date.now() - startedAt;
@@ -899,6 +930,15 @@ export const AiController = {
 
       if (!(await userCanViewDashboard(user, dashboard.id))) {
         return res.status(403).json({ message: "Kamu belum punya akses ke dashboard ini" });
+      }
+
+      // Jalur live evidence tidak bergantung pada filter/snapshot browser.
+      // Dashboard yang sedang dibuka hanya hint; router tetap boleh memilih
+      // dashboard ACL lain yang lebih relevan dengan pertanyaan/periode.
+      const evidenceResponse = await tryDashboardEvidence(req, user, dashboard, snapshot);
+      if (evidenceResponse) {
+        req.ciaTelemetrySettled = true;
+        return res.json(evidenceResponse);
       }
 
       // Request validity is checked before service availability, so a malformed
