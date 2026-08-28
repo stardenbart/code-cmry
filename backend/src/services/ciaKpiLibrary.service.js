@@ -66,6 +66,15 @@ function withBigrams(text) {
 }
 function termSet(text) { return withBigrams(text); }
 
+// dimensions_json bisa berupa string ("Departemen"), qualified string
+// ("Tbl[Kol]"), atau object {table,column,humanName}. Ambil teks untuk scoring.
+function dimText(d) {
+  if (d && typeof d === "object" && !Array.isArray(d)) {
+    return String(d.humanName || d.column || d.label || "").trim();
+  }
+  return String(d ?? "").trim();
+}
+
 // ── Skoring ─────────────────────────────────────────────────────────────────
 function buildBuckets(candidate) {
   const humanNameTerms = termSet(candidate.humanName);
@@ -74,7 +83,8 @@ function buildBuckets(candidate) {
   const aqTerms = termSet((candidate.answerableQuestions || []).join(" "));
   const dashNames = (candidate.bindings || []).map((b) => b.dashboardName || "").join(" ");
   const domainDashTerms = termSet(`${candidate.domain || ""} ${dashNames}`);
-  const dimTerms = termSet((candidate.bindings || []).flatMap((b) => b.dimensions || []).join(" "));
+  const dimTerms = termSet((candidate.bindings || [])
+    .flatMap((b) => b.dimensions || []).map(dimText).join(" "));
   return { humanNameTerms, synonymPhrases, synonymTerms, aqTerms, domainDashTerms, dimTerms };
 }
 
@@ -107,17 +117,41 @@ function aclAllows(binding, allowedSet) {
   return allowedSet.has(Number(binding.dashboardId));
 }
 
+// Bentuk binding kaya yang dikonsumsi router/planner/builder/synthesis. SATU
+// pemetaan supaya kedua loader (candidate & follow-up) konsisten. bindingId =
+// id DB (identitas stabil); bindingKey = binding_key. dateTable/dateColumn/
+// dateLogic wajib ada agar builder bisa membangun filter periode.
+function mapBindingRow(b) {
+  return {
+    bindingId: b.id,
+    bindingKey: b.binding_key,
+    dashboardId: b.dashboard_id,
+    dashboardName: b.dashboard_name,
+    reportId: b.report_id,
+    semanticModel: b.semantic_model,
+    tableName: b.table_name,
+    measureName: b.measure_name,
+    displayCaption: b.display_caption,
+    dimensions: b.dimensions_json || [],
+    dateTable: b.date_table,
+    dateColumn: b.date_column,
+    dateLogic: b.date_logic,
+    verificationStatus: b.verification_status,
+  };
+}
+
 async function loadLibraryCandidates(allowedDashboardIds) {
   const [kpis] = await pool.query(
     `SELECT id, slug, human_name, synonyms_json, answerable_questions_json,
-            domain, unit, number_format, status
+            domain, definition, unit, number_format, status
        FROM cia_kpis`);
   if (!kpis.length) return null; // kosong -> caller fallback
 
   const [bindings] = await pool.query(
-    `SELECT b.kpi_id, b.dashboard_id, b.report_id, b.semantic_model, b.table_name,
-            b.measure_name, b.display_caption, b.dimensions_json, b.verification_status,
-            d.title AS dashboard_name
+    `SELECT b.id, b.binding_key, b.kpi_id, b.dashboard_id, b.report_id,
+            b.semantic_model, b.table_name, b.measure_name, b.display_caption,
+            b.dimensions_json, b.date_table, b.date_column, b.date_logic,
+            b.verification_status, d.title AS dashboard_name
        FROM cia_kpi_bindings b
        LEFT JOIN dashboards d ON d.id = b.dashboard_id
       WHERE b.verification_status IN ('discovered','confirmed')`);
@@ -129,17 +163,7 @@ async function loadLibraryCandidates(allowedDashboardIds) {
   for (const b of bindings) {
     if (!aclAllows({ dashboardId: b.dashboard_id }, allowedSet)) continue;
     if (!byKpi.has(b.kpi_id)) byKpi.set(b.kpi_id, []);
-    byKpi.get(b.kpi_id).push({
-      dashboardId: b.dashboard_id,
-      dashboardName: b.dashboard_name,
-      reportId: b.report_id,
-      semanticModel: b.semantic_model,
-      tableName: b.table_name,
-      measureName: b.measure_name,
-      displayCaption: b.display_caption,
-      dimensions: b.dimensions_json || [],
-      verificationStatus: b.verification_status,
-    });
+    byKpi.get(b.kpi_id).push(mapBindingRow(b));
   }
 
   const candidates = [];
@@ -156,6 +180,7 @@ async function loadLibraryCandidates(allowedDashboardIds) {
       synonyms: k.synonyms_json || [],
       answerableQuestions: k.answerable_questions_json || [],
       domain: k.domain,
+      definition: k.definition || "",
       unit: k.unit,
       numberFormat: k.number_format,
       status: k.status,
@@ -220,11 +245,14 @@ export async function getBindingsForKpis(kpiIds, allowedDashboardIds = null) {
   const ids = kpiIds.map(Number).filter((n) => Number.isInteger(n));
   if (!ids.length) return [];
   const [rows] = await pool.query(
-    `SELECT b.kpi_id, b.dashboard_id, b.report_id, b.semantic_model, b.table_name,
-            b.measure_name, b.display_caption, b.dimensions_json, b.verification_status,
-            d.title AS dashboard_name
+    `SELECT b.id, b.binding_key, b.kpi_id, b.dashboard_id, b.report_id,
+            b.semantic_model, b.table_name, b.measure_name, b.display_caption,
+            b.dimensions_json, b.date_table, b.date_column, b.date_logic,
+            b.verification_status, d.title AS dashboard_name,
+            k.human_name, k.definition, k.unit, k.number_format
        FROM cia_kpi_bindings b
        LEFT JOIN dashboards d ON d.id = b.dashboard_id
+       JOIN cia_kpis k ON k.id = b.kpi_id
       WHERE b.kpi_id IN (${ids.map(() => "?").join(",")})
         AND b.verification_status IN ('discovered','confirmed')`,
     ids
@@ -233,16 +261,12 @@ export async function getBindingsForKpis(kpiIds, allowedDashboardIds = null) {
   return rows
     .filter((b) => aclAllows({ dashboardId: b.dashboard_id }, allowedSet))
     .map((b) => ({
+      ...mapBindingRow(b),
       kpiId: b.kpi_id,
-      dashboardId: b.dashboard_id,
-      dashboardName: b.dashboard_name,
-      reportId: b.report_id,
-      semanticModel: b.semantic_model,
-      tableName: b.table_name,
-      measureName: b.measure_name,
-      displayCaption: b.display_caption,
-      dimensions: b.dimensions_json || [],
-      verificationStatus: b.verification_status,
+      humanName: b.human_name,
+      definition: b.definition || "",
+      unit: b.unit,
+      numberFormat: b.number_format,
     }));
 }
 
@@ -262,7 +286,7 @@ export async function getDashboardVocabulary(dashboardIds) {
     const key = Number(r.dashboard_id);
     if (!out[key]) out[key] = { measures: new Set(), dimensions: new Set(), kpis: new Set() };
     if (r.measure_name) out[key].measures.add(r.measure_name);
-    for (const d of (r.dimensions_json || [])) out[key].dimensions.add(d);
+    for (const d of (r.dimensions_json || [])) { const t = dimText(d); if (t) out[key].dimensions.add(t); }
     if (r.human_name) out[key].kpis.add(r.human_name);
   }
   const result = {};

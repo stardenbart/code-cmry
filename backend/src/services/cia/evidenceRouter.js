@@ -11,6 +11,26 @@ function cleanStrings(value, limit = 20, maxLength = 100) {
     .filter(Boolean))].slice(0, limit);
 }
 
+// dimensions_json bentuk campuran (string bare, "Tbl[Kol]", atau object
+// {table,column,humanName}) DIPERTAHANKAN apa adanya — daxPlanBuilder.parseDimension
+// yang menormalkannya. cleanStrings lama membuang object, jadi jangan dipakai
+// untuk dimensions.
+function preserveDimensions(value, limit = 50) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => (typeof item === "string" && item.trim())
+      || (item && typeof item === "object" && !Array.isArray(item)))
+    .slice(0, limit);
+}
+
+// Label komparasi untuk mencocokkan dimensi yang diminta planner.
+function dimensionLabel(item) {
+  if (item && typeof item === "object" && !Array.isArray(item)) {
+    return String(item.humanName || item.column || item.label || "").trim().toLowerCase();
+  }
+  return String(item ?? "").trim().toLowerCase();
+}
+
 function bindingIdentity(kpi, binding) {
   if (binding.bindingId != null && String(binding.bindingId).trim()) return String(binding.bindingId).trim();
   if (binding.bindingKey != null && String(binding.bindingKey).trim()) return String(binding.bindingKey).trim();
@@ -27,16 +47,28 @@ function flattenCandidates(kpis) {
       if (!bindingId) continue;
       flattened.push({
         bindingId,
+        bindingKey: binding.bindingKey || null,
         kpiId: kpi.kpiId ?? null,
         slug: kpi.slug || null,
         humanName: kpi.humanName || binding.displayCaption || binding.measureName || "KPI",
+        // Metadata KPI-level untuk synthesis (label bisnis, unit, format).
+        definition: kpi.definition || binding.definition || "",
+        unit: kpi.unit ?? binding.unit ?? null,
+        numberFormat: kpi.numberFormat ?? binding.numberFormat ?? null,
         score: Number(kpi.score) || 0,
         dashboardId: binding.dashboardId == null ? null : String(binding.dashboardId),
         dashboardName: binding.dashboardName || null,
+        reportId: binding.reportId || null,
         semanticModel: binding.semanticModel || null,
         tableName: binding.tableName || null,
         measureName: binding.measureName || null,
-        dimensions: cleanStrings(binding.dimensions, 50),
+        displayCaption: binding.displayCaption || null,
+        // Mapping tanggal WAJIB diteruskan; builder memakainya untuk filter
+        // periode, dan bila kosong builder mengembalikan typed failure.
+        dateTable: binding.dateTable || null,
+        dateColumn: binding.dateColumn || null,
+        dateLogic: binding.dateLogic || null,
+        dimensions: preserveDimensions(binding.dimensions, 50),
         periodDefaults: binding.periodDefaults || null,
         origin: "deterministic",
         purpose: "primary",
@@ -51,8 +83,12 @@ function safePlannerCandidate(value, allowed) {
   const bindingId = String(value.bindingId ?? value.id ?? "").trim();
   const base = allowed.get(bindingId);
   if (!base) return null;
-  const dimensionsAllowed = new Map(base.dimensions.map((item) => [item.toLowerCase(), item]));
-  const dimensions = cleanStrings(value.dimensions, 6)
+  // Cocokkan dimensi yang diminta planner ke dimensi binding via label
+  // (mendukung string maupun object), tetapi pertahankan ENTRY ASLI (object/
+  // string) supaya builder tetap bisa memparsingnya.
+  const dimensionsAllowed = new Map(base.dimensions.map((item) => [dimensionLabel(item), item]));
+  const requested = cleanStrings(value.dimensions, 6);
+  const dimensions = requested
     .map((item) => dimensionsAllowed.get(item.toLowerCase())).filter(Boolean);
   return {
     ...base,
