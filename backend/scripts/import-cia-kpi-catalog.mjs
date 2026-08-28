@@ -44,16 +44,18 @@ function clamp(value, max) {
 }
 
 function columnRef(value, fallbackTable = null) {
-  const table = typeof value === "object" ? value?.tabel ?? value?.table : fallbackTable;
+  const table = typeof value === "object" ? value?.tabel ?? value?.table ?? fallbackTable : fallbackTable;
   const column = typeof value === "object" ? value?.kolom ?? value?.column : value;
   if (!table || !column) return null;
-  return { table: String(table).trim(), column: String(column).trim(), humanName: String(column).trim() };
+  return { table: String(table).trim(), column: String(column).trim(),
+    humanName: String(typeof value === "object" ? value?.humanName ?? value?.label ?? column : column).trim() };
 }
 
 function bindingDimensions(entry) {
   return [
     columnRef(entry.dimensi, entry.dimensiTabel),
     ...(Array.isArray(entry.kolomTeks) ? entry.kolomTeks.map((v) => columnRef(v, entry.dimensiTabel)) : []),
+    ...(Array.isArray(entry.dimensiTambahan) ? entry.dimensiTambahan.map((v) => columnRef(v)) : []),
   ].filter(Boolean);
 }
 

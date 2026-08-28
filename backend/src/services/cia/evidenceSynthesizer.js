@@ -10,18 +10,39 @@ function periodText(period) {
   return clean(period.label, 120) || "periode tidak diketahui";
 }
 
-function liveSources(evidence) {
-  return (Array.isArray(evidence) ? evidence : []).filter((item) => item?.status === "success"
-    && Array.isArray(item.rows) && item.rows.length).map((item) => ({
+function liveSources(evidence, question = "") {
+  const ranking = /\b(top\s+\d+|tertinggi|terendah|terbesar|terkecil)\b/i.test(String(question));
+  const sources = (Array.isArray(evidence) ? evidence : []).filter((item) => item?.status === "success"
+    && Array.isArray(item.rows) && item.rows.length).map((item) => {
+    const rows = item.rows.map((row) => Object.fromEntries(Object.entries(row || {})
+      .map(([label, value]) => [humanLabel(label), typeof value === "string" ? decodeText(value) : value])));
+    return {
     kind: "live_dax",
     dashboardId: item.source?.dashboardId ?? null,
     dashboardName: clean(item.source?.dashboardName, 150) || "Dashboard Power BI",
     semanticModel: clean(item.source?.semanticModel, 150) || null,
     period: periodText(item.period),
     kpis: Array.isArray(item.source?.kpis) ? item.source.kpis.map((value) => clean(value, 100)).filter(Boolean) : [],
-    rows: item.rows.slice(0, MAX_ROWS_PER_SOURCE),
+    rows: (ranking ? distinctRows(rows, requestedRowLimit(question), question) : rows)
+      .slice(0, MAX_ROWS_PER_SOURCE),
     rowCount: Number(item.rowCount) || item.rows.length,
-  }));
+  };
+  });
+  const unique = new Map();
+  for (const source of sources) {
+    const key = [source.semanticModel, source.dashboardName, source.period, [...source.kpis].sort().join("|")]
+      .map((value) => String(value ?? "").trim().toLowerCase()).join("::");
+    const existing = unique.get(key);
+    if (!existing) {
+      unique.set(key, source);
+      continue;
+    }
+    const rows = [...existing.rows, ...source.rows];
+    existing.rows = [...new Map(rows.map((row) => [JSON.stringify(row), row])).values()]
+      .slice(0, MAX_ROWS_PER_SOURCE);
+    existing.rowCount = Math.max(existing.rowCount || 0, source.rowCount || 0, existing.rows.length);
+  }
+  return [...unique.values()].slice(0, 6);
 }
 
 function snapshotSources(snapshot) {
@@ -106,9 +127,85 @@ function emptyResult(warnings = []) {
   };
 }
 
+function displayValue(value) {
+  if (value == null) return "-";
+  if (typeof value === "number") return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(value);
+  if (typeof value === "boolean") return value ? "Ya" : "Tidak";
+  return decodeText(clean(String(value), 300));
+}
+
+function decodeText(value) {
+  return String(value || "")
+    .replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"').replace(/&#(?:39|x27);/gi, "'");
+}
+
+function humanLabel(label) {
+  const normalized = String(label || "").trim().toLowerCase().replace(/[\s_-]+/g, " ");
+  if (/^nama mesin$|^machine name$|^mesin$/.test(normalized)) return "Mesin";
+  if (/^issue$|^masalah$/.test(normalized)) return "Masalah";
+  if (/^action$|^tindakan$/.test(normalized)) return "Tindakan";
+  if (/^gedung$|^cmd( \/ gedung)?$/.test(normalized)) return "CMD / Gedung";
+  if (/top mesin downtime|durasi downtime|downtime.*tertinggi/.test(normalized)) return "Durasi downtime";
+  return String(label || "").trim().replaceAll("_", " ");
+}
+
+function requestedRowLimit(question) {
+  const requested = /\btop\s+(\d{1,2})\b/i.exec(String(question || ""));
+  return requested ? Math.max(1, Math.min(Number(requested[1]), 10)) : 5;
+}
+
+function numericEvidenceValue(row) {
+  const values = Object.entries(row || {}).filter(([label, value]) =>
+    typeof value === "number" && /downtime|durasi|duration|total|jumlah|nilai|jam/i.test(humanLabel(label)));
+  return values.length ? Number(values.at(-1)[1]) : Number.NEGATIVE_INFINITY;
+}
+
+function distinctRows(rows, limit, question) {
+  const ordered = /\b(top|tertinggi|terbesar)\b/i.test(String(question || ""))
+    ? [...rows].sort((left, right) => numericEvidenceValue(right) - numericEvidenceValue(left))
+    : rows;
+  const unique = new Map();
+  for (const row of ordered) {
+    const machine = Object.entries(row || {}).find(([label]) => humanLabel(label) === "Mesin")?.[1];
+    const identity = machine == null ? JSON.stringify(row) : String(machine).trim().toLowerCase();
+    if (!unique.has(identity)) unique.set(identity, row);
+    if (unique.size >= limit) break;
+  }
+  return [...unique.values()];
+}
+
+function evidenceFallback(sources, retrievalMethod, warnings, metadata = {}, question = "") {
+  const usable = sources.filter((source) => Array.isArray(source.rows) && source.rows.length).slice(0, 3);
+  if (!usable.length) return emptyResult(warnings);
+  const limit = requestedRowLimit(question);
+  const sections = usable.map((source) => {
+    const rows = distinctRows(source.rows, limit, question).map((row, index) => {
+      const values = Object.entries(row || {}).slice(0, 8)
+        .map(([label, value]) => `${humanLabel(label)}: ${displayValue(value)}`).join("; ");
+      return `${index + 1}. ${values}`;
+    }).join("\n");
+    return `${source.dashboardName} — ${source.period}\n${rows}`;
+  });
+  const top = /\btop\s+(\d{1,2})\b/i.exec(String(question || ""));
+  const intro = top
+    ? `Berdasarkan data live, berikut top ${Math.min(Number(top[1]), 10)} hasil yang paling relevan:`
+    : "Berdasarkan data live yang berhasil dibaca:";
+  return {
+    answer: `${intro}\n\n${sections.join("\n\n")}`,
+    confidence: retrievalMethod === "live_dax" ? "medium" : "low",
+    retrievalMethod,
+    sources: usable,
+    warnings: [...new Set(warnings)],
+    usage: metadata.usage || null,
+    provider: metadata.provider || null,
+    model: metadata.model || null,
+  };
+}
+
 export async function synthesizeEvidence(input = {}, injected = {}) {
   const callModel = injected.callModel || tanyaModelTerstruktur;
-  const live = liveSources(input.evidence);
+  const live = liveSources(input.evidence, input.question);
   const warnings = [...new Set((Array.isArray(input.warnings) ? input.warnings : [])
     .map((value) => clean(value, 100)).filter(Boolean))];
   const evidence = Array.isArray(input.evidence) ? input.evidence : [];
@@ -139,21 +236,14 @@ export async function synthesizeEvidence(input = {}, injected = {}) {
       maxOutputTokens: 3_000,
     });
   } catch {
-    const fallback = emptyResult([...warnings, "SYNTHESIS_FAILED"]);
-    fallback.retrievalMethod = retrievalMethod;
-    fallback.sources = sources;
-    return fallback;
+    return evidenceFallback(sources, retrievalMethod, [...warnings, "SYNTHESIS_FAILED"], {}, input.question);
   }
 
   const parsed = parseReply(response?.text);
   if (!parsed || !clean(parsed.answer)) {
-    const fallback = emptyResult([...warnings, "SYNTHESIS_INVALID_RESPONSE"]);
-    fallback.retrievalMethod = retrievalMethod;
-    fallback.sources = sources;
-    fallback.usage = response?.usage || null;
-    fallback.provider = response?.provider || null;
-    fallback.model = response?.model || null;
-    return fallback;
+    return evidenceFallback(sources, retrievalMethod, [...warnings, "SYNTHESIS_INVALID_RESPONSE"], {
+      usage: response?.usage, provider: response?.provider, model: response?.model,
+    }, input.question);
   }
 
   const requestedCitations = Array.isArray(parsed.citedSourceIndexes) ? parsed.citedSourceIndexes : [];

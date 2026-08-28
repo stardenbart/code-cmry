@@ -76,7 +76,7 @@ function explicitRange(question) {
 
 function namedMonthCandidates(question, today, occupiedRange = null) {
   const names = [...MONTHS.keys()].join("|");
-  const regex = new RegExp(`\\b(?:bulan\\s+)?(${names})(?:\\s+(lalu|ini))?(?:\\s+(\\d{4}))?\\b`, "gi");
+  const regex = new RegExp(`\\b(?:bulan\\s+)?(${names})(?:\\s+(lalu|ini|kemarin))?(?:\\s+(\\d{4}))?\\b`, "gi");
   const out = [];
   for (const match of question.matchAll(regex)) {
     const end = match.index + match[0].length;
@@ -90,12 +90,12 @@ function namedMonthCandidates(question, today, occupiedRange = null) {
     const from = dateAt(year, month, 1);
     const fullEnd = addDays(dateAt(year, month + 1, 1), -1);
     const to = year === today.getUTCFullYear() && month === currentMonthNumber ? today : fullEnd;
-    out.push({ index: match.index, value: period(match[0], from, to, "day", "named_month") });
+    out.push({ index: match.index, end, value: period(match[0], from, to, "day", "named_month") });
   }
   return out;
 }
 
-function relativeCandidates(question, today) {
+function relativeCandidates(question, today, occupiedRanges = []) {
   const year = today.getUTCFullYear();
   const month = today.getUTCMonth() + 1;
   const weekday = today.getUTCDay();
@@ -122,7 +122,9 @@ function relativeCandidates(question, today) {
 
   return candidates.flatMap(([needle, build]) => {
     const index = question.indexOf(needle);
-    return index === -1 ? [] : [{ index, value: build() }];
+    const end = index + needle.length;
+    const overlaps = occupiedRanges.some((range) => index < range.end && end > range.index);
+    return index === -1 || overlaps ? [] : [{ index, end, value: build() }];
   });
 }
 
@@ -144,10 +146,12 @@ function configuredDefault(defaults) {
 export function resolvePeriods(question, now = new Date(), timezone = "Asia/Jakarta", defaults = {}) {
   const text = typeof question === "string" ? question.toLocaleLowerCase("id-ID") : "";
   const today = zonedToday(now, timezone);
-  const candidates = relativeCandidates(text, today);
   const range = explicitRange(text);
+  const namedMonths = namedMonthCandidates(text, today, range);
+  const occupied = [range, ...namedMonths].filter(Boolean);
+  const candidates = relativeCandidates(text, today, occupied);
   if (range) candidates.push(range);
-  candidates.push(...namedMonthCandidates(text, today, range));
+  candidates.push(...namedMonths);
 
   const resolved = candidates.sort((a, b) => a.index - b.index).map((item) => item.value);
   const unique = [...new Map(resolved.map((item) => [

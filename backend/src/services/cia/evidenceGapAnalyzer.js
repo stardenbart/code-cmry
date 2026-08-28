@@ -95,8 +95,10 @@ export async function analyzeEvidenceGap({ question = "", plan = {}, evidence = 
   }
 
   const primaryIds = new Set(primaryGoals.map((goal) => clean(goal.kpiBindingId)));
-  const correlationCandidates = candidates.filter((candidate) =>
-    !primaryIds.has(clean(candidate.bindingId)) && candidateRelevant(question, candidate));
+  const asksCorrelation = /\b(karena|penyebab|menyebabkan|memicu|akibat|korelasi|berkorelasi|hubungan|kait\w*|terkait)\b/i
+    .test(question);
+  const correlationCandidates = asksCorrelation ? candidates.filter((candidate) =>
+    !primaryIds.has(clean(candidate.bindingId)) && candidateRelevant(question, candidate)) : [];
 
   for (const candidate of correlationCandidates) {
     const dimensions = requestedDimensions(question, candidate);

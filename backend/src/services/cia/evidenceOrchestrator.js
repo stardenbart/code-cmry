@@ -51,11 +51,25 @@ function goalKey(goal) {
   return `${String(goal?.kpiBindingId ?? "").trim()}::${period}::${dims}`;
 }
 
+function entityFilters(question, binding) {
+  const cmd = /\bcmd\s*[-_]?\s*(\d{1,3})\b/i.exec(String(question || ""));
+  if (!cmd) return [];
+  const dimension = (Array.isArray(binding?.dimensions) ? binding.dimensions : []).find((item) => {
+    const label = dimLabel(item).toLowerCase();
+    const column = String(item?.column ?? item?.kolom ?? "").toLowerCase();
+    return /gedung|cmd/.test(`${label} ${column}`);
+  });
+  return dimension ? [{ dimension: dimLabel(dimension), value: `CMD${cmd[1]}` }] : [];
+}
+
 // Fallback goals ketika planner AI kosong/gagal: pakai kandidat deterministic
 // teratas apa adanya, meminta seluruh dimensi binding (dibatasi builder).
 function deterministicGoals(candidates, periods, limit = 6) {
   const goals = [];
-  for (const candidate of (Array.isArray(candidates) ? candidates : []).slice(0, 3)) {
+  const all = Array.isArray(candidates) ? candidates : [];
+  const bestScore = Math.max(...all.map((candidate) => Number(candidate.score) || 0), 0);
+  const primary = all.filter((candidate) => (Number(candidate.score) || 0) === bestScore).slice(0, 3);
+  for (const candidate of primary) {
     const count = Math.max(1, Math.min(Array.isArray(periods) ? periods.length : 1, 6));
     for (let periodIndex = 0; periodIndex < count && goals.length < limit; periodIndex += 1) {
       goals.push({
@@ -195,7 +209,30 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
         metadata: { goals: (plan.goals || []).length },
       });
 
-      let goals = (plan.goals && plan.goals.length) ? plan.goals : deterministicGoals(route.candidates, periods);
+      const fallbackGoals = deterministicGoals(route.candidates, periods);
+      let plannedGoals = Array.isArray(plan.goals) ? plan.goals : [];
+      const rankingQuestion = /\b(top\s+\d+|tertinggi|terendah|paling\s+(?:tinggi|rendah)|terbesar|terkecil)\b/i
+        .test(env.question);
+      if (rankingQuestion && route.candidates.length) {
+        const maxScore = Math.max(...route.candidates.map((candidate) => Number(candidate.score) || 0));
+        const rankingIds = new Set(route.candidates
+          .filter((candidate) => (Number(candidate.score) || 0) === maxScore)
+          .map((candidate) => String(candidate.bindingId)));
+        plannedGoals = plannedGoals.filter((goal) => rankingIds.has(String(goal.kpiBindingId)));
+      }
+      let goals = fallbackGoals;
+      if (plannedGoals.length) {
+        const plannedKeys = new Set(plannedGoals.map(goalKey));
+        const bestIds = new Set(fallbackGoals.map((goal) => String(goal.kpiBindingId)));
+        const selectedBestIds = new Set(plannedGoals
+          .map((goal) => String(goal.kpiBindingId)).filter((id) => bestIds.has(id)));
+        const recoveryBinding = selectedBestIds.size
+          ? selectedBestIds
+          : new Set(fallbackGoals.length ? [String(fallbackGoals[0].kpiBindingId)] : []);
+        const recoveryGoals = fallbackGoals.filter((goal) => recoveryBinding.has(String(goal.kpiBindingId))
+          && !plannedKeys.has(goalKey(goal)));
+        goals = [...plannedGoals, ...recoveryGoals];
+      }
 
       // 5-10. Bounded retrieval loop.
       const limit = maxRounds();
@@ -208,11 +245,15 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
           const binding = bindingIndex.get(String(goal.kpiBindingId));
           if (!binding) { warnings.push("GOAL_BINDING_UNKNOWN"); continue; }
           const period = periods[goal.periodIndex] || periods[0] || {};
+          const effectiveGoal = { ...goal, filters: [
+            ...(Array.isArray(goal.filters) ? goal.filters : []),
+            ...entityFilters(env.question, binding),
+          ] };
 
           let daxPlan;
           try {
             const schema = await d.getSchema(binding.semanticModel, binding);
-            daxPlan = d.buildDaxPlan({ goal, binding, period, schema });
+            daxPlan = d.buildDaxPlan({ goal: effectiveGoal, binding, period, schema });
           } catch (err) {
             // Typed planning failure (mis. DATE_COLUMN_NOT_ALLOWED / schema
             // unavailable): jangan mengarang, catat & lanjut → fallback transparan.
@@ -222,7 +263,7 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
 
           const result = await d.executeEvidencePlan(daxPlan, { ...deps.executorDeps, tracker });
           addUsage(result?.usage);
-          roundResults.push({ ...result, goal, source: result?.source || sourceFrom(daxPlan) });
+          roundResults.push({ ...result, goal: effectiveGoal, source: result?.source || sourceFrom(daxPlan) });
         }
         evidence.push(...roundResults);
 

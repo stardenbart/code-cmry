@@ -53,6 +53,26 @@ ok("goal PPIC diminta sebagai correlation",
     && round1.additionalGoals[0].dimensions.includes("Produk"),
   JSON.stringify(round1.additionalGoals));
 
+section("Pertanyaan ranking non-kausal tidak memperluas ke KPI sibling");
+const ranking = await analyzeEvidenceGap({
+  question: "top 3 mesin dengan downtime tertinggi pada CMD1 bulan Juni kemarin",
+  plan: {
+    periods: [period],
+    goals: [{ kpiBindingId: "b-top", periodIndex: 0, dimensions: ["Mesin"], purpose: "primary" }],
+    candidates: [
+      { bindingId: "b-top", slug: "top_downtime", humanName: "Top mesin downtime tertinggi", dimensions: ["Mesin"] },
+      { bindingId: "b-low", slug: "lowest_downtime", humanName: "Top mesin downtime terendah", dimensions: ["Mesin"] },
+      { bindingId: "b-building", slug: "downtime_building", humanName: "Downtime per gedung", dimensions: ["Gedung"] },
+    ],
+  },
+  evidence: [evidence({ bindingId: "b-top", slug: "top_downtime", humanName: "Top mesin downtime tertinggi" }, ["Mesin"])],
+  round: 1,
+  library: { candidates: [] },
+});
+ok("ranking selesai dari primary evidence saja",
+  ranking.complete === true && ranking.additionalGoals.length === 0,
+  JSON.stringify(ranking));
+
 section("Round 2 complete setelah evidence PPIC dengan periode compatible");
 const round2 = await analyzeEvidenceGap({
   question: "apakah lembur produksi A tinggi karena PO naik, produk apa dan kenapa",

@@ -91,6 +91,25 @@ section("Multi-Chat mendapat kontrak lama plus metadata evidence");
     && result.confidence === "medium" && result.warnings[0] === "CORRELATION_ONLY");
 }
 
+section("Multi-Chat membatasi kartu sumber duplikat");
+{
+  const result = await runWebEvidence({ ...request(), surface: "multi_chat" }, {
+    enabled: true,
+    answerWithEvidence: async () => ({
+      answer: "Data live tersedia.", requestId: "req-duplicate",
+      confidence: "medium", retrievalMethod: "live_dax", rounds: 1, warnings: [], usage: null,
+      sources: Array.from({ length: 12 }, (_, index) => ({
+        dashboardId: String(65 + (index % 2)), dashboardName: "Technical Downtime ORS",
+        semanticModel: "ors", period: "2026-06-01 sampai 2026-06-30",
+        kpis: ["Top mesin downtime tertinggi"], rowCount: 20,
+      })),
+    }),
+  });
+  ok("dashboard cards unik dan tidak memenuhi layar",
+    result.dashboards_used.length === 1 && result.sources.length === 1,
+    JSON.stringify({ dashboards: result.dashboards_used, sources: result.sources }));
+}
+
 section("Controller memasang adapter sebelum syarat snapshot legacy");
 {
   const source = fs.readFileSync("src/controllers/aiController.js", "utf8");

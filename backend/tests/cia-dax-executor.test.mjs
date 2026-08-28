@@ -94,6 +94,20 @@ ok("repair unsafe tidak dieksekusi", calls === 1, String(calls));
 ok("repair unsafe typed DAX_INVALID", unsafeRepair.errorCode === "DAX_INVALID",
   JSON.stringify(unsafeRepair));
 
+section("Plan dengan filter entitas gagal tertutup tanpa repair");
+calls = 0;
+repairCalls = 0;
+const filteredFailure = await executeEvidencePlan({
+  ...plan,
+  selectedFilters: [{ table: "Plant", column: "Gedung", humanName: "CMD / Gedung", value: "cmd1" }],
+}, {
+  async executeDax() { calls += 1; return { berhasil: false, errorCode: "DAX_INVALID", alasan: "salah" }; },
+  async repairDax() { repairCalls += 1; return plan.dax; },
+});
+ok("filter CMD tidak boleh hilang lewat repair",
+  calls === 1 && repairCalls === 0 && filteredFailure.errorCode === "DAX_INVALID",
+  `${calls}/${repairCalls}/${JSON.stringify(filteredFailure)}`);
+
 for (const [label, dax] of [
   ["table-only", "EVALUATE 'SensitiveTable'"],
   ["constant rows", "EVALUATE ROW(\"Jam lembur\", 999999)"],

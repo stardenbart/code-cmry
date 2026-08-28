@@ -81,7 +81,8 @@ async function buildKpiResolver() {
     `SELECT kpi_id, measure_name, semantic_model, display_caption, source,
             dimensions_json, date_table, date_column, date_logic
        FROM cia_kpi_bindings
-      WHERE measure_name IS NOT NULL AND verification_status IN ('discovered','confirmed')`);
+      WHERE measure_name IS NOT NULL AND verification_status IN ('discovered','confirmed')
+      ORDER BY (source = 'catalog_import') DESC, id DESC`);
   for (const b of bindings) {
     const resolved = {
       kpiId: b.kpi_id,

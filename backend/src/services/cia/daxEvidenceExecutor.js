@@ -172,6 +172,10 @@ export async function executeEvidencePlan(plan, injected = {}) {
     if (errorCode !== "DAX_INVALID" || attempts >= 2) {
       return failure(plan, startedAt, attempts, errorCode, errorMessage);
     }
+    if (Array.isArray(plan.selectedFilters) && plan.selectedFilters.length) {
+      return failure(plan, startedAt, attempts, "DAX_INVALID",
+        "Repair dinonaktifkan untuk query dengan filter entitas");
+    }
 
     let repaired;
     try {

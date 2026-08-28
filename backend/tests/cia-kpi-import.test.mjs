@@ -28,6 +28,7 @@ const fixtures = [
     unit: "menit atau jam, satuannya belum dipastikan pemilik", dateLogic: "harian",
     dimensi: "nama_mesin", dimensiTabel: "Dim_DBCatatan",
     kolomTeks: ["Issue", "Action"],
+    dimensiTambahan: [{ tabel: "Dim_Plant", kolom: "gedung", humanName: "CMD / Gedung" }],
     kolomTanggal: { tabel: "Dim_Date", kolom: "Date" },
     terlihatSebagai: ["Duration (Min)"] },
   { domain: "maintenance", kpi: "Downtime per gedung (uji shared measure RDR)",
@@ -68,6 +69,7 @@ try {
     { table: "Dim_DBCatatan", column: "nama_mesin", humanName: "nama_mesin" },
     { table: "Dim_DBCatatan", column: "Issue", humanName: "Issue" },
     { table: "Dim_DBCatatan", column: "Action", humanName: "Action" },
+    { table: "Dim_Plant", column: "gedung", humanName: "CMD / Gedung" },
   ]), JSON.stringify(dt.bindings[0].dimensions));
 
   const po = plan.find((p) => p.slug === "planning-akurasi-po-dan-forecast");

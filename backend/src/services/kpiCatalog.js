@@ -951,10 +951,14 @@ export const KATALOG_KPI = [
     jenis: "breakdown",
     kpi: "Top mesin downtime tertinggi",
     modelName: "Dashboard DT ORS",
-    dimensi: "nama_mesin",
+    dimensi: { tabel: "Dim_DBCatatan", kolom: "nama_mesin", humanName: "Mesin" },
     // Disebut eksplisit: nama_mesin ada di 2 tabel pada model ini.
     dimensiTabel: "Dim_DBCatatan",
-    kolomTeks: ["Issue", "Action"],
+    kolomTeks: [
+      { kolom: "Issue", humanName: "Masalah" },
+      { kolom: "Action", humanName: "Tindakan" },
+    ],
+    dimensiTambahan: [{ tabel: "Dim_Plant", kolom: "gedung", humanName: "CMD / Gedung" }],
     kolomTanggal: { tabel: "Dim_Date", kolom: "Date" },
     measures: ["(M) DT Tech in Hour"],
     terlihatSebagai: ["Duration (Min)"],

@@ -107,6 +107,30 @@ ok("route candidate count nol tercatat",
   noMatchEvents.some((item) => item.stage === "route_candidates" && item.data?.candidateCount === 0),
   JSON.stringify(noMatchEvents));
 
+section("Salinan visual yang semantik-identik hanya menjadi satu route");
+const duplicateRoutes = await routeEvidence({
+  question: "top mesin downtime tertinggi",
+  periods,
+  scope,
+}, {
+  async searchKpiCandidates() {
+    return [{
+      kpiId: 9, slug: "top_machine_downtime", humanName: "Top mesin downtime tertinggi", score: 60,
+      bindings: [
+        { bindingId: "visual-1", bindingKey: "page-a", dashboardId: "65", reportId: "report-ors",
+          semanticModel: "ors", tableName: "Measures", measureName: "DT_MIN",
+          dateTable: "Dim_Date", dateColumn: "Date", dimensions: ["Dim_Machine[Name]"] },
+        { bindingId: "visual-2", bindingKey: "page-b", dashboardId: "66", reportId: "report-ors",
+          semanticModel: "ors", tableName: "Measures", measureName: "DT_MIN",
+          dateTable: "Dim_Date", dateColumn: "Date", dimensions: ["Dim_Machine[Name]"] },
+      ],
+    }];
+  },
+  async getDashboardVocabulary() { return {}; },
+});
+ok("dua copy visual/report collapse menjadi satu candidate",
+  duplicateRoutes.candidates.length === 1, JSON.stringify(duplicateRoutes.candidates));
+
 section("Scope denied berhenti sebelum pencarian KPI");
 let searchCalls = 0;
 const deniedScope = await routeEvidence({

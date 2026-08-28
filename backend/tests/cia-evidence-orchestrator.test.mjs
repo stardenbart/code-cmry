@@ -139,6 +139,85 @@ try {
     ok("warning PLANNER_EMPTY terbawa", a.warnings.includes("PLANNER_EMPTY"));
   }
 
+  section("Goal planner invalid tidak menghalangi fallback deterministic terbaik");
+  {
+    const deps = baseDeps({
+      async routeEvidence() {
+        return { status: "ready", candidates: [
+          candidate("b1", "10", { score: 60 }),
+          candidate("b2", "20", { score: 20 }),
+        ], periods: [], warnings: [] };
+      },
+      async planEvidence() {
+        return { goals: [{ kpiBindingId: "b2", dimensions: [], periodIndex: 0, purpose: "primary" }], warnings: [] };
+      },
+      buildDaxPlan(input) {
+        this.calls.build += 1;
+        if (input.binding.bindingId === "b2") {
+          const error = new Error("invalid planner route"); error.code = "TABLE_NOT_ALLOWED"; throw error;
+        }
+        return { semanticModel: input.binding.semanticModel, dashboardId: input.binding.dashboardId,
+          dashboardName: input.binding.dashboardName, dax: "EVALUATE 1",
+          selectedKpis: [{ bindingId: input.binding.bindingId, humanName: input.binding.humanName }],
+          period: input.period, maxRows: 500 };
+      },
+    });
+    const a = await answerWithEvidence(envelope(), deps);
+    ok("binding deterministic terbaik tetap dieksekusi", deps.calls.exec === 1, String(deps.calls.exec));
+    ok("kegagalan planner tetap transparan", a.warnings.includes("PLAN_TABLE_NOT_ALLOWED"), JSON.stringify(a.warnings));
+  }
+
+  section("Entitas CMD pada pertanyaan diteruskan sebagai filter DAX");
+  {
+    let receivedGoal;
+    const deps = baseDeps({
+      async routeEvidence() {
+        return { status: "ready", candidates: [candidate("b1", "10", {
+          dimensions: [
+            { table: "Fact", column: "Departemen", humanName: "Mesin" },
+            { table: "Plant", column: "Gedung", humanName: "CMD / Gedung" },
+          ],
+        })], periods: [], warnings: [] };
+      },
+      async planEvidence() {
+        return { goals: [{ kpiBindingId: "b1", dimensions: ["Mesin", "CMD / Gedung"], periodIndex: 0, purpose: "primary" }], warnings: [] };
+      },
+      buildDaxPlan({ goal, binding, period }) {
+        receivedGoal = goal;
+        return { semanticModel: binding.semanticModel, dashboardId: binding.dashboardId,
+          dashboardName: binding.dashboardName, dax: "EVALUATE 1",
+          selectedKpis: [{ bindingId: binding.bindingId, humanName: binding.humanName }], period, maxRows: 500 };
+      },
+    });
+    await answerWithEvidence(envelope({
+      question: "top 3 mesin downtime tertinggi pada CMD1 bulan Juni",
+    }), deps);
+    ok("CMD1 menjadi structured filter, bukan instruksi bebas",
+      receivedGoal?.filters?.[0]?.dimension === "CMD / Gedung"
+        && receivedGoal?.filters?.[0]?.value === "CMD1", JSON.stringify(receivedGoal));
+  }
+
+  section("Planner tidak boleh menambah KPI sibling pada pertanyaan ranking");
+  {
+    const deps = baseDeps({
+      async routeEvidence() {
+        return { status: "ready", candidates: [
+          candidate("b-high", "10", { score: 60, humanName: "Top downtime tertinggi" }),
+          candidate("b-low", "20", { score: 20, humanName: "Top downtime terendah" }),
+        ], periods: [], warnings: [] };
+      },
+      async planEvidence() {
+        return { goals: [
+          { kpiBindingId: "b-high", dimensions: ["Departemen"], periodIndex: 0, purpose: "primary" },
+          { kpiBindingId: "b-low", dimensions: ["Departemen"], periodIndex: 0, purpose: "primary" },
+        ], warnings: [] };
+      },
+    });
+    await answerWithEvidence(envelope({ question: "top 3 downtime tertinggi bulan Juni" }), deps);
+    ok("hanya kandidat ranking dengan skor tertinggi dieksekusi", deps.calls.exec === 1,
+      String(deps.calls.exec));
+  }
+
   section("Fallback deterministic mengambil semua comparison period");
   {
     const builtPeriods = [];

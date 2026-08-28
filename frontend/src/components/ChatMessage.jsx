@@ -15,6 +15,9 @@ export function ChatMessage({
   retrievalMethod, confidence, sources, warnings, usage, requestId, rounds,
 }) {
   const isUser = role === 'user';
+  const uniqueDashboards = [...new Map((dashboards_used || []).map((dashboard) => [[
+    dashboard.title, dashboard.reason,
+  ].join('|').toLowerCase(), dashboard])).values()].slice(0, 6);
 
   return (
     <div className={`px-5 py-4 ${isUser ? 'bg-cimoryBlue/5' : 'bg-white'}`}>
@@ -61,11 +64,11 @@ export function ChatMessage({
         </div>
       )}
 
-      {!isUser && dashboards_used?.length > 0 && (
+      {!isUser && uniqueDashboards.length > 0 && (
         <div className="mt-3 pt-3 border-t border-gray-200">
           <div className="text-xs font-semibold text-gray-600 mb-2">Sumber data</div>
           <div className="flex flex-wrap gap-2">
-            {dashboards_used.map((db) => (
+            {uniqueDashboards.map((db) => (
               <DashboardReference
                 key={db.id}
                 id={db.id}

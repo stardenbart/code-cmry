@@ -31,6 +31,10 @@ ok("bulan bernama dengan kata lalu dibaca sebagai bulan kalender, bukan default 
   JSON.stringify(dates("jelaskan downtime pada bulan Juli lalu"))
     === JSON.stringify([{ from: "2026-07-01", to: "2026-07-31", comparisonKey: "named_month" }]),
   JSON.stringify(dates("jelaskan downtime pada bulan Juli lalu")));
+ok("bulan bernama dengan kata kemarin tidak menghasilkan periode hari kemarin tambahan",
+  JSON.stringify(dates("top 3 mesin downtime CMD1 bulan Juni kemarin"))
+    === JSON.stringify([{ from: "2026-06-01", to: "2026-06-30", comparisonKey: "named_month" }]),
+  JSON.stringify(dates("top 3 mesin downtime CMD1 bulan Juni kemarin")));
 ok("bulan bernama dengan tahun eksplisit memakai tahun tersebut",
   JSON.stringify(dates("downtime Juli 2025"))
     === JSON.stringify([{ from: "2025-07-01", to: "2025-07-31", comparisonKey: "named_month" }]),

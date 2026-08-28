@@ -28,16 +28,28 @@ function dashboardPayload(answer) {
   };
 }
 
+function uniqueSources(sources, limit = 6) {
+  const unique = new Map();
+  for (const source of Array.isArray(sources) ? sources : []) {
+    const key = [source.semanticModel, source.dashboardName, source.period,
+      [...(source.kpis || [])].sort().join("|")]
+      .map((value) => String(value ?? "").trim().toLowerCase()).join("::");
+    if (!unique.has(key)) unique.set(key, source);
+  }
+  return [...unique.values()].slice(0, limit);
+}
+
 function multiChatPayload(answer) {
+  const sources = uniqueSources(answer.sources);
   return {
     answer: answer.answer,
-    dashboards_used: (answer.sources || []).map((source) => ({
+    dashboards_used: sources.map((source) => ({
       id: source.dashboardId,
       title: source.dashboardName || `Dashboard ${source.dashboardId}`,
       reason: [source.kpis?.join(", "), source.period].filter(Boolean).join(" · "),
       confidence: answer.confidence === "high" ? 1 : answer.confidence === "medium" ? 0.75 : 0.5,
     })),
-    sources: answer.sources || [],
+    sources,
     warnings: answer.warnings || [],
     confidence: answer.confidence,
     retrieval_method: answer.retrievalMethod,

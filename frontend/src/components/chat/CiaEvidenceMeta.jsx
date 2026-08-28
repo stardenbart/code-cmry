@@ -11,6 +11,12 @@ export function CiaEvidenceMeta({
   retrievalMethod, confidence, sources = [], warnings = [], usage, requestId, rounds,
 }) {
   if (!retrievalMethod && !sources.length && !warnings.length && !requestId) return null;
+  const uniqueSources = [...new Map(sources.map((source) => [[
+    source.semanticModel, source.dashboardName, source.period, ...(source.kpis || []),
+  ].join('|').toLowerCase(), source])).values()].slice(0, 6);
+  const warningMessage = uniqueSources.length
+    ? "Sebagian proses otomatis tidak berhasil; CIA tetap menampilkan data yang berhasil dibaca."
+    : "CIA belum berhasil mengambil data yang diperlukan. Coba ulangi atau periksa konfigurasi KPI.";
   return (
     <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -26,9 +32,9 @@ export function CiaEvidenceMeta({
         )}
         {requestId && <span title={requestId}>Trace: {String(requestId).slice(0, 8)}</span>}
       </div>
-      {sources.length > 0 && (
+      {uniqueSources.length > 0 && (
         <div className="mt-2 space-y-1">
-          {sources.map((source, index) => (
+          {uniqueSources.map((source, index) => (
             <div key={`${source.dashboardId || source.dashboardName}-${index}`} className="flex gap-1.5">
               <Database size={12} className="mt-0.5 shrink-0" />
               <span>
@@ -43,7 +49,7 @@ export function CiaEvidenceMeta({
       {warnings.length > 0 && (
         <div className="mt-2 flex gap-1.5 text-amber-700">
           <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-          <span>{warnings.join(", ")}</span>
+          <span>{warningMessage}</span>
         </div>
       )}
     </div>

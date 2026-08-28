@@ -11,6 +11,7 @@ const schema = {
     { tabel: "Overtime", kolom: ["Department:string", "Reason:string", "Category:string", "Work Date:datetime"] },
     { tabel: "Quality", kolom: ["Category:string", "Issue Description:string", "CMD:string"] },
     { tabel: "PPIC", kolom: ["Product:string", "PO Type:string"] },
+    { tabel: "Plant", kolom: ["Gedung:string"] },
     { tabel: "Measures", kolom: [] },
   ],
   measure: ["OT_HOURS", "NC_CMD3", "PO_QTY"],
@@ -63,6 +64,31 @@ ok("plan membawa binding label tanpa nama measure sebagai label utama",
   overtime.labelBindings[0]?.humanName === "Jam lembur"
     && overtime.labelBindings[0]?.measureName === "OT_HOURS",
   JSON.stringify(overtime.labelBindings));
+
+section("Filter entitas CMD divalidasi dan diterapkan ke DAX");
+const cmdFiltered = buildDaxPlan({
+  goal: {
+    kpiBindingId: "b-dt", dimensions: ["Mesin", "CMD / Gedung"], periodIndex: 0,
+    purpose: "primary", filters: [{ dimension: "CMD / Gedung", value: "CMD1" }],
+  },
+  binding: {
+    bindingId: "b-dt", semanticModel: "Cost Model", dashboardId: "dash-dt",
+    tableName: "Measures", measureName: "OT_HOURS", humanName: "Durasi downtime",
+    dateTable: "Calendar", dateColumn: "Date",
+    dimensions: [
+      { table: "Overtime", column: "Department", humanName: "Mesin" },
+      { table: "Plant", column: "Gedung", humanName: "CMD / Gedung" },
+    ],
+  },
+  period,
+  schema,
+});
+ok("CMD1 menjadi filter nilai kolom allowlisted",
+  cmdFiltered.dax.includes("'Plant'[Gedung]")
+    && cmdFiltered.dax.includes('SUBSTITUTE')
+    && cmdFiltered.dax.includes('"cmd1"'), cmdFiltered.dax);
+ok("filter ikut metadata plan", cmdFiltered.selectedFilters?.[0]?.humanName === "CMD / Gedung",
+  JSON.stringify(cmdFiltered.selectedFilters));
 
 section("Golden DAX deviasi CMD 3 dan PO");
 const deviation = plan({

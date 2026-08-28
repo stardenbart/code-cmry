@@ -39,13 +39,30 @@ function bindingIdentity(kpi, binding) {
     .map((item) => String(item ?? "").trim()).join("|");
 }
 
+function routeIdentity(kpi, binding) {
+  const dimensions = preserveDimensions(binding.dimensions, 50).map((item) => {
+    if (typeof item === "string") return item.trim().toLowerCase();
+    return [item.table, item.column, item.humanName].map((value) => String(value ?? "").trim().toLowerCase()).join(".");
+  }).sort().join("|");
+  return [
+    kpi.kpiId ?? kpi.slug,
+    binding.reportId || binding.dashboardId,
+    binding.semanticModel,
+    binding.tableName,
+    binding.measureName,
+    binding.dateTable,
+    binding.dateColumn,
+    dimensions,
+  ].map((item) => String(item ?? "").trim().toLowerCase()).join("::");
+}
+
 function flattenCandidates(kpis) {
-  const flattened = [];
+  const flattened = new Map();
   for (const kpi of Array.isArray(kpis) ? kpis : []) {
     for (const binding of Array.isArray(kpi.bindings) ? kpi.bindings : []) {
       const bindingId = bindingIdentity(kpi, binding);
       if (!bindingId) continue;
-      flattened.push({
+      const candidate = {
         bindingId,
         bindingKey: binding.bindingKey || null,
         kpiId: kpi.kpiId ?? null,
@@ -72,10 +89,12 @@ function flattenCandidates(kpis) {
         periodDefaults: binding.periodDefaults || null,
         origin: "deterministic",
         purpose: "primary",
-      });
+      };
+      const routeKey = routeIdentity(kpi, binding);
+      if (!flattened.has(routeKey)) flattened.set(routeKey, candidate);
     }
   }
-  return [...new Map(flattened.map((item) => [item.bindingId, item])).values()];
+  return [...flattened.values()];
 }
 
 function safePlannerCandidate(value, allowed) {

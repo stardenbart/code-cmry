@@ -67,6 +67,69 @@ const liveWithSnapshot = await synthesizeEvidence({
 ok("hasil tetap live_dax tanpa warning snapshot", liveWithSnapshot.retrievalMethod === "live_dax"
   && !liveWithSnapshot.warnings.includes("SNAPSHOT_FALLBACK_USED"), JSON.stringify(liveWithSnapshot));
 
+section("Model synthesis gagal tetap menjawab dari bukti live unik");
+const duplicatedLive = { ...overtime, source: { ...overtime.source, dashboardId: "d-ot-copy" } };
+const synthesisFailure = await synthesizeEvidence({
+  question: "top mesin downtime tertinggi",
+  evidence: [overtime, duplicatedLive],
+}, {
+  async callModel() { throw new Error("provider unavailable"); },
+});
+ok("fallback tidak menyatakan bukti tidak tersedia",
+  !/bukti data.*belum tersedia/i.test(synthesisFailure.answer), synthesisFailure.answer);
+ok("fallback menampilkan label dan nilai live",
+  synthesisFailure.answer.includes("Produksi A") && synthesisFailure.answer.includes("120"),
+  synthesisFailure.answer);
+ok("fallback mempertahankan live_dax dan warning telemetry",
+  synthesisFailure.retrievalMethod === "live_dax"
+    && synthesisFailure.warnings.includes("SYNTHESIS_FAILED"), JSON.stringify(synthesisFailure));
+ok("sumber semantik yang sama dideduplikasi",
+  synthesisFailure.sources.length === 1, JSON.stringify(synthesisFailure.sources));
+
+const technicalDowntime = {
+  ...overtime,
+  rows: [
+    { nama_mesin: "Mesin A", Issue: "Bocor", Action: "Ganti seal", gedung: "CMD 1", "Top mesin downtime tertinggi": 12 },
+    { nama_mesin: "Mesin B", Issue: "Macet", Action: "Bersihkan", gedung: "CMD 1", "Top mesin downtime tertinggi": 10 },
+    { nama_mesin: "Mesin C", Issue: "Sensor", Action: "Kalibrasi", gedung: "CMD 1", "Top mesin downtime tertinggi": 8 },
+    { nama_mesin: "Mesin D", Issue: "Motor &amp; gearbox", Action: "Perbaiki", gedung: "CMD 1", "Top mesin downtime tertinggi": 14 },
+  ],
+  rowCount: 4,
+  source: { dashboardId: "d-dt", dashboardName: "Technical Downtime ORS", semanticModel: "ORS",
+    kpis: ["Top mesin downtime tertinggi"] },
+};
+const rankedFallback = await synthesizeEvidence({
+  question: "top 3 mesin downtime tertinggi pada CMD1 bulan Juni",
+  evidence: [technicalDowntime],
+}, { async callModel() { throw new Error("synthesis unavailable"); } });
+ok("fallback menghormati jumlah top 3",
+  rankedFallback.answer.includes("Mesin D") && rankedFallback.answer.includes("Mesin B")
+    && !rankedFallback.answer.includes("Mesin C"),
+  rankedFallback.answer);
+ok("fallback mengurutkan nilai terbesar dan mendekode entitas HTML",
+  rankedFallback.answer.indexOf("Mesin D") < rankedFallback.answer.indexOf("Mesin A")
+    && rankedFallback.answer.includes("Motor & gearbox") && !rankedFallback.answer.includes("&amp;"),
+  rankedFallback.answer);
+ok("fallback tidak menampilkan nama kolom teknis",
+  !rankedFallback.answer.includes("nama_mesin") && !rankedFallback.answer.includes("Issue:")
+    && !rankedFallback.answer.includes("Action:"), rankedFallback.answer);
+ok("fallback memakai label bisnis Indonesia",
+  rankedFallback.answer.includes("Mesin:") && rankedFallback.answer.includes("Masalah:")
+    && rankedFallback.answer.includes("Tindakan:"), rankedFallback.answer);
+
+let rankedPacket;
+await synthesizeEvidence({
+  question: "top 3 mesin downtime tertinggi pada CMD1 bulan Juni",
+  evidence: [technicalDowntime],
+}, { callModel: modelReply({ answer: "Tiga mesin teratas tersedia.", citedSourceIndexes: [0] },
+  (input) => { rankedPacket = JSON.parse(input.question); }) });
+ok("jalur synthesis normal juga hanya menerima tiga mesin unik terurut",
+  rankedPacket.sources[0].rows.length === 3
+    && rankedPacket.sources[0].rows[0].Mesin === "Mesin D"
+    && rankedPacket.sources[0].rows[2].Mesin === "Mesin B"
+    && rankedPacket.sources[0].rows[0].Masalah === "Motor & gearbox",
+  JSON.stringify(rankedPacket.sources[0].rows));
+
 section("Bahasa kausal luas diturunkan tanpa dua bukti kompatibel");
 const causalSingle = await synthesizeEvidence({
   question: "apa yang menyebabkan lembur naik",

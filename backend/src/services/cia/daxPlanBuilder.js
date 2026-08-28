@@ -113,6 +113,21 @@ function selectDimensions(goal, binding, inventory) {
   });
 }
 
+function selectFilters(goal, binding, inventory) {
+  const available = bindingDimensions(binding, inventory);
+  return (Array.isArray(goal?.filters) ? goal.filters : []).map((filter) => {
+    const name = clean(filter?.dimension);
+    const found = available.find((item) => [item.humanName, item.column, item.rawName]
+      .some((candidate) => key(candidate) === key(name)));
+    if (!found) throw new DaxPlanError("FILTER_DIMENSION_NOT_ALLOWED", `Filter ${name} tidak ada pada binding KPI`);
+    const value = clean(filter?.value).toLowerCase().replace(/\s+/g, "");
+    if (!value || !/^[a-z0-9_-]{1,50}$/.test(value)) {
+      throw new DaxPlanError("FILTER_VALUE_INVALID", "Nilai filter entitas tidak valid");
+    }
+    return { ...found, value };
+  });
+}
+
 function isoParts(value) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(clean(value));
   if (!match) return null;
@@ -147,10 +162,15 @@ export function buildDaxPlan({ goal = {}, binding = {}, period = {}, schema, row
   }
 
   const dimensions = selectDimensions(goal, binding, inventory);
+  const filters = selectFilters(goal, binding, inventory);
   const humanName = clean(binding.humanName ?? binding.displayCaption) || measure;
   const measureRef = measureIdentifier(measureTable.table, measure);
   const dateRef = columnIdentifier(date.table, date.column);
   const dimensionRefs = dimensions.map((item) => columnIdentifier(item.table, item.column));
+  const entityFilters = filters.map((item) => {
+    const ref = columnIdentifier(item.table, item.column);
+    return `KEEPFILTERS(FILTER(ALL(${ref}), LOWER(SUBSTITUTE(${ref}, " ", "")) = "${item.value}"))`;
+  });
   const alias = aliasIdentifier(humanName.slice(0, 100));
   const summarizeArgs = [...dimensionRefs, `"${humanName.replaceAll('"', '""').slice(0, 100)}", ${measureRef}`];
   const maxRows = rowLimit(requestedRows);
@@ -162,10 +182,12 @@ export function buildDaxPlan({ goal = {}, binding = {}, period = {}, schema, row
     "    SUMMARIZECOLUMNS(",
     `      ${summarizeArgs.join(",\n      ")}`,
     "    ),",
-    `    KEEPFILTERS(${dateRef} >= DATE(${from.join(", ")}) && ${dateRef} <= DATE(${to.join(", ")}))`,
+    `    KEEPFILTERS(${dateRef} >= DATE(${from.join(", ")}) && ${dateRef} <= DATE(${to.join(", ")}))${entityFilters.length ? "," : ""}`,
+    ...entityFilters.map((filter, index) => `    ${filter}${index < entityFilters.length - 1 ? "," : ""}`),
     "  ),",
     `  ${alias}, DESC`,
     ")",
+    `ORDER BY ${alias} DESC`,
   ].join("\n");
 
   return {
@@ -178,6 +200,9 @@ export function buildDaxPlan({ goal = {}, binding = {}, period = {}, schema, row
     selectedKpis: [{ bindingId: clean(binding.bindingId ?? goal.kpiBindingId), humanName }],
     selectedDimensions: dimensions.map(({ table, column, humanName: label }) => ({
       table, column, humanName: label,
+    })),
+    selectedFilters: filters.map(({ table, column, humanName, value }) => ({
+      table, column, humanName, value,
     })),
     labelBindings: [{
       bindingId: clean(binding.bindingId ?? goal.kpiBindingId),
