@@ -147,6 +147,26 @@ function ambilKode(teks) {
   return (m ? m[1] : t).trim();
 }
 
+export async function perbaikiDaxTerbatas({ dax, errorMessage, plan, geminiApiKey } = {}, deps = {}) {
+  const callModel = deps.callModel || tanyaModel;
+  const apiKey = geminiApiKey || (deps.callModel ? null : await kunci());
+  const result = await callModel({
+    question: [
+      "Perbaiki query DAX berikut berdasarkan error Power BI.",
+      "Gunakan hanya identifier dari allowlist. Jawab hanya query DAX.",
+      `Allowlist: ${JSON.stringify(plan?.allowedDaxIdentifiers || [])}`,
+      `Query: ${String(dax || "").slice(0, 4000)}`,
+      `Error: ${String(errorMessage || "").slice(0, 300)}`,
+    ].join("\n"),
+    systemInstruction: "Kamu memperbaiki DAX Power BI. Jangan menambah table, column, atau measure di luar allowlist.",
+    maxOutputTokens: 2_000,
+    geminiApiKey: apiKey,
+    geminiModel: normalizeModel(process.env.GEMINI_MODEL_VERSION || process.env.GEMINI_MODEL),
+    thinkingLevel: process.env.DAX_AGENT_THINKING || "low",
+  });
+  return ambilKode(result?.text).slice(0, 4_000);
+}
+
 /** Konteks periode, supaya model tidak mengarang rentang tanggal sendiri. */
 function konteksPeriode() {
   const hari = jendelaLaporan().tanggal;

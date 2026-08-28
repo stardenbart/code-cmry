@@ -172,14 +172,30 @@ export function buildDaxPlan({ goal = {}, binding = {}, period = {}, schema, row
     semanticModel,
     datasetId: clean(schema.datasetId) || null,
     dashboardId: binding.dashboardId == null ? null : String(binding.dashboardId),
+    dashboardName: clean(binding.dashboardName) || null,
     period: { ...period },
     dax,
     selectedKpis: [{ bindingId: clean(binding.bindingId ?? goal.kpiBindingId), humanName }],
     selectedDimensions: dimensions.map(({ table, column, humanName: label }) => ({
       table, column, humanName: label,
     })),
+    labelBindings: [{
+      bindingId: clean(binding.bindingId ?? goal.kpiBindingId),
+      tableName: measureTable.table,
+      measureName: measure,
+      humanName,
+      displayCaption: clean(binding.displayCaption) || null,
+      dashboardName: clean(binding.dashboardName) || null,
+      definition: clean(binding.definition),
+      unit: clean(binding.unit) || null,
+      numberFormat: clean(binding.numberFormat) || null,
+    }],
+    allowedDaxIdentifiers: [...new Set([
+      `${measureTable.table}[${measure}]`,
+      `${date.table}[${date.column}]`,
+      ...dimensions.map((item) => `${item.table}[${item.column}]`),
+    ])],
     maxRows,
     purpose: goal.purpose === "correlation" ? "correlation" : "primary",
   };
 }
-

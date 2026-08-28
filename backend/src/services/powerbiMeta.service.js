@@ -205,15 +205,15 @@ export async function statusKesegaran(datasetId, jendela) {
 export async function jalankanDaxAman(datasetId, dax, { maksBaris = 40 } = {}) {
   const q = String(dax || "").trim();
 
-  if (!q) return { berhasil: false, alasan: "query kosong" };
-  if (q.length > 4000) return { berhasil: false, alasan: `query terlalu panjang: ${q.length} karakter` };
+  if (!q) return { berhasil: false, errorCode: "DAX_INVALID", alasan: "query kosong" };
+  if (q.length > 4000) return { berhasil: false, errorCode: "DAX_INVALID", alasan: `query terlalu panjang: ${q.length} karakter` };
   // Perbandingan string biasa, BUKAN regex. Regex dengan batas kata di sini
   // pernah rusak menjadi karakter backspace 0x08 akibat skrip suntingan,
   // sehingga query yang sah pun ditolak. Untuk pemeriksaan sesederhana ini,
   // regex tidak memberi keuntungan apa pun dan menambah satu cara untuk gagal.
   const awal = q.trimStart().toUpperCase();
   if (!awal.startsWith("EVALUATE") && !awal.startsWith("DEFINE")) {
-    return { berhasil: false, alasan: "query harus dimulai dengan EVALUATE atau DEFINE" };
+    return { berhasil: false, errorCode: "DAX_INVALID", alasan: "query harus dimulai dengan EVALUATE atau DEFINE" };
   }
 
   try {
@@ -232,8 +232,24 @@ export async function jalankanDaxAman(datasetId, dax, { maksBaris = 40 } = {}) {
     // salah untuk memperbaiki querynya sendiri di percobaan berikutnya.
     const d = err?.response?.data?.error;
     const detail = d?.["pbi.error"]?.details?.[0]?.detail?.value || d?.message || err.message;
-    return { berhasil: false, alasan: String(detail).slice(0, 300) };
+    return {
+      berhasil: false,
+      errorCode: powerBiErrorCode(err),
+      alasan: String(detail).slice(0, 300),
+    };
   }
+}
+
+export function powerBiErrorCode(error) {
+  const status = Number(error?.response?.status) || 0;
+  const code = String(error?.code || "").toUpperCase();
+  const message = String(error?.message || "");
+  if (code === "ECONNABORTED" || code === "ETIMEDOUT" || /timeout/i.test(message)) return "POWERBI_TIMEOUT";
+  if (status === 401) return "POWERBI_AUTH";
+  if (status === 403) return "POWERBI_FORBIDDEN";
+  if (status === 429) return "POWERBI_THROTTLED";
+  if (status === 400) return "DAX_INVALID";
+  return "POWERBI_UNKNOWN";
 }
 
 /**

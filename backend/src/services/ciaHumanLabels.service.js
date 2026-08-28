@@ -74,13 +74,29 @@ function bindingForColumn(bindings, columnKey) {
   return bindings.find((b) => canonicalKey(b.measureName) === ck) || null;
 }
 
-export function labelDaxRows({ rows = [], bindings = [] } = {}) {
+function dimensionLabelMap(dimensions = []) {
+  const map = new Map();
+  for (const dimension of dimensions) {
+    const table = String(dimension?.table || "").trim();
+    const column = String(dimension?.column || "").trim();
+    const label = String(dimension?.humanName || column).trim();
+    if (!column || !label) continue;
+    for (const variant of variantKeys(table, column)) map.set(variant, label);
+    map.set(canonicalKey(column), label);
+  }
+  return map;
+}
+
+export function labelDaxRows({ rows = [], bindings = [], dimensions = [] } = {}) {
   const map = buildLabelMap(bindings);
+  const dimensionMap = dimensionLabelMap(dimensions);
   const keys = rows.length ? Object.keys(rows[0]) : [];
 
   // Label awal per kolom (measure -> label; selain itu -> humanize).
   const columns = keys.map((key) => {
-    const label = map.get(key) || map.get(canonicalKey(key)) || humanizeIdentifier(key);
+    const label = map.get(key) || map.get(canonicalKey(key))
+      || dimensionMap.get(key) || dimensionMap.get(canonicalKey(key))
+      || humanizeIdentifier(key);
     return { key, label };
   });
 

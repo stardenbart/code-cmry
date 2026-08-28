@@ -54,6 +54,15 @@ ok("selected dimensions memakai label manusia",
   JSON.stringify(overtime.selectedDimensions.map((item) => item.humanName))
     === JSON.stringify(["Tanggal", "Departemen", "Alasan", "Kategori"]),
   JSON.stringify(overtime.selectedDimensions));
+ok("plan membawa allowlist identifier untuk validasi repair",
+  overtime.allowedDaxIdentifiers.includes("Measures[OT_HOURS]")
+    && overtime.allowedDaxIdentifiers.includes("Calendar[Date]")
+    && overtime.allowedDaxIdentifiers.includes("Overtime[Department]"),
+  JSON.stringify(overtime.allowedDaxIdentifiers));
+ok("plan membawa binding label tanpa nama measure sebagai label utama",
+  overtime.labelBindings[0]?.humanName === "Jam lembur"
+    && overtime.labelBindings[0]?.measureName === "OT_HOURS",
+  JSON.stringify(overtime.labelBindings));
 
 section("Golden DAX deviasi CMD 3 dan PO");
 const deviation = plan({
@@ -108,4 +117,3 @@ rejected("dimension asing ditolak", (binding) => { binding.dimensions = ["Overti
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exit(summary() ? 0 : 1);
 }
-
