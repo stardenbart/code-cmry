@@ -70,6 +70,7 @@ tmp/
 temp/
 .cache/
 coverage/
+.worktrees/
 
 # ── Artefak otomasi browser ──────────────────────────────────────────────────
 # Snapshot halaman dan log konsol dari Playwright MCP. Bukan cuma sampah:
