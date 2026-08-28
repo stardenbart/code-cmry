@@ -7,8 +7,10 @@ const METHOD_LABELS = {
   none: "Data belum tersedia",
 };
 
-export function CiaEvidenceMeta({ retrievalMethod, confidence, sources = [], warnings = [] }) {
-  if (!retrievalMethod && !sources.length && !warnings.length) return null;
+export function CiaEvidenceMeta({
+  retrievalMethod, confidence, sources = [], warnings = [], usage, requestId, rounds,
+}) {
+  if (!retrievalMethod && !sources.length && !warnings.length && !requestId) return null;
   return (
     <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -18,6 +20,11 @@ export function CiaEvidenceMeta({ retrievalMethod, confidence, sources = [], war
           </span>
         )}
         {confidence && <span>Keyakinan: {confidence}</span>}
+        {Number.isFinite(Number(rounds)) && Number(rounds) > 0 && <span>{rounds} ronde</span>}
+        {Number.isFinite(Number(usage?.totalTokens)) && (
+          <span>{Number(usage.totalTokens).toLocaleString('id-ID')} token</span>
+        )}
+        {requestId && <span title={requestId}>Trace: {String(requestId).slice(0, 8)}</span>}
       </div>
       {sources.length > 0 && (
         <div className="mt-2 space-y-1">

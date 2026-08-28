@@ -25,11 +25,21 @@ function liveSources(evidence) {
 }
 
 function snapshotSources(snapshot) {
-  const text = clean(snapshot?.text, 6_000);
-  if (!text) return [];
   const dashboards = Array.isArray(snapshot?.dashboards) && snapshot.dashboards.length
     ? snapshot.dashboards : [{ id: null, name: "Snapshot dashboard" }];
-  return dashboards.slice(0, 10).map((dashboard) => ({
+  const perDashboard = dashboards.slice(0, 10).flatMap((dashboard) => {
+    const text = clean(dashboard?.text, 6_000);
+    return text ? [{ dashboard, text }] : [];
+  });
+  const shared = clean(snapshot?.text, 6_000);
+  const entries = perDashboard.length
+    ? perDashboard
+    : shared
+      ? dashboards.length === 1
+        ? [{ dashboard: dashboards[0], text: shared }]
+        : [{ dashboard: { id: null, name: "Snapshot multi-dashboard" }, text: shared }]
+      : [];
+  return entries.map(({ dashboard, text }) => ({
     kind: "snapshot",
     dashboardId: dashboard?.id == null ? null : String(dashboard.id),
     dashboardName: clean(dashboard?.name ?? dashboard?.title, 150) || "Snapshot dashboard",
@@ -62,6 +72,9 @@ function correlationLanguage(answer, hasMechanism) {
   if (hasMechanism) return answer;
   return answer
     .replace(/\bdisebabkan\s+oleh\b/gi, "berkorelasi dengan")
+    .replace(/\bmenyebabkan\b/gi, "berkorelasi dengan")
+    .replace(/\bmemicu\b/gi, "berkorelasi dengan")
+    .replace(/\bakibat\b/gi, "berkorelasi dengan")
     .replace(/\bkarena\b/gi, "berkorelasi dengan");
 }
 
@@ -96,11 +109,14 @@ function emptyResult(warnings = []) {
 export async function synthesizeEvidence(input = {}, injected = {}) {
   const callModel = injected.callModel || tanyaModelTerstruktur;
   const live = liveSources(input.evidence);
-  const snapshots = snapshotSources(input.snapshotFallback);
-  const sources = [...live, ...snapshots];
-  const retrievalMethod = methodFor(live.length, snapshots.length);
   const warnings = [...new Set((Array.isArray(input.warnings) ? input.warnings : [])
     .map((value) => clean(value, 100)).filter(Boolean))];
+  const evidence = Array.isArray(input.evidence) ? input.evidence : [];
+  const unresolved = warnings.some((warning) => ["EVIDENCE_GAP_UNRESOLVED", "MAX_RETRIEVAL_ROUNDS_REACHED"].includes(warning));
+  const liveIncomplete = !live.length || evidence.some((item) => item?.status !== "success") || unresolved;
+  const snapshots = liveIncomplete ? snapshotSources(input.snapshotFallback) : [];
+  const sources = [...live, ...snapshots];
+  const retrievalMethod = methodFor(live.length, snapshots.length);
   if (snapshots.length) warnings.push("SNAPSHOT_FALLBACK_USED");
   if (!sources.length) return emptyResult(warnings);
 
@@ -146,6 +162,14 @@ export async function synthesizeEvidence(input = {}, injected = {}) {
   if (invalidCitation) warnings.push("INVALID_SOURCE_CITATION");
   const hasMechanism = (Array.isArray(input.evidence) ? input.evidence : [])
     .some((item) => item?.causalMechanism === true);
+  const asksCausality = /\b(karena|penyebab|menyebabkan|memicu|akibat|korelasi|berkorelasi|hubungan)\b/i
+    .test(String(input.question || ""));
+  if (asksCausality && !hasMechanism) {
+    const citedLive = citations.map((index) => sources[index]).filter((source) => source?.kind === "live_dax");
+    const compatiblePair = citedLive.some((left, index) => citedLive.slice(index + 1).some((right) =>
+      left.dashboardId !== right.dashboardId && left.period === right.period));
+    if (!compatiblePair) warnings.push("CORRELATION_EVIDENCE_INSUFFICIENT");
+  }
   let answer = correlationLanguage(clean(parsed.answer), hasMechanism);
   const cited = citationText(citations, sources);
   if (cited) answer = `${answer}\n\n${cited}`;
@@ -169,4 +193,3 @@ export async function synthesizeEvidence(input = {}, injected = {}) {
     model: response?.model || null,
   };
 }
-

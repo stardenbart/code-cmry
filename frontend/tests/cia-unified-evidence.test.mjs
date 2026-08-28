@@ -9,6 +9,7 @@ function check(name, condition) {
 const api = fs.readFileSync("src/services/unifiedChatApi.js", "utf8");
 const panel = fs.readFileSync("src/components/UnifiedChatPanel.jsx", "utf8");
 const message = fs.readFileSync("src/components/ChatMessage.jsx", "utf8");
+const dashboardPanel = fs.readFileSync("src/components/AskAIPanel.jsx", "utf8");
 const meta = fs.readFileSync("src/components/chat/CiaEvidenceMeta.jsx", "utf8");
 
 console.log("\n=== Multi-Chat memakai live evidence sebagai jalur utama ===");
@@ -18,14 +19,18 @@ check("panel tidak memblokir kirim karena capture", !/pendingCaptureIds\.length 
 check("pilihan dashboard dikirim sebagai hint", /preferredDashboardIds:\s*idsTerpilih/.test(panel));
 check("snapshot fallback default mati", /VITE_CIA_LEGACY_SNAPSHOT_FALLBACK/.test(panel)
   && /===\s*["']true["']/.test(panel));
+check("saran legacy mengaktifkan capture agar tidak loop", /setLegacyFallbackNeeded\(true\)/.test(panel));
 
 console.log("\n=== Sumber dan warning evidence terlihat ===");
 check("komponen metadata evidence tersedia", /export function CiaEvidenceMeta/.test(meta));
 check("menampilkan retrieval method", /retrievalMethod/.test(meta));
 check("menampilkan sources", /sources/.test(meta));
 check("menampilkan warnings", /warnings/.test(meta));
+check("menampilkan usage token", /usage/.test(meta) && /totalTokens/.test(meta));
+check("menampilkan request trace", /requestId/.test(meta));
 check("ChatMessage merender metadata", /CiaEvidenceMeta/.test(message));
 check("riwayat memulihkan metadata evidence", /retrievalMethod:\s*t\.retrieval_method/.test(panel));
+check("Tanya CIA dashboard merender metadata yang sama", /CiaEvidenceMeta/.test(dashboardPanel));
 
 console.log(failed ? `\n${failed} gagal` : "\nSemua lulus");
 process.exit(failed ? 1 : 0);

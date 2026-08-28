@@ -15,6 +15,7 @@ function actorFrom(user = {}) {
 function dashboardPayload(answer) {
   return {
     answer: answer.answer,
+    requestId: answer.requestId,
     period: answer.sources?.find((source) => source.period)?.period ?? null,
     sources: answer.sources || [],
     warnings: answer.warnings || [],
@@ -42,6 +43,7 @@ function multiChatPayload(answer) {
     retrieval_method: answer.retrievalMethod,
     rounds: answer.rounds,
     tokens: answer.usage,
+    requestId: answer.requestId,
   };
 }
 
@@ -60,7 +62,11 @@ export async function runWebEvidence(input = {}, injected = {}) {
       actor: actorFrom(input.user),
       question: String(body.question || "").trim(),
       conversationId: body.conversationId ?? null,
-      preferredDashboardIds: uniqueIds([body.dashboardId, ...(body.preferredDashboardIds || [])]),
+      conversation: body.conversation || [],
+      preferredDashboardIds: uniqueIds([
+        body.dashboardId,
+        ...(Array.isArray(body.preferredDashboardIds) ? body.preferredDashboardIds : []),
+      ]),
       snapshotFallback: input.snapshotFallback || null,
     }, input.tracker ? { tracker: input.tracker } : {});
     if (!answer?.answer?.trim()) throw new Error("EMPTY_ORCHESTRATOR_ANSWER");

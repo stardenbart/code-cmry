@@ -1478,12 +1478,13 @@ export const AiController = {
 
       // Get user info
       const user = await getUser(userId);
+      const priorTurns = turnNumber > 1 ? await getTurns(conversationId, 6) : [];
 
       // Map snapshot dashboard_id to full dashboard data (holes allowed - missing IDs handled gracefully)
       const snapshotResults = [];
       for (const snap of snapshots) {
         const dashboard = await getDashboard(snap.dashboard_id);
-        if (dashboard) {
+        if (dashboard && await userCanViewDashboard(user, dashboard.id)) {
           snapshotResults.push({ dashboard, snapshot: snap.snapshot, dashboard_id: snap.dashboard_id });
         }
       }
@@ -1491,12 +1492,13 @@ export const AiController = {
       const multiSanitizer = getSanitizer();
       const multiSnapshotFallback = snapshotResults.length
         ? {
-            text: buildMultiDashboardContext(
-              snapshotResults.map((r) => multiSanitizer.sanitizeSnapshot(r.snapshot)),
-              snapshotResults.map((r) => r.dashboard),
-              TIER_CHAR_BUDGET.cepat,
-            ),
-            dashboards: snapshotResults.map((r) => ({ id: r.dashboard_id, name: r.dashboard.title })),
+            dashboards: snapshotResults.map((r) => ({
+              id: r.dashboard_id,
+              name: r.dashboard.title,
+              text: buildDataContext(
+                multiSanitizer.sanitizeSnapshot(r.snapshot), r.dashboard, TIER_CHAR_BUDGET.cepat,
+              ),
+            })),
           }
         : null;
       const evidenceResponse = await runWebEvidence({
@@ -1507,6 +1509,10 @@ export const AiController = {
         body: {
           ...req.body,
           conversationId,
+          conversation: priorTurns.flatMap((turn) => [
+            { role: "user", text: turn.question },
+            { role: "assistant", text: turn.answer },
+          ]),
           preferredDashboardIds: [
             ...(Array.isArray(req.body.preferredDashboardIds) ? req.body.preferredDashboardIds : []),
             ...snapshotResults.map((r) => r.dashboard_id),
@@ -1531,6 +1537,9 @@ export const AiController = {
           confidence: evidenceResponse.confidence,
           sources: evidenceResponse.sources,
           warnings: evidenceResponse.warnings,
+          usage: evidenceResponse.tokens,
+          requestId: evidenceResponse.requestId,
+          rounds: evidenceResponse.rounds,
         });
         await pangkasSampaiMuat(userId);
         req.ciaTelemetrySettled = true;
@@ -1650,8 +1659,6 @@ export const AiController = {
       const knowledgeText = sanitizer.sanitizeKnowledge(knowledge.text);
 
       // Riwayat utas ini (6 turn TERAKHIR, bukan 6 pertama).
-      const priorTurns = turnNumber > 1 ? await getTurns(conversationId, 6) : [];
-
       // Ingatan lintas percakapan: apa yang PERNAH dibahas user di utas lain.
       // Yang dikirim hanya judul, pertanyaan terakhir, dan cuplikan jawabannya,
       // supaya model tahu topiknya ada dan bisa merujuknya, tanpa memuat ulang

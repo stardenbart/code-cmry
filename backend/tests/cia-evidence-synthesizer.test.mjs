@@ -58,6 +58,24 @@ ok("packet hanya memuat label manusia",
   JSON.stringify(packet).includes("Jam lembur") && !JSON.stringify(packet).includes("OT_HOURS"),
   JSON.stringify(packet));
 
+section("Snapshot diabaikan saat live evidence lengkap");
+const liveWithSnapshot = await synthesizeEvidence({
+  question: "jelaskan lembur",
+  evidence: [overtime],
+  snapshotFallback: { text: "snapshot lama", dashboards: [{ id: "d-ot", name: "Dashboard Lembur" }] },
+}, { callModel: modelReply({ answer: "Jam lembur 120.", citedSourceIndexes: [0] }) });
+ok("hasil tetap live_dax tanpa warning snapshot", liveWithSnapshot.retrievalMethod === "live_dax"
+  && !liveWithSnapshot.warnings.includes("SNAPSHOT_FALLBACK_USED"), JSON.stringify(liveWithSnapshot));
+
+section("Bahasa kausal luas diturunkan tanpa dua bukti kompatibel");
+const causalSingle = await synthesizeEvidence({
+  question: "apa yang menyebabkan lembur naik",
+  evidence: [overtime],
+}, { callModel: modelReply({ answer: "PO memicu dan menyebabkan lembur naik akibat permintaan.", citedSourceIndexes: [0] }) });
+ok("memicu/menyebabkan/akibat tidak lolos sebagai kausal", !/memicu|menyebabkan|akibat/i.test(causalSingle.answer), causalSingle.answer);
+ok("warning bukti korelasi tidak cukup", causalSingle.warnings.includes("CORRELATION_EVIDENCE_INSUFFICIENT"),
+  JSON.stringify(causalSingle));
+
 section("Invalid citation dibuang dan confidence diturunkan");
 const invalidCitation = await synthesizeEvidence({
   question: "jelaskan lembur",
@@ -114,4 +132,3 @@ ok("method none dan low", none.retrievalMethod === "none" && none.confidence ===
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exit(summary() ? 0 : 1);
 }
-

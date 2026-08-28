@@ -112,8 +112,8 @@ function scoreCandidate(candidate, questionTerms) {
 
 // ── Loader library ──────────────────────────────────────────────────────────
 function aclAllows(binding, allowedSet) {
-  if (binding.dashboardId == null) return true;          // model-level: tak membocorkan dashboard
   if (!allowedSet) return true;                          // centralized
+  if (binding.dashboardId == null) return false;         // web: fail closed tanpa asosiasi dashboard
   return allowedSet.has(Number(binding.dashboardId));
 }
 
@@ -210,20 +210,23 @@ function catalogCandidates() {
 }
 
 async function resolveCandidatePool(allowedDashboardIds) {
+  // Catalog lama tidak punya dashboardId, jadi tidak bisa dibuktikan masuk ACL
+  // user web. Hanya surface centralized yang boleh menggunakannya.
+  const safeCatalog = () => Array.isArray(allowedDashboardIds) ? [] : catalogCandidates();
   if (!libraryEnabled()) {
     warnFallbackOnce("flag CIA_KPI_LIBRARY_ENABLED != true");
-    return { pool: catalogCandidates(), source: "catalog" };
+    return { pool: safeCatalog(), source: "catalog" };
   }
   try {
     const lib = await loadLibraryCandidates(allowedDashboardIds);
     if (!lib || lib.length === 0) {
       warnFallbackOnce("library kosong");
-      return { pool: catalogCandidates(), source: "catalog" };
+      return { pool: safeCatalog(), source: "catalog" };
     }
     return { pool: lib, source: "library" };
   } catch (err) {
     warnFallbackOnce(`tabel library tidak tersedia (${err?.code || err?.message})`);
-    return { pool: catalogCandidates(), source: "catalog" };
+    return { pool: safeCatalog(), source: "catalog" };
   }
 }
 

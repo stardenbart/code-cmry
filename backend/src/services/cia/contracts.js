@@ -37,6 +37,14 @@ function normalizeActor(value) {
   };
 }
 
+function normalizeConversation(value) {
+  return (Array.isArray(value) ? value : []).slice(-12).flatMap((turn) => {
+    if (!turn || typeof turn !== "object") return [];
+    const text = cleanString(turn.text).slice(0, 1_000);
+    return text ? [{ role: turn.role === "assistant" ? "assistant" : "user", text }] : [];
+  });
+}
+
 export function normalizeEnvelope(value = {}, options = {}) {
   const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const surface = CIA_SURFACES.includes(input.surface) ? input.surface : "dashboard";
@@ -50,6 +58,7 @@ export function normalizeEnvelope(value = {}, options = {}) {
     actor: normalizeActor(input.actor ?? input.user),
     question: cleanString(input.question),
     conversationId: input.conversationId == null ? null : cleanString(String(input.conversationId)) || null,
+    conversation: normalizeConversation(input.conversation),
     preferredDashboardIds: uniqueStrings(input.preferredDashboardIds),
     accessMode: centralizedAllowed && input.accessMode === "centralized" ? "centralized" : "user_acl",
     snapshotFallback: snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)
@@ -98,4 +107,3 @@ export function normalizeAnswer(value = {}) {
     rounds: nonNegativeInteger(input.rounds),
   };
 }
-

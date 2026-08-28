@@ -36,6 +36,7 @@ export function UnifiedChatPanel({
   // Pertanyaan terakhir yang dijawab dengan saran, untuk dikirim ulang saat
   // user mengklik salah satu sarannya.
   const [pertanyaanTertunda, setPertanyaanTertunda] = useState(null);
+  const [legacyFallbackNeeded, setLegacyFallbackNeeded] = useState(false);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -64,6 +65,9 @@ export function UnifiedChatPanel({
           confidence: t.confidence,
           sources: t.sources,
           warnings: t.warnings,
+          usage: t.usage,
+          requestId: t.request_id,
+          rounds: t.rounds,
           timestamp: t.created_at,
         },
       ])
@@ -86,7 +90,7 @@ export function UnifiedChatPanel({
     );
   };
 
-  const pendingCaptureIds = LEGACY_SNAPSHOT_FALLBACK
+  const pendingCaptureIds = (LEGACY_SNAPSHOT_FALLBACK || legacyFallbackNeeded)
     ? selectedDashboardIds.filter((id) => !snapshots[id])
     : [];
 
@@ -115,12 +119,16 @@ export function UnifiedChatPanel({
         confidence: hasil.confidence,
         sources: hasil.sources,
         warnings: hasil.warnings,
+        usage: hasil.tokens,
+        requestId: hasil.requestId,
+        rounds: hasil.rounds,
         timestamp: new Date(),
       }]);
 
       // Saran keluar berarti pertanyaannya belum terjawab dengan data. Simpan
       // supaya klik pada saran bisa mengirimkannya ulang tanpa mengetik lagi.
       setPertanyaanTertunda(hasil.saran_dashboard?.length > 0 ? pertanyaan : null);
+      if (hasil.saran_dashboard?.length > 0) setLegacyFallbackNeeded(true);
       onTurnTersimpan?.();
     } catch (err) {
       setError(err.message);
@@ -148,13 +156,7 @@ export function UnifiedChatPanel({
   const pilihSaran = (id) => {
     if (!pertanyaanTertunda) return;
     setSelectedDashboardIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
-    if (!LEGACY_SNAPSHOT_FALLBACK) {
-      const pertanyaan = pertanyaanTertunda;
-      setPertanyaanTertunda(null);
-      setMessages((prev) => [...prev, { role: 'user', content: pertanyaan, timestamp: new Date() }]);
-      kirim(pertanyaan, [...new Set([...selectedDashboardIds, id])]);
-      return;
-    }
+    setLegacyFallbackNeeded(true);
     setMenungguSaran(id);
   };
 
@@ -188,7 +190,7 @@ export function UnifiedChatPanel({
     <div className="flex flex-col h-full min-h-0 bg-white">
       {/* Penarikan snapshot di latar, satu mount per dashboard terpilih yang
           datanya belum pernah diambil. */}
-      {LEGACY_SNAPSHOT_FALLBACK && pendingCaptureIds.map((id) => {
+      {(LEGACY_SNAPSHOT_FALLBACK || legacyFallbackNeeded) && pendingCaptureIds.map((id) => {
         const dash = dashboardById(id);
         if (!dash) return null;
         return (
@@ -262,7 +264,7 @@ export function UnifiedChatPanel({
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-gray-900 truncate">{dash.title}</p>
                     {dash.department && <p className="text-xs text-gray-500">{dash.department}</p>}
-                    {LEGACY_SNAPSHOT_FALLBACK && isSelected && !entry && (
+                    {(LEGACY_SNAPSHOT_FALLBACK || legacyFallbackNeeded) && isSelected && !entry && (
                       <p className="text-xs text-cimoryBlue mt-0.5">Memuat data...</p>
                     )}
                     {entry?.data && (

@@ -19,7 +19,7 @@ function normalizeIdentifier(value) {
 
 function validRepair(dax, plan) {
   const query = String(dax || "").trim();
-  if (!query || query.length > 4_000 || !/^(EVALUATE|DEFINE)\b/i.test(query)) return false;
+  if (!query || query.length > 4_000 || !/^EVALUATE\b/i.test(query)) return false;
   const allowed = new Set((plan.allowedDaxIdentifiers || []).map(normalizeIdentifier).filter(Boolean));
   const allowedColumns = new Set([...allowed].map((item) => item.slice(item.indexOf("[") + 1, -1)));
   for (const kpi of plan.selectedKpis || []) allowedColumns.add(String(kpi.humanName || "").toLowerCase());
@@ -30,6 +30,32 @@ function validRepair(dax, plan) {
   }
   for (const match of query.matchAll(/\[([^\]]+)\]/g)) {
     if (!allowedColumns.has(match[1].toLowerCase())) return false;
+  }
+
+  // Repair harus mempertahankan seluruh identitas plan, bukan sekadar tidak
+  // menambah identifier baru. Ini menolak query konstanta/fabrikasi yang
+  // membuang measure, dimensi, atau filter tanggal.
+  const used = new Set(qualified.map((match) => normalizeIdentifier(`${match[1]}[${match[2]}]`)));
+  if ([...allowed].some((identifier) => !used.has(identifier))) return false;
+  const withoutQualifiedIdentifiers = query.replace(
+    /('(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_ ]*)\[([^\]]+)\]/g, "",
+  );
+  if (/'(?:[^']|'')+'/g.test(withoutQualifiedIdentifiers)) return false;
+
+  const functions = [...query.matchAll(/\b([A-Z][A-Z0-9_.]*)\s*\(/gi)]
+    .map((match) => match[1].toUpperCase());
+  const allowedFunctions = new Set(["TOPN", "CALCULATETABLE", "SUMMARIZECOLUMNS", "KEEPFILTERS", "DATE"]);
+  if (functions.some((name) => !allowedFunctions.has(name))) return false;
+  for (const required of ["TOPN", "CALCULATETABLE", "SUMMARIZECOLUMNS", "KEEPFILTERS", "DATE"]) {
+    if (!functions.includes(required)) return false;
+  }
+
+  const top = /\bTOPN\s*\(\s*(\d+)/i.exec(query);
+  if (!top || Number(top[1]) < 1 || Number(top[1]) > Number(plan.maxRows || 500)) return false;
+  const compact = query.replace(/\s+/g, "").toUpperCase();
+  for (const value of [plan.period?.from, plan.period?.to]) {
+    const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+    if (!parts || !compact.includes(`DATE(${Number(parts[1])},${Number(parts[2])},${Number(parts[3])})`)) return false;
   }
   return true;
 }
@@ -75,7 +101,12 @@ export async function executeEvidencePlan(plan, injected = {}) {
   const labelRows = injected.labelRows || labelDaxRows;
   const tracker = injected.tracker;
   const startedAt = Date.now();
-  const datasetId = plan?.datasetId || await resolveDatasetId(plan?.semanticModel);
+  let datasetId;
+  try {
+    datasetId = plan?.datasetId || await resolveDatasetId(plan?.semanticModel);
+  } catch (error) {
+    return failure(plan, startedAt, 0, typedError(error), error?.message);
+  }
   if (!datasetId) return failure(plan, startedAt, 0, "POWERBI_UNKNOWN", "Dataset tidak ditemukan");
 
   let dax = String(plan.dax || "");

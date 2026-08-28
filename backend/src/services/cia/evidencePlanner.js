@@ -8,6 +8,13 @@ function cleanText(value, limit = MAX_TEXT) {
   return typeof value === "string" ? value.trim().slice(0, limit) : "";
 }
 
+function dimensionName(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return cleanText(value.humanName ?? value.displayCaption ?? value.label ?? value.column ?? value.columnName);
+  }
+  return cleanText(value);
+}
+
 function parseStrictJson(text) {
   const trimmed = cleanText(text, 50_000);
   if (!trimmed) return { error: "PLANNER_EMPTY" };
@@ -32,7 +39,7 @@ function allowedBindings(candidateBindings) {
       ...binding,
       bindingId,
       dimensions: Array.isArray(binding.dimensions)
-        ? binding.dimensions.map((item) => cleanText(item)).filter(Boolean)
+        ? binding.dimensions.map(dimensionName).filter(Boolean)
         : [],
     });
   }
@@ -127,4 +134,3 @@ export async function planEvidence(input = {}, injected = {}) {
     ...metadata,
   };
 }
-

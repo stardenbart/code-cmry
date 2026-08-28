@@ -113,6 +113,9 @@ export async function getTurns(conversationId, limit = 6) {
       confidence: metadata.confidence || null,
       sources: Array.isArray(metadata.sources) ? metadata.sources : [],
       warnings: Array.isArray(metadata.warnings) ? metadata.warnings : [],
+      usage: metadata.usage || null,
+      request_id: metadata.requestId || null,
+      rounds: Number(metadata.rounds) || 0,
       created_at: row.created_at,
     };
   });

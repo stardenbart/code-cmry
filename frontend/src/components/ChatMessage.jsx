@@ -12,7 +12,7 @@ import CiaEvidenceMeta from './chat/CiaEvidenceMeta';
  */
 export function ChatMessage({
   role, content, dashboards_used, saran_dashboard, timestamp, onPilihSaran,
-  retrievalMethod, confidence, sources, warnings,
+  retrievalMethod, confidence, sources, warnings, usage, requestId, rounds,
 }) {
   const isUser = role === 'user';
 
@@ -80,7 +80,7 @@ export function ChatMessage({
 
       {!isUser && (
         <CiaEvidenceMeta retrievalMethod={retrievalMethod} confidence={confidence}
-          sources={sources} warnings={warnings} />
+          sources={sources} warnings={warnings} usage={usage} requestId={requestId} rounds={rounds} />
       )}
 
       {timestamp && (

@@ -10,12 +10,19 @@ const plan = {
   dashboardId: "dash-ot",
   dashboardName: "Dashboard Lembur",
   period: { label: "Agustus", from: "2026-08-01", to: "2026-08-28" },
-  dax: "EVALUATE ROW(\"Jam lembur\", 'Measures'[OT_HOURS])",
+  dax: `EVALUATE
+TOPN(500,
+  CALCULATETABLE(
+    SUMMARIZECOLUMNS('Overtime'[Department], "Jam lembur", 'Measures'[OT_HOURS]),
+    KEEPFILTERS('Date'[Date] >= DATE(2026, 8, 1) && 'Date'[Date] <= DATE(2026, 8, 28))
+  ),
+  [Jam lembur], DESC
+)`,
   selectedKpis: [{ bindingId: "b-ot", humanName: "Jam lembur" }],
   selectedDimensions: [{ table: "Overtime", column: "Department", humanName: "Departemen" }],
   labelBindings: [{ bindingId: "b-ot", tableName: "Measures", measureName: "OT_HOURS",
     humanName: "Jam lembur", dashboardName: "Dashboard Lembur" }],
-  allowedDaxIdentifiers: ["Measures[OT_HOURS]", "Overtime[Department]"],
+  allowedDaxIdentifiers: ["Measures[OT_HOURS]", "Overtime[Department]", "Date[Date]"],
   maxRows: 500,
 };
 
@@ -58,7 +65,7 @@ const repaired = await executeEvidencePlan(plan, {
     ok("repair menerima error aman dan DAX pertama",
       input.errorMessage === "Column salah" && input.dax === plan.dax,
       JSON.stringify(input));
-    return "EVALUATE ROW(\"Jam lembur\", 'Measures'[OT_HOURS])";
+    return plan.dax;
   },
 });
 ok("repair success memakai dua attempt", repaired.status === "success" && repaired.attempts === 2
@@ -86,6 +93,30 @@ const unsafeRepair = await executeEvidencePlan(plan, {
 ok("repair unsafe tidak dieksekusi", calls === 1, String(calls));
 ok("repair unsafe typed DAX_INVALID", unsafeRepair.errorCode === "DAX_INVALID",
   JSON.stringify(unsafeRepair));
+
+for (const [label, dax] of [
+  ["table-only", "EVALUATE 'SensitiveTable'"],
+  ["constant rows", "EVALUATE ROW(\"Jam lembur\", 999999)"],
+  ["period dibuang", "EVALUATE TOPN(500, SUMMARIZECOLUMNS('Overtime'[Department], \"Jam lembur\", 'Measures'[OT_HOURS]), [Jam lembur], DESC)"],
+  ["metadata function", "EVALUATE INFO.TABLES()"],
+]) {
+  let count = 0;
+  const rejected = await executeEvidencePlan(plan, {
+    async executeDax() { count += 1; return { berhasil: false, errorCode: "DAX_INVALID", alasan: "salah" }; },
+    async repairDax() { return dax; },
+  });
+  ok(`${label}: repair ditolak sebelum execute kedua`, count === 1 && rejected.errorCode === "DAX_INVALID",
+    `${count}/${JSON.stringify(rejected)}`);
+}
+
+section("Resolver dataset gagal menjadi typed per-plan failure");
+const resolverFailure = await executeEvidencePlan({ ...plan, datasetId: null }, {
+  async resolveDatasetId() { throw Object.assign(new Error("resolver down"), { code: "ETIMEDOUT" }); },
+  async executeDax() { throw new Error("tidak boleh dipanggil"); },
+});
+ok("resolver error tidak dilempar", resolverFailure.status === "failed"
+  && resolverFailure.errorCode === "POWERBI_TIMEOUT" && resolverFailure.attempts === 0,
+JSON.stringify(resolverFailure));
 
 section("Outcome error Power BI terpetakan dan tidak direpair");
 for (const [label, raw, expected] of [
@@ -123,11 +154,11 @@ const repairedDax = await perbaikiDaxTerbatas({
 }, {
   async callModel(input) {
     repairPrompt = input;
-    return { text: "```dax\nEVALUATE ROW(\"Jam lembur\", 'Measures'[OT_HOURS])\n```" };
+    return { text: `\`\`\`dax\n${plan.dax}\n\`\`\`` };
   },
 });
 ok("repair adapter mengembalikan DAX tanpa fence",
-  repairedDax === "EVALUATE ROW(\"Jam lembur\", 'Measures'[OT_HOURS])", repairedDax);
+  repairedDax === plan.dax, repairedDax);
 ok("repair prompt membawa error aman dan DAX lama",
   repairPrompt?.question?.includes("Column salah") && repairPrompt.question.includes(plan.dax),
   JSON.stringify(repairPrompt));

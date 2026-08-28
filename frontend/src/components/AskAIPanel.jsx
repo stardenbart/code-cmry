@@ -8,6 +8,7 @@ import { captureReportSnapshot, summarizeSnapshot, listReportPages } from "../ut
 import { CopyButton } from "./CodeAINavigator";
 import { useConfirm } from "./ConfirmProvider";
 import AnswerText from "./AnswerText";
+import CiaEvidenceMeta from "./chat/CiaEvidenceMeta";
 
 // ── Suggested starter questions ───────────────────────────────────────────────
 const SUGGESTIONS = [
@@ -333,7 +334,10 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
         // pertanyaan yang sama tidak dijawab lokal untuk kedua kalinya.
         paksaAI: Boolean(opsi.paksaAI),
       });
-      setMessages((prev) => [...prev, { role: "ai", text: data.answer, meta: data.meta, sourceQuestion: q }]);
+      setMessages((prev) => [...prev, {
+        role: "ai", text: data.answer, meta: data.meta, sourceQuestion: q,
+        sources: data.sources, warnings: data.warnings, requestId: data.requestId,
+      }]);
       if (data.meta?.quota) setQuota((prev) => ({ ...prev, ...data.meta.quota }));
     } catch (err) {
       const payload = err?.response?.data;
@@ -699,6 +703,10 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
                     </div>
 
                     {/* Dead end → concrete next step, instead of leaving the user stuck */}
+                    <CiaEvidenceMeta retrievalMethod={m.meta?.retrievalMethod}
+                      confidence={m.meta?.confidence} sources={m.sources} warnings={m.warnings}
+                      usage={m.meta?.usage} requestId={m.requestId} rounds={m.meta?.rounds} />
+
                     {m.meta?.needsMoreData && (
                       <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-2">
                         <p className="text-[10.5px] text-amber-800">

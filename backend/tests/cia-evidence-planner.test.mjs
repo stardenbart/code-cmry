@@ -9,6 +9,10 @@ const bindings = [
   { bindingId: "b-po", humanName: "Purchase Order", dashboardId: "dash-po",
     dimensions: ["Produk", "Jenis PO"] },
 ];
+const objectBindings = [{
+  bindingId: "b-object", humanName: "Jam lembur", dashboardId: "dash-ot",
+  dimensions: [{ table: "Overtime", column: "Department", humanName: "Departemen" }],
+}];
 const periods = [
   { from: "2026-07-01", to: "2026-07-31" },
   { from: "2026-08-01", to: "2026-08-28" },
@@ -56,6 +60,16 @@ ok("provider/model/usage diteruskan untuk telemetry",
   JSON.stringify(valid));
 ok("hasil valid tanpa warning", valid.warnings.length === 0, JSON.stringify(valid.warnings));
 
+section("Dimension object dipertahankan sebagai label manusia");
+const objectDimension = await planEvidence({ question: "lembur per departemen", periods, candidateBindings: objectBindings }, {
+  callModel: callReturning(JSON.stringify({
+    goals: [{ kpiBindingId: "b-object", dimensions: ["Departemen"], periodIndex: 0, purpose: "primary" }],
+    followUpSignals: [],
+  })),
+});
+ok("planner menerima dimension object", objectDimension.goals[0]?.dimensions[0] === "Departemen",
+  JSON.stringify(objectDimension));
+
 section("Goal dan dimensi dibatasi");
 const capped = await planEvidence({ question: "q", periods, candidateBindings: bindings }, {
   callModel: callReturning(JSON.stringify({
@@ -100,4 +114,3 @@ ok("structured call meneruskan provider/model/usage",
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exit(summary() ? 0 : 1);
 }
-

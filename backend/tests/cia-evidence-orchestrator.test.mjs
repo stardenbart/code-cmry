@@ -139,6 +139,47 @@ try {
     ok("warning PLANNER_EMPTY terbawa", a.warnings.includes("PLANNER_EMPTY"));
   }
 
+  section("Fallback deterministic mengambil semua comparison period");
+  {
+    const builtPeriods = [];
+    const deps = baseDeps({
+      resolvePeriods() {
+        return [
+          { label: "Bulan lalu", from: "2026-07-01", to: "2026-07-31" },
+          { label: "Bulan ini", from: "2026-08-01", to: "2026-08-31" },
+        ];
+      },
+      async planEvidence() { return { goals: [], warnings: ["PLANNER_FAILED"] }; },
+      buildDaxPlan({ goal, binding, period }) {
+        builtPeriods.push({ index: goal.periodIndex, from: period.from });
+        return { semanticModel: binding.semanticModel, dashboardId: binding.dashboardId,
+          dashboardName: binding.dashboardName, dax: "EVALUATE 1",
+          selectedKpis: [{ bindingId: binding.bindingId, humanName: binding.humanName }], period, maxRows: 500 };
+      },
+    });
+    await answerWithEvidence(envelope({ question: "bandingkan lembur bulan lalu dan bulan ini" }), deps);
+    ok("kedua periode dieksekusi", JSON.stringify(builtPeriods) === JSON.stringify([
+      { index: 0, from: "2026-07-01" }, { index: 1, from: "2026-08-01" },
+    ]), JSON.stringify(builtPeriods));
+  }
+
+  section("Planner menerima isi conversation, bukan hanya id");
+  {
+    let received;
+    const deps = baseDeps({
+      async planEvidence(input) {
+        received = input.conversation;
+        return { goals: [{ kpiBindingId: "b1", dimensions: [], periodIndex: 0, purpose: "primary" }], warnings: [] };
+      },
+    });
+    await answerWithEvidence(envelope({
+      conversationId: "conv-1",
+      conversation: [{ role: "user", text: "fokus Produksi A" }, { role: "assistant", text: "siap" }],
+    }), deps);
+    ok("conversation turns diteruskan", received?.length === 2 && received[0].text.includes("Produksi A"),
+      JSON.stringify(received));
+  }
+
   section("DAX gagal -> snapshot fallback transparan");
   {
     const deps = baseDeps({

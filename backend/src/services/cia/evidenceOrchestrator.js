@@ -53,13 +53,21 @@ function goalKey(goal) {
 
 // Fallback goals ketika planner AI kosong/gagal: pakai kandidat deterministic
 // teratas apa adanya, meminta seluruh dimensi binding (dibatasi builder).
-function deterministicGoals(candidates, limit = 3) {
-  return (Array.isArray(candidates) ? candidates : []).slice(0, limit).map((c) => ({
-    kpiBindingId: String(c.bindingId),
-    dimensions: (Array.isArray(c.dimensions) ? c.dimensions : []).map(dimLabel).filter(Boolean).slice(0, 6),
-    periodIndex: 0,
-    purpose: "primary",
-  }));
+function deterministicGoals(candidates, periods, limit = 6) {
+  const goals = [];
+  for (const candidate of (Array.isArray(candidates) ? candidates : []).slice(0, 3)) {
+    const count = Math.max(1, Math.min(Array.isArray(periods) ? periods.length : 1, 6));
+    for (let periodIndex = 0; periodIndex < count && goals.length < limit; periodIndex += 1) {
+      goals.push({
+        kpiBindingId: String(candidate.bindingId),
+        dimensions: (Array.isArray(candidate.dimensions) ? candidate.dimensions : [])
+          .map(dimLabel).filter(Boolean).slice(0, 6),
+        periodIndex,
+        purpose: "primary",
+      });
+    }
+  }
+  return goals;
 }
 
 function sourceFrom(plan) {
@@ -171,7 +179,7 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
       let plan = { goals: [], warnings: [] };
       try {
         plan = await d.planEvidence(
-          { question: env.question, periods, candidateBindings: route.candidates, conversation: env.conversationId },
+          { question: env.question, periods, candidateBindings: route.candidates, conversation: env.conversation },
           deps.plannerDeps,
         ) || plan;
       } catch (err) {
@@ -187,7 +195,7 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
         metadata: { goals: (plan.goals || []).length },
       });
 
-      let goals = (plan.goals && plan.goals.length) ? plan.goals : deterministicGoals(route.candidates);
+      let goals = (plan.goals && plan.goals.length) ? plan.goals : deterministicGoals(route.candidates, periods);
 
       // 5-10. Bounded retrieval loop.
       const limit = maxRounds();

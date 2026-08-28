@@ -51,6 +51,7 @@ try {
   const deviasi = await seed(`Kategori NC tertinggi CMD 3 ${TAG}`, "quality", ["deviasi", "NC"], D[2], "NC_CMD3",
     { dimensions: ["Kategori", "Deskripsi"] });
   const ppic = await seed(`Akurasi PO dan Forecast ${TAG}`, "planning", ["PO", "forecast"], D[3], "PO_ACC");
+  const globalOnly = await seed(`Rahasia model ${TAG}`, "restricted", ["rahasia-model"], null, "SECRET_TOTAL");
 
   const ALL = D.slice(0, 4);
 
@@ -89,6 +90,13 @@ try {
   const bindingsDenied = await getBindingsForKpis([lembur.id], [D[1]]);
   ok("getBindingsForKpis tidak membocorkan binding di luar ACL", bindingsDenied.length === 0,
     JSON.stringify(bindingsDenied));
+  const nullDenied = await searchKpiCandidates({
+    question: `rahasia-model ${TAG}`, allowedDashboardIds: [D[0]], limit: 10,
+  });
+  ok("binding model-level tanpa dashboard ditolak untuk web ACL",
+    rank(nullDenied, globalOnly.id) === -1, JSON.stringify(nullDenied));
+  const nullCentralized = await searchKpiCandidates({ question: `rahasia-model ${TAG}`, limit: 10 });
+  ok("binding model-level tetap tersedia untuk centralized", rank(nullCentralized, globalOnly.id) >= 0);
 
   section("Binding missing tidak dipilih");
   await sql.query("UPDATE cia_kpi_bindings SET verification_status='missing' WHERE kpi_id=?", [ppic.id]);
@@ -109,6 +117,8 @@ try {
   ok("fallback mengembalikan kandidat", Array.isArray(fb) && fb.length > 0, String(fb.length));
   ok("fallback menemukan KPI lembur dari katalog",
     fb.some((c) => /lembur/i.test(c.humanName)), JSON.stringify(fb.slice(0, 3).map((c) => c.humanName)));
+  const fbWeb = await searchKpiCandidates({ question: "lembur", allowedDashboardIds: [D[0]], limit: 20 });
+  ok("fallback katalog fail-closed untuk web ACL", fbWeb.length === 0, JSON.stringify(fbWeb));
   const st2 = await readKpiLibraryStatus();
   ok("status fallback source=catalog", st2.source === "catalog", JSON.stringify(st2));
   process.env.CIA_KPI_LIBRARY_ENABLED = "true";
