@@ -386,10 +386,11 @@ export async function restoreRevision(id, revisionId, actorId = null, reason = "
 // unik → dasar idempotensi: import/sync yang mengenai binding sama tidak pernah
 // menduplikasi baris.
 export function computeBindingKey({
+  kpiId = null,
   dashboardId = null, semanticModel = null, tableName = null,
   measureName = null, pageName = null, visualTitle = null,
 } = {}) {
-  const raw = [dashboardId, semanticModel, tableName, measureName, pageName, visualTitle]
+  const raw = [kpiId, dashboardId, semanticModel, tableName, measureName, pageName, visualTitle]
     .map((v) => String(v ?? "").trim().toLowerCase())
     .join("|");
   return crypto.createHash("sha256").update(raw, "utf8").digest("hex");

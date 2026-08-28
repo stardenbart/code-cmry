@@ -43,6 +43,20 @@ function clamp(value, max) {
   return s ? s.slice(0, max) : null;
 }
 
+function columnRef(value, fallbackTable = null) {
+  const table = typeof value === "object" ? value?.tabel ?? value?.table : fallbackTable;
+  const column = typeof value === "object" ? value?.kolom ?? value?.column : value;
+  if (!table || !column) return null;
+  return { table: String(table).trim(), column: String(column).trim(), humanName: String(column).trim() };
+}
+
+function bindingDimensions(entry) {
+  return [
+    columnRef(entry.dimensi, entry.dimensiTabel),
+    ...(Array.isArray(entry.kolomTeks) ? entry.kolomTeks.map((v) => columnRef(v, entry.dimensiTabel)) : []),
+  ].filter(Boolean);
+}
+
 export function buildImportPlan(catalog = KATALOG_KPI) {
   return catalog.map((entry) => {
     const humanName = clamp(entry.kpi, 200) || "";
@@ -63,12 +77,17 @@ export function buildImportPlan(catalog = KATALOG_KPI) {
       status: "draft",
       source: "catalog_import",
       dateLogic: entry.dateLogic || null,
-      bindings: measures.map((measure) => ({
+      bindings: measures.map((measure, index) => ({
         semanticModel: entry.modelName || null,
         measureName: measure,
+        displayCaption: entry.terlihatSebagai?.[index]
+          || (measures.length === 1 ? entry.terlihatSebagai?.[0] : null)
+          || null,
+        dimensions: bindingDimensions(entry),
+        dateTable: entry.kolomTanggal?.tabel ?? entry.kolomTanggal?.table ?? null,
+        dateColumn: entry.kolomTanggal?.kolom ?? entry.kolomTanggal?.column ?? null,
         dateLogic: entry.dateLogic || null,
         source: "catalog_import",
-        bindingKey: computeBindingKey({ semanticModel: entry.modelName, measureName: measure }),
       })),
     };
   });
@@ -116,7 +135,17 @@ export async function applyImport(plan, actorId = null) {
     }
 
     for (const b of item.bindings) {
-      const { created } = await upsertBinding({ ...b, kpiId });
+      const bindingKey = computeBindingKey({ ...b, kpiId });
+      const { created } = await upsertBinding({ ...b, kpiId, bindingKey });
+      // Binding versi lama tidak memasukkan kpiId, sehingga dua konsep yang
+      // memakai measure sama saling menimpa. Pertahankan barisnya untuk audit,
+      // tetapi keluarkan dari routing setelah binding baru berhasil dibuat.
+      await pool.query(
+        `UPDATE cia_kpi_bindings SET verification_status='missing', missing_since=COALESCE(missing_since,NOW())
+          WHERE kpi_id=? AND dashboard_id IS NULL AND source='catalog_import'
+            AND semantic_model <=> ? AND measure_name <=> ? AND binding_key<>?`,
+        [kpiId, b.semanticModel ?? null, b.measureName ?? null, bindingKey]
+      );
       if (created) bindingsCreated += 1;
       else bindingsRefreshed += 1;
     }

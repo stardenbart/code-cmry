@@ -932,10 +932,19 @@ export const AiController = {
         return res.status(403).json({ message: "Kamu belum punya akses ke dashboard ini" });
       }
 
+      // Lookup angka sederhana yang sudah tersedia persis di snapshot tidak
+      // perlu memanggil Power BI lagi. Pertanyaan analitis, periode lain, atau
+      // paksaAI tetap masuk orchestrator live di bawah.
+      lokal = paksaAI
+        ? { answered: false, reason: "user meminta jawaban AI", intent: "ANALYTICAL" }
+        : tryAnswerLocally({ question: q, snapshot, dashboard });
+
       // Jalur live evidence tidak bergantung pada filter/snapshot browser.
       // Dashboard yang sedang dibuka hanya hint; router tetap boleh memilih
       // dashboard ACL lain yang lebih relevan dengan pertanyaan/periode.
-      const evidenceResponse = await tryDashboardEvidence(req, user, dashboard, snapshot);
+      const evidenceResponse = lokal.answered && lokal.confidence >= AMBANG_KEYAKINAN
+        ? null
+        : await tryDashboardEvidence(req, user, dashboard, snapshot);
       if (evidenceResponse) {
         req.ciaTelemetrySettled = true;
         return res.json(evidenceResponse);
@@ -969,10 +978,6 @@ export const AiController = {
       // mengisi API key mendapat 503 untuk pertanyaan yang sebenarnya bisa
       // dijawab tanpa key sama sekali. Rate limit pun memang dimaksudkan
       // menjaga kuota Gemini, seperti tertulis di komentarnya sendiri di bawah.
-      lokal = paksaAI
-        ? { answered: false, reason: "user meminta jawaban AI", intent: "ANALYTICAL" }
-        : tryAnswerLocally({ question: q, snapshot, dashboard });
-
       if (lokal.answered && lokal.confidence >= AMBANG_KEYAKINAN) {
         const visualsUsed = (snapshot?.visuals || []).length;
         const rowsUsed = (snapshot?.visuals || [])

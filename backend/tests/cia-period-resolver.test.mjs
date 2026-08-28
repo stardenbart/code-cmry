@@ -27,6 +27,14 @@ ok("bulan lalu adalah bulan kalender penuh",
   JSON.stringify(dates("lembur bulan lalu"))
     === JSON.stringify([{ from: "2026-07-01", to: "2026-07-31", comparisonKey: "previous_month" }]),
   JSON.stringify(dates("lembur bulan lalu")));
+ok("bulan bernama dengan kata lalu dibaca sebagai bulan kalender, bukan default dashboard",
+  JSON.stringify(dates("jelaskan downtime pada bulan Juli lalu"))
+    === JSON.stringify([{ from: "2026-07-01", to: "2026-07-31", comparisonKey: "named_month" }]),
+  JSON.stringify(dates("jelaskan downtime pada bulan Juli lalu")));
+ok("bulan bernama dengan tahun eksplisit memakai tahun tersebut",
+  JSON.stringify(dates("downtime Juli 2025"))
+    === JSON.stringify([{ from: "2025-07-01", to: "2025-07-31", comparisonKey: "named_month" }]),
+  JSON.stringify(dates("downtime Juli 2025")));
 ok("tahun lalu adalah tahun kalender penuh",
   JSON.stringify(dates("deviasi tahun lalu"))
     === JSON.stringify([{ from: "2025-01-01", to: "2025-12-31", comparisonKey: "previous_year" }]),

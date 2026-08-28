@@ -67,17 +67,42 @@ async function defaultMeasureIndex() {
 // import (punya semantic_model), lalu fallback ke sinonim KPI.
 async function buildKpiResolver() {
   const map = new Map();
+  const add = (raw, value) => {
+    const k = String(raw || "").trim().toLowerCase();
+    if (!k) return;
+    const values = map.get(k) || [];
+    const identity = `${value.kpiId}|${value.measureName}|${value.semanticModel}`;
+    if (!values.some((item) => `${item.kpiId}|${item.measureName}|${item.semanticModel}` === identity)) {
+      values.push(value);
+    }
+    map.set(k, values);
+  };
   const [bindings] = await pool.query(
-    "SELECT kpi_id, measure_name, semantic_model FROM cia_kpi_bindings WHERE measure_name IS NOT NULL");
+    `SELECT kpi_id, measure_name, semantic_model, display_caption, source,
+            dimensions_json, date_table, date_column, date_logic
+       FROM cia_kpi_bindings
+      WHERE measure_name IS NOT NULL AND verification_status IN ('discovered','confirmed')`);
   for (const b of bindings) {
-    const k = String(b.measure_name).trim().toLowerCase();
-    if (k && !map.has(k)) map.set(k, { kpiId: b.kpi_id, semanticModel: b.semantic_model });
+    const resolved = {
+      kpiId: b.kpi_id,
+      semanticModel: b.semantic_model,
+      measureName: b.measure_name,
+      dimensions: b.dimensions_json || [],
+      dateTable: b.date_table,
+      dateColumn: b.date_column,
+      dateLogic: b.date_logic,
+    };
+    const aliases = b.source === "catalog_import"
+      ? [b.measure_name, b.display_caption] : [b.measure_name];
+    for (const raw of aliases) {
+      add(raw, resolved);
+    }
   }
   const [kpis] = await pool.query("SELECT id, synonyms_json FROM cia_kpis");
   for (const kp of kpis) {
     for (const syn of (kp.synonyms_json || [])) {
       const k = String(syn).trim().toLowerCase();
-      if (k && !map.has(k)) map.set(k, { kpiId: kp.id, semanticModel: null });
+      if (k && !map.has(k)) add(k, { kpiId: kp.id, semanticModel: null, measureName: syn });
     }
   }
   return map;
@@ -156,6 +181,13 @@ export async function runSync(runDbId, runUuid, { dashboardIds = null, inventory
     for (const dash of dashboards) {
       try {
         const rows = await inv.listVisualFields(dash.id);
+        // Alias manusia hanya aman bila dashboard membawa setidaknya satu
+        // nama measure asli yang meng-anchor semantic model-nya. Tanpa anchor,
+        // caption umum seperti "Duration (Min)" bisa berasal dari model lain.
+        const dashboardModels = new Set(rows.flatMap((r) => {
+          const meta = measureIdx.get(String(r.field_name || "").trim().toLowerCase());
+          return meta?.modelName ? [meta.modelName] : [];
+        }));
         scannedDashboardIds.push(Number(dash.id));
         result.dashboardsScanned += 1;
 
@@ -177,14 +209,23 @@ export async function runSync(runDbId, runUuid, { dashboardIds = null, inventory
           const measures = [];
           const dims = [];
           for (const f of v.fields) {
-            if (measureIdx.has(String(f || "").trim().toLowerCase())) measures.push(f);
-            else dims.push(f);
+            const fieldKey = String(f || "").trim().toLowerCase();
+            const resolved = resolver.get(fieldKey) || [];
+            const matches = resolved.filter((item) => {
+              const meta = measureIdx.get(String(item.measureName || "").trim().toLowerCase());
+              return meta && item.semanticModel === meta.modelName
+                && dashboardModels.has(item.semanticModel);
+            });
+            if (matches.length) {
+              measures.push(...matches.map((item) => ({ measureName: item.measureName, resolved: item })));
+            } else dims.push(f);
           }
           result.measuresSeen += measures.length;
 
-          for (const measure of measures) {
+          for (const item of measures) {
+            const measure = item.measureName;
             const mkey = String(measure).trim().toLowerCase();
-            const resolved = resolver.get(mkey);
+            const resolved = item.resolved || resolver.get(mkey)?.[0];
             if (!resolved) continue; // measure di luar library -> tidak buat binding yatim
             const meta = measureIdx.get(mkey) || {};
             const binding = {
@@ -197,7 +238,11 @@ export async function runSync(runDbId, runUuid, { dashboardIds = null, inventory
               tableName: meta.tableName || null,
               measureName: measure,
               displayCaption: v.visualTitle || null,
-              dimensions: uniqueStrings(dims),
+              dimensions: Array.isArray(resolved.dimensions) && resolved.dimensions.length
+                ? resolved.dimensions : uniqueStrings(dims),
+              dateTable: resolved.dateTable || null,
+              dateColumn: resolved.dateColumn || null,
+              dateLogic: resolved.dateLogic || null,
               source: "visual_sync",
             };
             const key = computeBindingKey(binding);
@@ -209,6 +254,36 @@ export async function runSync(runDbId, runUuid, { dashboardIds = null, inventory
         }
       } catch (err) {
         result.errors.push({ dashboardId: dash.id, error: safeError(err) });
+      }
+    }
+
+    // Format key sebelum 2026-08-28 tidak menyertakan kpiId. Setelah binding
+    // replacement dibuat, pensiunkan key lama meski pernah confirmed; kalau
+    // dibiarkan aktif ia tetap ikut routing bersama replacement.
+    if (scannedDashboardIds.length) {
+      const ph = scannedDashboardIds.map(() => "?").join(",");
+      const [legacyCandidates] = await pool.query(
+        `SELECT id,binding_key,kpi_id,dashboard_id,semantic_model,table_name,
+                measure_name,page_name,visual_title
+           FROM cia_kpi_bindings
+          WHERE source='visual_sync' AND dashboard_id IN (${ph})
+            AND verification_status IN ('discovered','confirmed')`,
+        scannedDashboardIds
+      );
+      const legacyIds = legacyCandidates.filter((row) => row.binding_key !== computeBindingKey({
+        kpiId: row.kpi_id,
+        dashboardId: row.dashboard_id,
+        semanticModel: row.semantic_model,
+        tableName: row.table_name,
+        measureName: row.measure_name,
+        pageName: row.page_name,
+        visualTitle: row.visual_title,
+      })).map((row) => row.id);
+      if (legacyIds.length) {
+        const [retired] = await pool.query(
+          `UPDATE cia_kpi_bindings SET verification_status='missing', missing_since=COALESCE(missing_since,NOW())
+            WHERE id IN (${legacyIds.map(() => "?").join(",")})`, legacyIds);
+        result.bindingsMissing += retired.affectedRows || 0;
       }
     }
 
@@ -227,7 +302,7 @@ export async function runSync(runDbId, runUuid, { dashboardIds = null, inventory
         params.push(...seenArr);
       }
       const [upd] = await pool.query(sqlText, params);
-      result.bindingsMissing = upd.affectedRows || 0;
+      result.bindingsMissing += upd.affectedRows || 0;
     }
 
     result.status = result.errors.length ? "partial" : "success";

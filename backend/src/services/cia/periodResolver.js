@@ -68,9 +68,31 @@ function explicitRange(question) {
   if (from > to || from.getUTCMonth() + 1 !== month || to.getUTCMonth() + 1 !== month) return null;
   return {
     index: match.index,
+    end: match.index + match[0].length,
     value: period(`${match[1]}-${match[2]} ${match[3]} ${match[4]}`, from, to,
       "day", "explicit_range"),
   };
+}
+
+function namedMonthCandidates(question, today, occupiedRange = null) {
+  const names = [...MONTHS.keys()].join("|");
+  const regex = new RegExp(`\\b(?:bulan\\s+)?(${names})(?:\\s+(lalu|ini))?(?:\\s+(\\d{4}))?\\b`, "gi");
+  const out = [];
+  for (const match of question.matchAll(regex)) {
+    const end = match.index + match[0].length;
+    if (occupiedRange && match.index < occupiedRange.end && end > occupiedRange.index) continue;
+    const month = MONTHS.get(match[1].toLowerCase());
+    const explicitYear = match[3] ? Number(match[3]) : null;
+    let year = explicitYear || today.getUTCFullYear();
+    const currentMonthNumber = today.getUTCMonth() + 1;
+    if (!explicitYear && (month > currentMonthNumber
+      || (match[2]?.toLowerCase() === "lalu" && month >= currentMonthNumber))) year -= 1;
+    const from = dateAt(year, month, 1);
+    const fullEnd = addDays(dateAt(year, month + 1, 1), -1);
+    const to = year === today.getUTCFullYear() && month === currentMonthNumber ? today : fullEnd;
+    out.push({ index: match.index, value: period(match[0], from, to, "day", "named_month") });
+  }
+  return out;
 }
 
 function relativeCandidates(question, today) {
@@ -125,6 +147,7 @@ export function resolvePeriods(question, now = new Date(), timezone = "Asia/Jaka
   const candidates = relativeCandidates(text, today);
   const range = explicitRange(text);
   if (range) candidates.push(range);
+  candidates.push(...namedMonthCandidates(text, today, range));
 
   const resolved = candidates.sort((a, b) => a.index - b.index).map((item) => item.value);
   const unique = [...new Map(resolved.map((item) => [
