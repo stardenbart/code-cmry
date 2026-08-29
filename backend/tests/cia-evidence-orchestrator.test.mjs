@@ -164,6 +164,39 @@ try {
       JSON.stringify(answer.evidenceContract));
   }
 
+  section("Konsep vocabulary injeksi memutus binding follow-up topic lama");
+  {
+    let routed;
+    const deps = baseDeps({
+      intentFrameDeps: {
+        vocabulary: { concepts: [{ value: "quality reject", phrases: ["quality reject"] }] },
+      },
+      async resolveEvidenceScope() {
+        return { allowedDashboardIds: ["44", "88"], preferredDashboardIds: ["88"],
+          deniedPreferredDashboardIds: [], mode: "user_acl", denied: false, errorCode: null };
+      },
+      async routeEvidence(input) {
+        routed = input;
+        return { status: "ready", candidates: [candidate("b-quality", "88")], periods: input.periods, warnings: [] };
+      },
+    });
+    await answerWithEvidence(envelope({
+      question: "sekarang rekap quality reject bulan juli",
+      preferredDashboardIds: ["88"],
+      conversation: [{ role: "assistant", text: "Downtime Evergreen 42 menit.", evidenceContract: {
+        concepts: ["downtime"],
+        entities: [{ type: "machine", value: "evergreen" }],
+        periods: [{ label: "Juni", from: "2026-06-01", to: "2026-06-30", grain: "day" }],
+        sources: [{ dashboardId: "44", dashboardName: "Maintenance" }], goals: [],
+      } }],
+    }), deps);
+    ok("router tidak menerima source/entity downtime sebagai priority 200 context",
+      routed?.intentFrame?.concepts?.includes("quality reject")
+        && routed?.intentFrame?.contextSources?.length === 0
+        && !routed?.intentFrame?.entities?.some((item) => item.value === "evergreen"),
+      JSON.stringify(routed?.intentFrame));
+  }
+
   section("Fallback deterministic menghormati source priority sebelum score");
   {
     let executedDashboard;

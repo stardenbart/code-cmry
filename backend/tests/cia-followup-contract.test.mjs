@@ -28,6 +28,7 @@ const previousDowntimeContract = createEvidenceContract({
 section("Follow-up mewarisi bukti relevan");
 const inherited = resolveFollowUpContext({
   question: "berapa persentasenya terhadap used time?",
+  currentConcepts: [],
   conversation: [{ role: "assistant", evidenceContract: previousDowntimeContract }],
 });
 ok("mewarisi downtime source", inherited.sources[0]?.dashboardId === "44", JSON.stringify(inherited));
@@ -38,10 +39,37 @@ ok("mewarisi mesin dan periode", inherited.entities[0]?.value === "evergreen"
 section("Topic switch memutus konteks domain lama");
 const switched = resolveFollowUpContext({
   question: "sekarang rekap overtime bulan juli",
+  currentConcepts: ["overtime"],
   conversation: [{ role: "assistant", evidenceContract: previousDowntimeContract }],
 });
 ok("topic switch tidak membawa mesin", switched.entities.length === 0, JSON.stringify(switched));
 ok("topic switch tidak membawa source", switched.sources.length === 0, JSON.stringify(switched));
+
+const injectedSwitch = resolveFollowUpContext({
+  question: "sekarang rekap quality reject bulan juli",
+  currentConcepts: ["quality reject"],
+  conversation: [{ role: "assistant", evidenceContract: previousDowntimeContract }],
+});
+ok("konsep vocabulary baru memutus source dan entitas lama", injectedSwitch.sources.length === 0
+  && injectedSwitch.entities.length === 0, JSON.stringify(injectedSwitch));
+
+const previousProductionContract = createEvidenceContract({
+  intentFrame: {
+    concepts: ["production output"],
+    entities: [{ type: "product", value: "uht milk 250ml" }],
+  },
+  periods: [{ label: "Juli 2026", from: "2026-07-01", to: "2026-07-31", grain: "day" }],
+  evidence: [{ source: { dashboardId: "77", dashboardName: "Production Output" } }],
+});
+const productionRefinement = resolveFollowUpContext({
+  question: "produksi bulan ini bagaimana?",
+  currentConcepts: ["production"],
+  conversation: [{ role: "assistant", evidenceContract: previousProductionContract }],
+});
+ok("konsep lebih umum dalam family yang sama mempertahankan context",
+  productionRefinement.sources[0]?.dashboardId === "77"
+    && productionRefinement.entities[0]?.value === "uht milk 250ml",
+  JSON.stringify(productionRefinement));
 
 section("Contract bounded dan hanya metadata aman");
 const oversized = createEvidenceContract({

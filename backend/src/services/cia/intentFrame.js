@@ -152,7 +152,9 @@ export function buildIntentFrame(input = {}, injected = {}) {
   const vocabulary = injected.vocabulary || DEFAULT_VOCABULARY;
   const currentConcepts = matchConcepts(question, vocabulary);
   const currentEntities = extractEntities(question);
-  const context = resolveFollowUpContext({ question, conversation: input.conversation });
+  const context = resolveFollowUpContext({
+    question, conversation: input.conversation, currentConcepts,
+  });
   return {
     question,
     concepts: unique([...currentConcepts, ...context.requiredConcepts]),

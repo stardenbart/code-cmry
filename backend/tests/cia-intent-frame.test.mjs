@@ -66,6 +66,35 @@ ok("entity, periode, dan denominator diwarisi sebelum routing",
     && hasValues(evidenceFollowUp.concepts, ["downtime", "running hours"]),
   JSON.stringify(evidenceFollowUp));
 
+const injectedTopicSwitch = buildIntentFrame({
+  question: "sekarang rekap quality reject bulan juli",
+  conversation: [{ role: "assistant", text: "Downtime Evergreen 42 menit.", evidenceContract: {
+    concepts: ["downtime"],
+    entities: [{ type: "machine", value: "evergreen" }],
+    periods: [{ label: "Juni", from: "2026-06-01", to: "2026-06-30", grain: "day" }],
+    sources: [{ dashboardId: "44", dashboardName: "Maintenance" }], goals: [],
+  } }],
+}, { vocabulary: { concepts: [{ value: "quality reject", phrases: ["quality reject"] }] } });
+ok("konsep vocabulary injeksi memutus source dan mesin topic lama",
+  injectedTopicSwitch.concepts.includes("quality reject")
+    && injectedTopicSwitch.contextSources.length === 0
+    && !injectedTopicSwitch.entities.some((item) => item.value === "evergreen"),
+  JSON.stringify(injectedTopicSwitch));
+
+const productionRefinement = buildIntentFrame({
+  question: "produksi bulan ini bagaimana?",
+  conversation: [{ role: "assistant", text: "Output UHT bulan Juli tersedia.", evidenceContract: {
+    concepts: ["production output"],
+    entities: [{ type: "product", value: "uht milk 250ml" }],
+    periods: [{ label: "Juli", from: "2026-07-01", to: "2026-07-31", grain: "day" }],
+    sources: [{ dashboardId: "77", dashboardName: "Production Output" }], goals: [],
+  } }],
+});
+ok("production output ke production tetap refinement context",
+  productionRefinement.contextSources[0]?.dashboardId === "77"
+    && productionRefinement.entities.some((item) => item.value === "uht milk 250ml"),
+  JSON.stringify(productionRefinement));
+
 section("Corpus hybrid 27 pertanyaan tetap dapat diparse");
 ok("corpus menyimpan 27 pertanyaan persis", CIA_HYBRID_REGRESSION_CASES.length === 27
   && CIA_HYBRID_REGRESSION_CASES.filter((item) => item.question.includes("@CODE AI")).length === 0);

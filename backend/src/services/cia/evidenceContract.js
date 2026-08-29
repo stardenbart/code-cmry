@@ -104,16 +104,13 @@ export function normalizeEvidenceContract(value) {
     || contract.sources.length || contract.goals.length ? contract : null;
 }
 
-function questionConcepts(question) {
-  const value = text(question, 1_000).toLocaleLowerCase("id-ID");
-  const concepts = [];
-  if (/\bdowntime\b/.test(value)) concepts.push("downtime");
-  if (/\b(?:overtime|lembur)\b/.test(value)) concepts.push("overtime");
-  if (/\b(?:produksi|production|output)\b/.test(value)) concepts.push("production");
-  if (/\b(?:planning|rencana produksi)\b/.test(value)) concepts.push("planning");
-  if (/\b(?:purchase order|fulfillment po|total po)\b/.test(value)) concepts.push("purchase order");
-  if (/\b(?:deviasi|deviation)\b/.test(value)) concepts.push("deviation");
-  return [...new Set(concepts)];
+function conceptsOverlap(left, right) {
+  const leftTokens = new Set(text(left).toLocaleLowerCase("id-ID").split(" ").filter(Boolean));
+  const rightTokens = new Set(text(right).toLocaleLowerCase("id-ID").split(" ").filter(Boolean));
+  if (!leftTokens.size || !rightTokens.size) return false;
+  const smaller = leftTokens.size <= rightTokens.size ? leftTokens : rightTokens;
+  const larger = smaller === leftTokens ? rightTokens : leftTokens;
+  return [...smaller].every((token) => larger.has(token));
 }
 
 function latestContract(conversation) {
@@ -127,17 +124,17 @@ function latestContract(conversation) {
   return null;
 }
 
-export function resolveFollowUpContext({ question, conversation } = {}) {
+export function resolveFollowUpContext({ question, conversation, currentConcepts = [] } = {}) {
   const contract = latestContract(conversation);
   const empty = { sources: [], entities: [], periods: [], goals: [], requiredConcepts: [] };
   if (!contract) return empty;
 
-  const currentConcepts = questionConcepts(question);
-  const previousConcepts = new Set(contract.concepts);
-  const switched = currentConcepts.length > 0 && !currentConcepts.some((item) => previousConcepts.has(item));
-  if (switched) return { ...empty, requiredConcepts: currentConcepts };
+  const resolvedConcepts = strings(currentConcepts, LIMITS.concepts);
+  const switched = resolvedConcepts.length > 0 && !resolvedConcepts.some((current) =>
+    contract.concepts.some((previous) => conceptsOverlap(current, previous)));
+  if (switched) return { ...empty, requiredConcepts: resolvedConcepts };
 
-  const requiredConcepts = [...new Set([...contract.concepts, ...currentConcepts])];
+  const requiredConcepts = [...new Set([...contract.concepts, ...resolvedConcepts])];
   if (/\b(?:persen|persentase|percentage|used time)\b/i.test(String(question || ""))) {
     requiredConcepts.push("running hours");
   }
