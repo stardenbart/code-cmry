@@ -1,4 +1,4 @@
-// Runs every *.test.mjs in this folder, then reports one combined result.
+// Runs every *.test.mjs in this folder (including new CIA parser coverage), then reports one combined result.
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
