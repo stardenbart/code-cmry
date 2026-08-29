@@ -47,10 +47,16 @@ function dimLabel(item) {
   }
   return String(item ?? "").trim();
 }
-function goalKey(goal) {
+function goalShapeKey(goal) {
   const dims = [...new Set((goal?.dimensions || []).map((d) => dimLabel(d).toLowerCase()))].sort().join("|");
   const period = Number.isInteger(Number(goal?.periodIndex)) ? Number(goal.periodIndex) : 0;
   return `${String(goal?.kpiBindingId ?? "").trim()}::${period}::${dims}`;
+}
+function goalKey(goal) {
+  const filters = (Array.isArray(goal?.filters) ? goal.filters : []).map((filter) =>
+    `${String(filter?.dimension ?? "").trim().toLowerCase()}=${String(filter?.value ?? "").trim().toLowerCase()}`)
+    .filter((value) => value !== "=").sort().join("|");
+  return `${goalShapeKey(goal)}::${filters}`;
 }
 
 function entityFilters(question, binding) {
@@ -228,9 +234,12 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
     } else {
       // 4. Structured planner -> goals (fallback deterministic bila kosong).
       let plan = { goals: [], warnings: [] };
+      const reportFilters = Array.isArray(env.snapshotFallback?.reportFilters)
+        ? env.snapshotFallback.reportFilters : [];
       try {
         plan = await d.planEvidence(
-          { question: env.question, periods, candidateBindings: route.candidates, conversation: env.conversation },
+          { question: env.question, periods, candidateBindings: route.candidates,
+            conversation: env.conversation, reportFilters },
           deps.plannerDeps,
         ) || plan;
       } catch (err) {
@@ -260,7 +269,7 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
         - (Number(bindingIndex.get(String(left.kpiBindingId))?.sourcePriority) || 0));
       let goals = fallbackGoals;
       if (plannedGoals.length) {
-        const plannedKeys = new Set(plannedGoals.map(goalKey));
+        const plannedKeys = new Set(plannedGoals.map(goalShapeKey));
         const bestIds = new Set(fallbackGoals.map((goal) => String(goal.kpiBindingId)));
         const selectedBestIds = new Set(plannedGoals
           .map((goal) => String(goal.kpiBindingId)).filter((id) => bestIds.has(id)));
@@ -268,7 +277,7 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
           ? selectedBestIds
           : new Set(fallbackGoals.length ? [String(fallbackGoals[0].kpiBindingId)] : []);
         const recoveryGoals = fallbackGoals.filter((goal) => recoveryBinding.has(String(goal.kpiBindingId))
-          && !plannedKeys.has(goalKey(goal)));
+          && !plannedKeys.has(goalShapeKey(goal)));
         goals = [...plannedGoals, ...recoveryGoals];
       }
 
@@ -292,7 +301,13 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
           let daxPlan;
           try {
             const schema = await d.getSchema(binding.semanticModel, binding);
-            daxPlan = d.buildDaxPlan({ goal: effectiveGoal, binding, period, schema });
+            const contextFilters = (intentFrame.context?.goals || [])
+              .filter((item) => String(item?.kpiBindingId) === String(goal.kpiBindingId))
+              .flatMap((item) => item?.filters || []);
+            daxPlan = d.buildDaxPlan({
+              question: env.question, goal: effectiveGoal, binding, period, schema,
+              contextFilters, reportFilters,
+            });
           } catch (err) {
             // Typed planning failure (mis. DATE_COLUMN_NOT_ALLOWED / schema
             // unavailable): jangan mengarang, catat & lanjut → fallback transparan.

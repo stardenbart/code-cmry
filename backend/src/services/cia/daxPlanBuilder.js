@@ -1,3 +1,5 @@
+import { buildVisualBlueprint, resolveFilterPolicy } from "./visualBlueprint.js";
+
 export class DaxPlanError extends Error {
   constructor(code, message) {
     super(message);
@@ -90,8 +92,8 @@ function resolveBareColumn(inventory, columnName, errorCode = "DIMENSION_NOT_ALL
   return matches[0];
 }
 
-function bindingDimensions(binding, inventory) {
-  return (Array.isArray(binding.dimensions) ? binding.dimensions : []).flatMap((raw) => {
+function bindingDimensions(blueprint, inventory) {
+  return (Array.isArray(blueprint.dimensions) ? blueprint.dimensions : []).flatMap((raw) => {
     const parsed = parseDimension(raw);
     if (!parsed) return [];
     const resolved = parsed.table
@@ -101,8 +103,8 @@ function bindingDimensions(binding, inventory) {
   });
 }
 
-function selectDimensions(goal, binding, inventory) {
-  const available = bindingDimensions(binding, inventory);
+function selectDimensions(goal, blueprint, inventory) {
+  const available = bindingDimensions(blueprint, inventory);
   const requested = Array.isArray(goal?.dimensions) ? goal.dimensions.map(clean).filter(Boolean) : [];
   if (!requested.length) return [];
   return requested.map((name) => {
@@ -113,9 +115,9 @@ function selectDimensions(goal, binding, inventory) {
   });
 }
 
-function selectFilters(goal, binding, inventory) {
-  const available = bindingDimensions(binding, inventory);
-  return (Array.isArray(goal?.filters) ? goal.filters : []).map((filter) => {
+function selectFilters(filters, blueprint, inventory) {
+  const available = bindingDimensions(blueprint, inventory);
+  return (Array.isArray(filters) ? filters : []).map((filter) => {
     const name = clean(filter?.dimension);
     const found = available.find((item) => [item.humanName, item.column, item.rawName]
       .some((candidate) => key(candidate) === key(name)));
@@ -143,27 +145,40 @@ function rowLimit(value) {
   return Math.max(1, Math.min(Math.floor(requested), configured, 500));
 }
 
-export function buildDaxPlan({ goal = {}, binding = {}, period = {}, schema, rowLimit: requestedRows } = {}) {
+export function buildDaxPlan({
+  question = "", goal = {}, binding = {}, period = {}, schema, rowLimit: requestedRows,
+  explicitFilters = [], contextFilters = [], reportFilters = [],
+} = {}) {
   const inventory = schemaInventory(schema);
+  const blueprint = binding.blueprint || buildVisualBlueprint(binding);
   const semanticModel = clean(binding.semanticModel);
   if (!semanticModel || (clean(schema?.model) && key(schema.model) !== key(semanticModel))) {
     throw new DaxPlanError("MODEL_NOT_ALLOWED", "Semantic model binding tidak cocok dengan schema");
   }
 
-  const measureTable = requireTable(inventory, binding.tableName);
-  const measure = inventory.measures.get(key(binding.measureName));
-  if (!measure) throw new DaxPlanError("MEASURE_NOT_ALLOWED", `Measure ${clean(binding.measureName)} tidak ada di schema`);
+  const selectedMeasure = blueprint.measures?.[0] || {};
+  const measureTable = requireTable(inventory, selectedMeasure.tableName);
+  const measure = inventory.measures.get(key(selectedMeasure.measureName));
+  if (!measure) throw new DaxPlanError("MEASURE_NOT_ALLOWED", `Measure ${clean(selectedMeasure.measureName)} tidak ada di schema`);
 
-  const date = requireColumn(inventory, binding.dateTable, binding.dateColumn, "DATE_COLUMN_NOT_ALLOWED");
+  const date = requireColumn(inventory, blueprint.periodPolicy?.dateTable,
+    blueprint.periodPolicy?.dateColumn, "DATE_COLUMN_NOT_ALLOWED");
   const from = isoParts(period.from);
   const to = isoParts(period.to);
   if (!from || !to || period.from > period.to) {
     throw new DaxPlanError("PERIOD_INVALID", "Periode DAX tidak valid");
   }
 
-  const dimensions = selectDimensions(goal, binding, inventory);
-  const filters = selectFilters(goal, binding, inventory);
-  const humanName = clean(binding.humanName ?? binding.displayCaption) || measure;
+  const dimensions = selectDimensions(goal, blueprint, inventory);
+  const policy = resolveFilterPolicy({
+    question,
+    explicitFilters: [...(Array.isArray(explicitFilters) ? explicitFilters : []),
+      ...(Array.isArray(goal.filters) ? goal.filters : [])],
+    contextFilters,
+    reportFilters,
+  });
+  const filters = selectFilters(policy.filters, blueprint, inventory);
+  const humanName = clean(binding.humanName ?? blueprint.labels?.displayCaption) || measure;
   const measureRef = measureIdentifier(measureTable.table, measure);
   const dateRef = columnIdentifier(date.table, date.column);
   const dimensionRefs = dimensions.map((item) => columnIdentifier(item.table, item.column));
@@ -209,7 +224,7 @@ export function buildDaxPlan({ goal = {}, binding = {}, period = {}, schema, row
       tableName: measureTable.table,
       measureName: measure,
       humanName,
-      displayCaption: clean(binding.displayCaption) || null,
+      displayCaption: clean(blueprint.labels?.displayCaption ?? binding.displayCaption) || null,
       dashboardName: clean(binding.dashboardName) || null,
       definition: clean(binding.definition),
       unit: clean(binding.unit) || null,
@@ -219,6 +234,7 @@ export function buildDaxPlan({ goal = {}, binding = {}, period = {}, schema, row
       `${measureTable.table}[${measure}]`,
       `${date.table}[${date.column}]`,
       ...dimensions.map((item) => `${item.table}[${item.column}]`),
+      ...filters.map((item) => `${item.table}[${item.column}]`),
     ])],
     maxRows,
     purpose: goal.purpose === "correlation" ? "correlation" : "primary",

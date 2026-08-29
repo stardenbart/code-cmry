@@ -123,6 +123,60 @@ try {
       JSON.stringify(routed));
   }
 
+  section("Current-view report dan context filters mencapai planner/builder");
+  {
+    let plannerInput;
+    let builderInput;
+    const deps = baseDeps({
+      buildIntentFrame() {
+        return {
+          concepts: ["overtime"], entities: [], operations: [], sourceConstraints: [],
+          contextSources: [], contextPeriods: [],
+          context: { sources: [], entities: [], periods: [], goals: [{
+            kpiBindingId: "b1", filters: [{ dimension: "Departemen", value: "Produksi" }],
+          }] },
+        };
+      },
+      async planEvidence(input) {
+        plannerInput = input;
+        return { goals: [{ kpiBindingId: "b1", dimensions: ["Departemen"], periodIndex: 0,
+          purpose: "primary", filters: [] }], warnings: [] };
+      },
+      buildDaxPlan(input) {
+        builderInput = input;
+        return { semanticModel: input.binding.semanticModel, dashboardId: input.binding.dashboardId,
+          dashboardName: input.binding.dashboardName, dax: "EVALUATE 1",
+          selectedKpis: [{ bindingId: input.binding.bindingId }], period: input.period, maxRows: 500 };
+      },
+    });
+    await answerWithEvidence(envelope({
+      question: "jelaskan data yang sedang tampil",
+      snapshotFallback: { text: "snapshot", reportFilters: [{ dimension: "Departemen", value: "QA" }] },
+    }), deps);
+    ok("planner menerima report filter terstruktur",
+      plannerInput?.reportFilters?.[0]?.value === "QA", JSON.stringify(plannerInput));
+    ok("builder menerima question, context, dan report filters",
+      builderInput?.question === "jelaskan data yang sedang tampil"
+        && builderInput?.contextFilters?.[0]?.value === "Produksi"
+        && builderInput?.reportFilters?.[0]?.value === "QA",
+      JSON.stringify(builderInput));
+  }
+
+  section("Goal berbeda entity filter tidak dideduplikasi");
+  {
+    const deps = baseDeps({
+      async planEvidence() {
+        return { goals: ["Evergreen", "TetraPak"].map((value) => ({
+          kpiBindingId: "b1", dimensions: ["Departemen"], periodIndex: 0, purpose: "primary",
+          filters: [{ dimension: "Departemen", value }],
+        })), warnings: [] };
+      },
+    });
+    await answerWithEvidence(envelope(), deps);
+    ok("dua entity filter menghasilkan dua query plan", deps.calls.build === 2 && deps.calls.exec === 2,
+      `${deps.calls.build}/${deps.calls.exec}`);
+  }
+
   section("Contract follow-up memengaruhi routing dan planning sebelum preferred source");
   {
     let routed;

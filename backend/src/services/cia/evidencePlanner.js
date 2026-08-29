@@ -1,4 +1,6 @@
 import { tanyaModelTerstruktur } from "../modelRouter.js";
+import { resolveFollowUpContext } from "./evidenceContract.js";
+import { buildVisualBlueprint, resolveFilterPolicy } from "./visualBlueprint.js";
 
 const MAX_GOALS = 6;
 const MAX_DIMENSIONS = 6;
@@ -35,18 +37,43 @@ function allowedBindings(candidateBindings) {
   for (const binding of Array.isArray(candidateBindings) ? candidateBindings : []) {
     const bindingId = cleanText(String(binding?.bindingId ?? ""));
     if (!bindingId) continue;
+    const blueprint = binding.blueprint || buildVisualBlueprint(binding);
     allowed.set(bindingId, {
       ...binding,
       bindingId,
-      dimensions: Array.isArray(binding.dimensions)
-        ? binding.dimensions.map(dimensionName).filter(Boolean)
+      blueprint,
+      dimensions: Array.isArray(blueprint.dimensions)
+        ? blueprint.dimensions.map(dimensionName).filter(Boolean)
         : [],
     });
   }
   return allowed;
 }
 
-function normalizeGoals(value, candidates, periodCount) {
+function filtersForBinding(value, binding) {
+  const dimensionsByKey = new Map();
+  for (const raw of binding.blueprint?.dimensions || []) {
+    const label = dimensionName(raw);
+    if (!label) continue;
+    const aliases = raw && typeof raw === "object" && !Array.isArray(raw)
+      ? [label, raw.column, raw.columnName,
+        raw.table && raw.column ? `${raw.table}[${raw.column}]` : "",
+        raw.table && raw.column ? `${raw.table}.${raw.column}` : ""]
+      : [label, raw];
+    for (const alias of aliases) {
+      const normalized = cleanText(alias).toLowerCase();
+      if (normalized) dimensionsByKey.set(normalized, label);
+    }
+  }
+  return (Array.isArray(value) ? value : []).flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const dimension = dimensionsByKey.get(cleanText(item.dimension ?? item.field ?? item.column).toLowerCase());
+    const filterValue = cleanText(item.value, 160);
+    return dimension && filterValue ? [{ dimension, value: filterValue }] : [];
+  }).slice(0, MAX_DIMENSIONS);
+}
+
+function normalizeGoals(value, candidates, periodCount, input, followUp) {
   const goals = [];
   const seen = new Set();
   for (const item of Array.isArray(value) ? value : []) {
@@ -60,10 +87,25 @@ function normalizeGoals(value, candidates, periodCount) {
       .map((name) => dimensionsByKey.get(cleanText(name).toLowerCase()))
       .filter(Boolean))].slice(0, MAX_DIMENSIONS);
     const purpose = item.purpose === "correlation" ? "correlation" : "primary";
-    const key = `${kpiBindingId}|${periodIndex}|${purpose}|${dimensions.join("|")}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    goals.push({ kpiBindingId, dimensions, periodIndex, purpose });
+    const contextFilters = [
+      ...(Array.isArray(input.contextFilters) ? input.contextFilters : []),
+      ...(followUp.goals || []).filter((goal) => String(goal.kpiBindingId) === kpiBindingId)
+        .flatMap((goal) => goal.filters || []),
+    ];
+    const reportFilters = [
+      ...(Array.isArray(input.reportFilters) ? input.reportFilters : []),
+      ...(Array.isArray(binding.reportFilters) ? binding.reportFilters : []),
+    ];
+    const policy = resolveFilterPolicy({
+      question: input.question,
+      explicitFilters: filtersForBinding(item.filters, binding),
+      contextFilters: filtersForBinding(contextFilters, binding),
+      reportFilters: filtersForBinding(reportFilters, binding),
+    });
+    const goalKey = `${kpiBindingId}|${periodIndex}|${purpose}|${dimensions.join("|")}|${JSON.stringify(policy.filters)}`;
+    if (seen.has(goalKey)) continue;
+    seen.add(goalKey);
+    goals.push({ kpiBindingId, dimensions, periodIndex, purpose, filters: policy.filters });
   }
   return goals;
 }
@@ -92,7 +134,13 @@ function planningPrompt({ question, periods, candidateBindings, conversation }) 
       bindingId: cleanText(String(item.bindingId ?? "")),
       kpi: cleanText(item.humanName),
       dashboardId: cleanText(String(item.dashboardId ?? "")),
-      dimensions: (Array.isArray(item.dimensions) ? item.dimensions : []).slice(0, 20),
+      blueprint: {
+        measures: (Array.isArray(item.blueprint?.measures) ? item.blueprint.measures : []).slice(0, 6),
+        dimensions: (Array.isArray(item.blueprint?.dimensions) ? item.blueprint.dimensions : []).slice(0, 20),
+        role: cleanText(item.blueprint?.role),
+        periodPolicy: item.blueprint?.periodPolicy || null,
+        labels: item.blueprint?.labels || null,
+      },
     })),
     conversation: (Array.isArray(conversation) ? conversation : []).slice(-6).map((turn) => ({
       role: turn?.role === "assistant" ? "assistant" : "user",
@@ -105,12 +153,13 @@ export async function planEvidence(input = {}, injected = {}) {
   const callModel = injected.callModel || tanyaModelTerstruktur;
   const candidates = allowedBindings(input.candidateBindings);
   const periods = Array.isArray(input.periods) && input.periods.length ? input.periods : [{}];
+  const followUp = resolveFollowUpContext({ question: input.question, conversation: input.conversation });
   let response;
   try {
     response = await callModel({
       ...(input.modelOptions || {}),
-      systemInstruction: "Kembalikan JSON saja: {goals:[{kpiBindingId,dimensions,periodIndex,purpose}],followUpSignals:[{concept,reason}]}. Gunakan hanya bindingId dan dimensi dari kandidat.",
-      question: planningPrompt({ ...input, periods }),
+      systemInstruction: "Kembalikan JSON saja: {goals:[{kpiBindingId,dimensions,filters:[{dimension,value}],periodIndex,purpose}],followUpSignals:[{concept,reason}]}. Gunakan hanya bindingId dan dimensi dari blueprint kandidat.",
+      question: planningPrompt({ ...input, periods, candidateBindings: [...candidates.values()] }),
       maxOutputTokens: 1_000,
     });
   } catch (error) {
@@ -128,7 +177,7 @@ export async function planEvidence(input = {}, injected = {}) {
   if (parsed.error) return safeResult(parsed.error, metadata);
 
   return {
-    goals: normalizeGoals(parsed.value.goals, candidates, periods.length),
+    goals: normalizeGoals(parsed.value.goals, candidates, periods.length, input, followUp),
     followUpSignals: normalizeSignals(parsed.value.followUpSignals),
     warnings: [],
     ...metadata,

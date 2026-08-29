@@ -90,6 +90,68 @@ ok("CMD1 menjadi filter nilai kolom allowlisted",
 ok("filter ikut metadata plan", cmdFiltered.selectedFilters?.[0]?.humanName === "CMD / Gedung",
   JSON.stringify(cmdFiltered.selectedFilters));
 
+section("Builder memakai blueprint dan precedence filter");
+const visualBinding = {
+  bindingId: "b-visual", semanticModel: "Cost Model", dashboardId: "dash-dt",
+  tableName: "Quality", measureName: "NC_CMD3", humanName: "Technical downtime",
+  dateTable: "Overtime", dateColumn: "Work Date", dimensions: ["Quality[Category]"],
+  blueprint: {
+    measures: [{ tableName: "Measures", measureName: "OT_HOURS", displayCaption: "Technical downtime" }],
+    dimensions: [
+      { table: "Overtime", column: "Department", humanName: "Mesin" },
+      { table: "Calendar", column: "Month", humanName: "Bulan" },
+    ],
+    role: "ranking",
+    periodPolicy: { dateTable: "Calendar", dateColumn: "Date", dateLogic: "calendar_day" },
+    labels: { visualTitle: "Top Mesin", displayCaption: "Technical downtime" },
+  },
+};
+const juneOutsideSlicer = buildDaxPlan({
+  question: "jelaskan evergreen bulan juni",
+  goal: { kpiBindingId: "b-visual", dimensions: ["Mesin"], filters: [
+    { dimension: "Mesin", value: "Evergreen" },
+  ] },
+  binding: visualBinding,
+  period: { label: "Juni", from: "2026-06-01", to: "2026-06-30", grain: "day" },
+  reportFilters: [{ dimension: "Bulan", value: "August" }],
+  schema,
+});
+ok("builder memakai measure/date/dimensi blueprint",
+  juneOutsideSlicer.dax.includes("'Measures'[OT_HOURS]")
+    && juneOutsideSlicer.dax.includes("'Calendar'[Date]")
+    && juneOutsideSlicer.dax.includes("'Overtime'[Department]"),
+  juneOutsideSlicer.dax);
+ok("June dan Evergreen tidak mewarisi slicer August",
+  juneOutsideSlicer.dax.includes("DATE(2026, 6, 1)")
+    && juneOutsideSlicer.dax.includes('"evergreen"')
+    && !juneOutsideSlicer.dax.includes('"august"'),
+  juneOutsideSlicer.dax);
+
+const currentViewFiltered = buildDaxPlan({
+  question: "jelaskan data yang sedang tampil",
+  goal: { kpiBindingId: "b-visual", dimensions: ["Mesin"] },
+  binding: visualBinding,
+  period,
+  contextFilters: [{ dimension: "Mesin", value: "Evergreen" }],
+  reportFilters: [{ dimension: "Bulan", value: "August" }],
+  schema,
+});
+ok("current-view memakai context dan report filters",
+  currentViewFiltered.selectedFilters.map((item) => item.value).join(",") === "evergreen,august",
+  JSON.stringify(currentViewFiltered.selectedFilters));
+
+const allDataPlan = buildDaxPlan({
+  question: "tampilkan keseluruhan data",
+  goal: { kpiBindingId: "b-visual", dimensions: ["Mesin"] },
+  binding: visualBinding,
+  period,
+  reportFilters: [{ dimension: "Bulan", value: "August" }],
+  schema,
+});
+ok("keseluruhan menolak report filters di builder",
+  allDataPlan.selectedFilters.every((item) => item.value !== "august"),
+  JSON.stringify(allDataPlan.selectedFilters));
+
 section("Golden DAX deviasi CMD 3 dan PO");
 const deviation = plan({
   bindingId: "b-dev", semanticModel: "Cost Model", dashboardId: "dash-dev",

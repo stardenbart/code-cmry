@@ -16,6 +16,7 @@
 import db from "../config/db.js";
 import { KATALOG_KPI } from "./kpiCatalog.js";
 import { buildIntentFrame } from "./cia/intentFrame.js";
+import { buildVisualBlueprint } from "./cia/visualBlueprint.js";
 
 const pool = db.promise();
 
@@ -198,12 +199,14 @@ function aclAllows(binding, allowedSet) {
 // id DB (identitas stabil); bindingKey = binding_key. dateTable/dateColumn/
 // dateLogic wajib ada agar builder bisa membangun filter periode.
 function mapBindingRow(b) {
-  return {
+  const binding = {
     bindingId: b.id,
     bindingKey: b.binding_key,
     dashboardId: b.dashboard_id,
     dashboardName: b.dashboard_name,
     reportId: b.report_id,
+    pageName: b.page_name,
+    visualTitle: b.visual_title,
     semanticModel: b.semantic_model,
     tableName: b.table_name,
     measureName: b.measure_name,
@@ -214,6 +217,7 @@ function mapBindingRow(b) {
     dateLogic: b.date_logic,
     verificationStatus: b.verification_status,
   };
+  return { ...binding, blueprint: buildVisualBlueprint(binding) };
 }
 
 async function loadLibraryCandidates(allowedDashboardIds) {
@@ -225,6 +229,7 @@ async function loadLibraryCandidates(allowedDashboardIds) {
 
   const [bindings] = await pool.query(
     `SELECT b.id, b.binding_key, b.kpi_id, b.dashboard_id, b.report_id,
+            b.page_name, b.visual_title,
             b.semantic_model, b.table_name, b.measure_name, b.display_caption,
             b.dimensions_json, b.date_table, b.date_column, b.date_logic,
             b.verification_status, d.title AS dashboard_name
@@ -345,6 +350,7 @@ export async function getBindingsForKpis(kpiIds, allowedDashboardIds = null) {
   if (!ids.length) return [];
   const [rows] = await pool.query(
     `SELECT b.id, b.binding_key, b.kpi_id, b.dashboard_id, b.report_id,
+            b.page_name, b.visual_title,
             b.semantic_model, b.table_name, b.measure_name, b.display_caption,
             b.dimensions_json, b.date_table, b.date_column, b.date_logic,
             b.verification_status, d.title AS dashboard_name,

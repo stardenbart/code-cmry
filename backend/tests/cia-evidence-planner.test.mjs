@@ -70,6 +70,93 @@ const objectDimension = await planEvidence({ question: "lembur per departemen", 
 ok("planner menerima dimension object", objectDimension.goals[0]?.dimensions[0] === "Departemen",
   JSON.stringify(objectDimension));
 
+section("Planner memakai blueprint dan filter policy");
+const blueprintBinding = {
+  bindingId: "b-blueprint", humanName: "Technical downtime", dashboardId: "dash-dt",
+  dimensions: ["Rahasia"],
+  blueprint: {
+    measures: [{ tableName: "Measures", measureName: "TECHNICAL_DT" }],
+    dimensions: [
+      { table: "Machine", column: "Machine Name", humanName: "Mesin" },
+      { table: "Calendar", column: "Month", humanName: "Bulan" },
+    ],
+    role: "ranking",
+    periodPolicy: { dateTable: "Calendar", dateColumn: "Date", dateLogic: "calendar_day" },
+    labels: { visualTitle: "Top Mesin", displayCaption: "Technical Downtime" },
+  },
+};
+const blueprintPlanned = await planEvidence({
+  question: "jelaskan evergreen bulan juni",
+  periods,
+  candidateBindings: [blueprintBinding],
+  reportFilters: [{ dimension: "Bulan", value: "August" }],
+}, { callModel: callReturning(JSON.stringify({
+  goals: [{
+    kpiBindingId: "b-blueprint", dimensions: ["Mesin", "Rahasia"], periodIndex: 0,
+    purpose: "primary", filters: [{ dimension: "Mesin", value: "Evergreen" }],
+  }],
+  followUpSignals: [],
+})) });
+ok("dimensi planner hanya berasal dari blueprint",
+  JSON.stringify(blueprintPlanned.goals[0]?.dimensions) === JSON.stringify(["Mesin"]),
+  JSON.stringify(blueprintPlanned.goals));
+ok("planner mempertahankan filter pertanyaan dan membuang report slicer",
+  JSON.stringify(blueprintPlanned.goals[0]?.filters) === JSON.stringify([
+    { dimension: "Mesin", value: "Evergreen" },
+  ]), JSON.stringify(blueprintPlanned.goals[0]));
+
+let normalizedPrompt;
+await planEvidence({
+  question: "technical downtime per mesin",
+  periods,
+  candidateBindings: [{
+    bindingId: "b-raw", humanName: "Technical downtime", tableName: "Measures",
+    measureName: "TECHNICAL_DT", displayCaption: "Technical Downtime",
+    dimensions: [{ table: "Machine", column: "Machine Name", humanName: "Mesin" }],
+    dateTable: "Calendar", dateColumn: "Date", dateLogic: "calendar_day",
+  }],
+}, { callModel: async (args) => {
+  normalizedPrompt = JSON.parse(args.question);
+  return callReturning(JSON.stringify({ goals: [], followUpSignals: [] }))();
+} });
+ok("prompt model menerima blueprint yang dibangun planner",
+  normalizedPrompt?.candidates?.[0]?.blueprint?.measures?.[0]?.measureName === "TECHNICAL_DT"
+    && normalizedPrompt?.candidates?.[0]?.blueprint?.dimensions?.[0]?.humanName === "Mesin",
+  JSON.stringify(normalizedPrompt?.candidates?.[0]));
+
+const currentViewPlanned = await planEvidence({
+  question: "jelaskan data yang sedang tampil",
+  periods,
+  candidateBindings: [blueprintBinding],
+  reportFilters: [{ dimension: "Month", value: "August" }],
+}, { callModel: callReturning(JSON.stringify({
+  goals: [{ kpiBindingId: "b-blueprint", dimensions: ["Mesin"], periodIndex: 0, purpose: "primary" }],
+  followUpSignals: [],
+})) });
+ok("nama kolom report dinormalisasi ke label blueprint",
+  JSON.stringify(currentViewPlanned.goals[0]?.filters) === JSON.stringify([
+    { dimension: "Bulan", value: "August" },
+  ]), JSON.stringify(currentViewPlanned.goals[0]));
+
+const contextPlanned = await planEvidence({
+  question: "bagaimana masalahnya",
+  periods,
+  candidateBindings: [blueprintBinding],
+  conversation: [{ role: "assistant", text: "Evergreen tertinggi", evidenceContract: {
+    concepts: ["technical downtime"],
+    goals: [{
+      kpiBindingId: "b-blueprint", dimensions: ["Mesin"], periodIndex: 0,
+      filters: [{ dimension: "Mesin", value: "Evergreen" }],
+    }],
+  } }],
+}, { callModel: callReturning(JSON.stringify({
+  goals: [{ kpiBindingId: "b-blueprint", dimensions: ["Mesin"], periodIndex: 0, purpose: "primary" }],
+  followUpSignals: [],
+})) });
+ok("planner memakai filter context dari evidence contract tanpa parse taxonomy baru",
+  contextPlanned.goals[0]?.filters?.[0]?.value === "Evergreen",
+  JSON.stringify(contextPlanned.goals[0]));
+
 section("Goal dan dimensi dibatasi");
 const capped = await planEvidence({ question: "q", periods, candidateBindings: bindings }, {
   callModel: callReturning(JSON.stringify({

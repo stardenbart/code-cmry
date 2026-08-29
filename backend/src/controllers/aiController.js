@@ -50,6 +50,7 @@ import * as rateLimit from "../services/rateLimiter.js";
 import { getSanitizer, SANITIZER_CONFIG } from "../services/aiSanitizer.js";
 import { ciaOrchestratorWebEnabled } from "../config/featureFlags.js";
 import { runWebEvidence } from "../services/cia/webEvidenceAdapter.js";
+import { extractReportFilters } from "../services/cia/visualBlueprint.js";
 
 const sql = db.promise();
 
@@ -210,6 +211,7 @@ async function tryDashboardEvidence(req, user, dashboard, snapshot) {
     ? {
         text: buildDataContext(sanitizedSnapshot, dashboard, TIER_CHAR_BUDGET.cepat),
         period: sanitizedSnapshot.period || null,
+        reportFilters: extractReportFilters(sanitizedSnapshot),
         dashboards: [{ id: dashboard.id, name: dashboard.title }],
       }
     : null;

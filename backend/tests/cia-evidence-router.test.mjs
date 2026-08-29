@@ -6,7 +6,13 @@ const overtime = {
   kpiId: 1, slug: "overtime", humanName: "Jam lembur", score: 40,
   bindings: [{ bindingId: "b-ot", dashboardId: "dash-ot", dashboardName: "Lembur",
     semanticModel: "Cost", tableName: "Measure", measureName: "OT_HOURS",
-    dimensions: ["Tanggal", "Departemen", "Alasan", "Kategori"] }],
+    dimensions: ["Tanggal", "Departemen", "Alasan", "Kategori"],
+    blueprint: {
+      measures: [{ tableName: "Measure", measureName: "OT_HOURS" }],
+      dimensions: ["Tanggal", "Departemen", "Alasan", "Kategori"], role: "breakdown",
+      periodPolicy: { dateTable: "Calendar", dateColumn: "Date" },
+      labels: { pageName: "Lembur", visualTitle: "Lembur per Departemen" },
+    } }],
 };
 const deviation = {
   kpiId: 2, slug: "deviation_cmd3", humanName: "Deviasi CMD 3", score: 38,
@@ -80,6 +86,9 @@ ok("route telemetry menyimpan concept IDs/count tanpa prompt mentah",
     && anchorRouteEvent?.data?.metadata?.concepts?.includes("overtime")
     && !JSON.stringify(anchorRouteEvent).includes("lembur tertinggi"),
   JSON.stringify(anchorRouteEvent));
+ok("router mempertahankan blueprint visual untuk planner dan builder",
+  anchoredRoute.candidates[0]?.blueprint?.labels?.visualTitle === "Lembur per Departemen",
+  JSON.stringify(anchoredRoute.candidates[0]));
 
 section("Report aktif didahulukan di antara kandidat dengan anchor sama");
 const activeReport = await routeEvidence({
