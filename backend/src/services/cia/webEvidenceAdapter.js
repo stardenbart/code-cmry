@@ -19,6 +19,7 @@ function dashboardPayload(answer) {
     period: answer.sources?.find((source) => source.period)?.period ?? null,
     sources: answer.sources || [],
     warnings: answer.warnings || [],
+    evidenceContract: answer.evidenceContract || null,
     meta: {
       confidence: answer.confidence,
       retrievalMethod: answer.retrievalMethod,
@@ -56,6 +57,7 @@ function multiChatPayload(answer) {
     rounds: answer.rounds,
     tokens: answer.usage,
     requestId: answer.requestId,
+    evidenceContract: answer.evidenceContract || null,
   };
 }
 

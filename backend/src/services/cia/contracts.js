@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { normalizeEvidenceContract } from "./evidenceContract.js";
 
 export const CIA_SURFACES = Object.freeze(["dashboard", "multi_chat", "whatsapp", "schedule"]);
 export const CIA_RETRIEVAL_METHODS = Object.freeze(["live_dax", "mixed", "snapshot", "none"]);
@@ -41,7 +42,12 @@ function normalizeConversation(value) {
   return (Array.isArray(value) ? value : []).slice(-12).flatMap((turn) => {
     if (!turn || typeof turn !== "object") return [];
     const text = cleanString(turn.text).slice(0, 1_000);
-    return text ? [{ role: turn.role === "assistant" ? "assistant" : "user", text }] : [];
+    if (!text) return [];
+    const role = turn.role === "assistant" ? "assistant" : "user";
+    const evidenceContract = role === "assistant"
+      ? normalizeEvidenceContract(turn.evidenceContract ?? turn.evidence_contract)
+      : null;
+    return [{ role, text, ...(evidenceContract ? { evidenceContract } : {}) }];
   });
 }
 
@@ -98,6 +104,7 @@ export function normalizeAnswer(value = {}) {
       ? input.retrievalMethod
       : "none",
     sources,
+    evidenceContract: normalizeEvidenceContract(input.evidenceContract),
     warnings: uniqueStrings(input.warnings),
     usage: {
       inputTokens,

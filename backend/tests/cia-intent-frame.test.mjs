@@ -44,6 +44,28 @@ const followUp = buildIntentFrame({
 });
 ok("follow-up diklasifikasikan sebagai refinement", followUp.continuity === "refinement", followUp.continuity);
 
+const evidenceFollowUp = buildIntentFrame({
+  question: "berapa persentasenya terhadap used time?",
+  conversation: [{
+    role: "assistant", text: "Downtime Evergreen 42 menit.", evidenceContract: {
+      concepts: ["downtime"],
+      entities: [{ type: "machine", value: "evergreen" }],
+      periods: [{ label: "Juni", from: "2026-06-01", to: "2026-06-30", grain: "day" }],
+      sources: [{ dashboardId: "44", dashboardName: "Maintenance" }],
+      goals: [],
+    },
+  }],
+});
+ok("contract mengisi context source nyata untuk priority 200",
+  evidenceFollowUp.contextSources?.[0]?.dashboardId === "44"
+    && evidenceFollowUp.context?.sources?.[0]?.dashboardId === "44",
+  JSON.stringify(evidenceFollowUp));
+ok("entity, periode, dan denominator diwarisi sebelum routing",
+  evidenceFollowUp.entities.some((item) => item.value === "evergreen")
+    && evidenceFollowUp.contextPeriods?.[0]?.from === "2026-06-01"
+    && hasValues(evidenceFollowUp.concepts, ["downtime", "running hours"]),
+  JSON.stringify(evidenceFollowUp));
+
 section("Corpus hybrid 27 pertanyaan tetap dapat diparse");
 ok("corpus menyimpan 27 pertanyaan persis", CIA_HYBRID_REGRESSION_CASES.length === 27
   && CIA_HYBRID_REGRESSION_CASES.filter((item) => item.question.includes("@CODE AI")).length === 0);

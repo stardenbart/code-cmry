@@ -1,4 +1,5 @@
 import fs from "fs";
+import { pathToFileURL } from "url";
 import { ok, section, summary } from "./harness.mjs";
 import { runWebEvidence } from "../src/services/cia/webEvidenceAdapter.js";
 
@@ -79,6 +80,10 @@ section("Multi-Chat mendapat kontrak lama plus metadata evidence");
       answer: "PO dan lembur berkorelasi.", requestId: "req-web-1",
       confidence: "medium", retrievalMethod: "live_dax", rounds: 2,
       warnings: ["CORRELATION_ONLY"], usage: { inputTokens: 5, outputTokens: 6, totalTokens: 11 },
+      evidenceContract: {
+        concepts: ["overtime", "purchase order"], entities: [], periods: [],
+        sources: [{ dashboardId: "20" }, { dashboardId: "30" }], goals: [],
+      },
       sources: [
         { dashboardId: "20", dashboardName: "Lembur", period: "2026-07", kpis: ["Jam lembur"], rowCount: 5 },
         { dashboardId: "30", dashboardName: "PPIC", period: "2026-07", kpis: ["PO"], rowCount: 3 },
@@ -89,6 +94,8 @@ section("Multi-Chat mendapat kontrak lama plus metadata evidence");
   ok("conversation contract tetap disiapkan controller", result.answer === "PO dan lembur berkorelasi.");
   ok("metadata evidence tersedia", result.retrieval_method === "live_dax"
     && result.confidence === "medium" && result.warnings[0] === "CORRELATION_ONLY");
+  ok("evidence contract diteruskan untuk disimpan controller",
+    result.evidenceContract?.sources?.[0]?.dashboardId === "20", JSON.stringify(result.evidenceContract));
 }
 
 section("Multi-Chat membatasi kartu sumber duplikat");
@@ -121,4 +128,6 @@ section("Controller memasang adapter sebelum syarat snapshot legacy");
     `${adapter} < ${legacySnapshot}`);
 }
 
-process.exit(summary() ? 0 : 1);
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  process.exit(summary() ? 0 : 1);
+}

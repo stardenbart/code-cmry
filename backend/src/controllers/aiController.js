@@ -1516,7 +1516,7 @@ export const AiController = {
           conversationId,
           conversation: priorTurns.flatMap((turn) => [
             { role: "user", text: turn.question },
-            { role: "assistant", text: turn.answer },
+            { role: "assistant", text: turn.answer, evidenceContract: turn.evidence_contract },
           ]),
           preferredDashboardIds: [
             ...(Array.isArray(req.body.preferredDashboardIds) ? req.body.preferredDashboardIds : []),
@@ -1545,6 +1545,7 @@ export const AiController = {
           usage: evidenceResponse.tokens,
           requestId: evidenceResponse.requestId,
           rounds: evidenceResponse.rounds,
+          evidenceContract: evidenceResponse.evidenceContract,
         });
         await pangkasSampaiMuat(userId);
         req.ciaTelemetrySettled = true;

@@ -44,6 +44,26 @@ const internal = normalizeEnvelope({
 ok("centralized hanya dipertahankan untuk internal WA/schedule",
   internal.accessMode === "centralized", internal.accessMode);
 
+const evidenceContract = {
+  concepts: ["downtime"], entities: [{ type: "machine", value: "evergreen" }],
+  periods: [{ label: "Juni", from: "2026-06-01", to: "2026-06-30", grain: "day" }],
+  sources: [{ dashboardId: "44", dashboardName: "Maintenance" }], goals: [],
+};
+const followUpEnvelope = normalizeEnvelope({
+  question: "berapa persentasenya?",
+  conversation: [
+    { role: "user", text: "downtime evergreen bulan juni" },
+    { role: "assistant", text: "42 menit", evidenceContract },
+  ],
+});
+ok("conversation lama tetap menjadi history teks normal",
+  followUpEnvelope.conversation[0]?.text === "downtime evergreen bulan juni"
+    && !Object.hasOwn(followUpEnvelope.conversation[0], "evidenceContract"),
+  JSON.stringify(followUpEnvelope.conversation));
+ok("contract assistant ikut dinormalisasi tanpa raw metadata lain",
+  followUpEnvelope.conversation[1]?.evidenceContract?.sources?.[0]?.dashboardId === "44",
+  JSON.stringify(followUpEnvelope.conversation));
+
 section("Answer envelope selalu lengkap dan memakai default aman");
 const answer = normalizeAnswer({
   answer: 42,
@@ -72,7 +92,7 @@ ok("rounds negatif menjadi nol", answer.rounds === 0, String(answer.rounds));
 const defaults = normalizeAnswer();
 ok("default memiliki seluruh contract field",
   Object.keys(defaults).sort().join(",")
-    === "answer,confidence,requestId,retrievalMethod,rounds,sources,usage,warnings");
+    === "answer,confidence,evidenceContract,requestId,retrievalMethod,rounds,sources,usage,warnings");
 ok("default arrays/usage aman",
   defaults.sources.length === 0 && defaults.warnings.length === 0
     && defaults.usage.inputTokens === 0 && defaults.usage.outputTokens === 0

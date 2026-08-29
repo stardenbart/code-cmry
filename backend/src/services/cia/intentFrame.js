@@ -1,3 +1,5 @@
+import { resolveFollowUpContext } from "./evidenceContract.js";
+
 const DEFAULT_VOCABULARY = Object.freeze({
   concepts: [
     { value: "routine downtime", phrases: ["routine downtime"] },
@@ -135,17 +137,38 @@ function uniqueIds(value) {
   return unique((Array.isArray(value) ? value : []).map((item) => String(item ?? "").trim()));
 }
 
+function uniqueEntities(values) {
+  const seen = new Set();
+  return values.filter((item) => {
+    const key = `${item?.type}:${item?.value}`;
+    if (!item?.type || !item?.value || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function buildIntentFrame(input = {}, injected = {}) {
   const question = normalize(input.question);
   const vocabulary = injected.vocabulary || DEFAULT_VOCABULARY;
+  const currentConcepts = matchConcepts(question, vocabulary);
+  const currentEntities = extractEntities(question);
+  const context = resolveFollowUpContext({ question, conversation: input.conversation });
   return {
     question,
-    concepts: matchConcepts(question, vocabulary),
-    entities: extractEntities(question),
+    concepts: unique([...currentConcepts, ...context.requiredConcepts]),
+    entities: uniqueEntities([...currentEntities, ...context.entities]),
     operations: matchOperations(question),
     sourceConstraints: extractSourceConstraints(question),
     continuity: classifyContinuity(question, input.conversation),
     preferredDashboardIds: uniqueIds(input.preferredDashboardIds),
     periodKinds: periodKinds(question),
+    contextSources: context.sources,
+    contextPeriods: context.periods,
+    context: {
+      sources: context.sources,
+      entities: context.entities,
+      periods: context.periods,
+      goals: context.goals,
+    },
   };
 }

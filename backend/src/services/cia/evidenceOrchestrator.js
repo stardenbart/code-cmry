@@ -19,6 +19,7 @@ import { startCiaTelemetry, safeError } from "../ciaTelemetry.service.js";
 import { resolveEvidenceScope } from "./accessScope.js";
 import { resolvePeriods } from "./periodResolver.js";
 import { buildIntentFrame } from "./intentFrame.js";
+import { createEvidenceContract } from "./evidenceContract.js";
 import { routeEvidence } from "./evidenceRouter.js";
 import { planEvidence } from "./evidencePlanner.js";
 import { buildDaxPlan } from "./daxPlanBuilder.js";
@@ -190,9 +191,17 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
       conversation: env.conversation,
       preferredDashboardIds: scope.preferredDashboardIds,
     }, deps.intentFrameDeps);
+    const allowedDashboards = new Set((scope.allowedDashboardIds || []).map(String));
+    const contextSources = (intentFrame.contextSources || intentFrame.context?.sources || [])
+      .filter((source) => source?.dashboardId != null && allowedDashboards.has(String(source.dashboardId)));
+    intentFrame.contextSources = contextSources;
+    intentFrame.context = { ...(intentFrame.context || {}), sources: contextSources };
 
     // 3. Periode dari pertanyaan (bukan filter report).
-    const periods = d.resolvePeriods(env.question, d.now(), d.timezone);
+    const inheritedPeriods = Array.isArray(intentFrame.contextPeriods) ? intentFrame.contextPeriods : [];
+    const periods = !intentFrame.periodKinds?.length && inheritedPeriods.length
+      ? inheritedPeriods
+      : d.resolvePeriods(env.question, d.now(), d.timezone);
     for (const p of periods) if (Array.isArray(p.warnings)) warnings.push(...p.warnings);
 
     // 4. Router deterministic (planner AI opsional; tidak boleh membuang kandidat).
@@ -204,6 +213,7 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
 
     const bindingIndex = new Map((route.candidates || []).map((c) => [String(c.bindingId), c]));
     const evidence = [];
+    const executedGoals = [];
     const seenGoals = new Set();
 
     if (route.status !== "ready" || !route.candidates?.length) {
@@ -277,6 +287,7 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
             ...(Array.isArray(goal.filters) ? goal.filters : []),
             ...entityFilters(env.question, binding),
           ] };
+          executedGoals.push(effectiveGoal);
 
           let daxPlan;
           try {
@@ -344,6 +355,9 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
       answer: synth.answer, requestId: env.requestId, confidence: synth.confidence,
       retrievalMethod: synth.retrievalMethod, sources: synth.sources,
       warnings, usage, rounds,
+      evidenceContract: createEvidenceContract({
+        intentFrame, periods, goals: executedGoals, evidence, sources: synth.sources,
+      }),
     });
     return await settle(answer, statusFor(answer));
   } catch (err) {

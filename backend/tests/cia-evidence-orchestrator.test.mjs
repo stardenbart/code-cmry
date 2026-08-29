@@ -123,6 +123,47 @@ try {
       JSON.stringify(routed));
   }
 
+  section("Contract follow-up memengaruhi routing dan planning sebelum preferred source");
+  {
+    let routed;
+    let resolvedPeriods = 0;
+    const deps = baseDeps({
+      async resolveEvidenceScope() {
+        return { allowedDashboardIds: ["44", "52"], preferredDashboardIds: ["52"],
+          deniedPreferredDashboardIds: [], mode: "user_acl", denied: false, errorCode: null };
+      },
+      resolvePeriods() {
+        resolvedPeriods += 1;
+        return [{ label: "Default", from: "2026-08-01", to: "2026-08-29", grain: "day" }];
+      },
+      async routeEvidence(input) {
+        routed = input;
+        return { status: "ready", candidates: [candidate("b1", "44")], periods: input.periods, warnings: [] };
+      },
+    });
+    const answer = await answerWithEvidence(envelope({
+      question: "berapa persentasenya terhadap used time?",
+      preferredDashboardIds: ["52"],
+      conversation: [{ role: "assistant", text: "Downtime Evergreen 42 menit.", evidenceContract: {
+        concepts: ["downtime"],
+        entities: [{ type: "machine", value: "evergreen" }],
+        periods: [{ label: "Juni", from: "2026-06-01", to: "2026-06-30", grain: "day" }],
+        sources: [{ dashboardId: "44", dashboardName: "Maintenance" }],
+        goals: [],
+      } }],
+    }), deps);
+    ok("router menerima context source nyata, bukan preferred dashboard palsu",
+      routed?.intentFrame?.contextSources?.[0]?.dashboardId === "44"
+        && routed?.scope?.preferredDashboardIds?.includes("52"), JSON.stringify(routed));
+    ok("planner memakai periode contract bila follow-up tidak menyebut periode",
+      resolvedPeriods === 0 && routed?.periods?.[0]?.from === "2026-06-01", JSON.stringify(routed?.periods));
+    ok("jawaban membawa contract baru tanpa row mentah atau DAX",
+      answer.evidenceContract?.sources?.[0]?.dashboardId === "44"
+        && !JSON.stringify(answer.evidenceContract).includes("rows")
+        && !JSON.stringify(answer.evidenceContract).includes("EVALUATE"),
+      JSON.stringify(answer.evidenceContract));
+  }
+
   section("Fallback deterministic menghormati source priority sebelum score");
   {
     let executedDashboard;
