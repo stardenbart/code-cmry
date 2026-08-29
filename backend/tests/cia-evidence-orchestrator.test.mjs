@@ -89,6 +89,63 @@ try {
     ok("ada source", a.sources.length >= 1);
   }
 
+  section("Intent dibangun sebelum periode dan diteruskan bersama preferred source");
+  {
+    const order = [];
+    let routed;
+    const deps = baseDeps({
+      async resolveEvidenceScope() {
+        return { allowedDashboardIds: ["44", "65"], preferredDashboardIds: ["44"],
+          deniedPreferredDashboardIds: [], mode: "user_acl", denied: false, errorCode: null };
+      },
+      buildIntentFrame(input) {
+        order.push("intent");
+        return { question: input.question.toLowerCase(), concepts: ["downtime"], entities: [], operations: [],
+          sourceConstraints: [], continuity: "new_topic", preferredDashboardIds: ["44"], periodKinds: ["named_month"] };
+      },
+      resolvePeriods() {
+        order.push("period");
+        return [{ label: "Juni", from: "2026-06-01", to: "2026-06-30" }];
+      },
+      async routeEvidence(input) {
+        routed = input;
+        return { status: "ready", candidates: [candidate("b1", "44")], periods: input.periods, warnings: [] };
+      },
+    });
+    await answerWithEvidence(envelope({
+      question: "masalah Evergreen bulan Juni", preferredDashboardIds: ["44"],
+    }), deps);
+    ok("intent dibangun sebelum periode", JSON.stringify(order.slice(0, 2)) === JSON.stringify(["intent", "period"]),
+      JSON.stringify(order));
+    ok("router menerima intent frame dan preferred source hasil scope",
+      routed?.intentFrame?.concepts?.includes("downtime")
+        && JSON.stringify(routed?.scope?.preferredDashboardIds) === JSON.stringify(["44"]),
+      JSON.stringify(routed));
+  }
+
+  section("Fallback deterministic menghormati source priority sebelum score");
+  {
+    let executedDashboard;
+    const deps = baseDeps({
+      async routeEvidence() {
+        return { status: "ready", candidates: [
+          candidate("b-maint", "44", { score: 50, sourcePriority: 100 }),
+          candidate("b-ors", "65", { score: 90, sourcePriority: 0 }),
+        ], periods: [], warnings: [] };
+      },
+      async planEvidence() { return { goals: [], warnings: [] }; },
+      async executeEvidencePlan(plan) {
+        executedDashboard = plan.dashboardId;
+        return { status: "success", errorCode: null, attempts: 1, rows: [{ value: 1 }], columns: [],
+          rowCount: 1, durationMs: 1, period: plan.period,
+          source: { dashboardId: plan.dashboardId, dashboardName: plan.dashboardName } };
+      },
+    });
+    await answerWithEvidence(envelope({ question: "masalah evergreen bulan juni" }), deps);
+    ok("preferred source dieksekusi meski kandidat ACL lain punya score lebih tinggi",
+      executedDashboard === "44", String(executedDashboard));
+  }
+
   section("Korelasi lintas dua dashboard (dua ronde)");
   {
     let round = 0;

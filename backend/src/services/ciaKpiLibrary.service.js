@@ -15,6 +15,7 @@
 // dashboard sehingga tetap boleh. Bila null, tidak ada filter (mode centralized).
 import db from "../config/db.js";
 import { KATALOG_KPI } from "./kpiCatalog.js";
+import { buildIntentFrame } from "./cia/intentFrame.js";
 
 const pool = db.promise();
 
@@ -25,13 +26,19 @@ const WEIGHTS = {
   answerableQuestionTerm: 6,
   dashboardOrDomain: 4,
   dimension: 3,
-  genericTerm: 0.5,
+  genericTerm: 0,
 };
 
 // Kata generik/analitik + stopword: hadir di hampir semua pertanyaan sehingga
 // tidak boleh menentukan sumber.
 const GENERIC = new Set([
   "breakdown", "issue", "issues", "detail", "rincian", "analisa", "analisis",
+  "top", "tertinggi", "terendah", "tinggi", "rendah", "paling", "banyak",
+  "ranking", "bandingkan", "dibandingkan", "dibanding", "perbandingan", "versus", "vs",
+  "berapa", "persen", "persentase", "achievement", "achivement", "totalnya",
+  "rekap", "snapshot", "pecahan", "kategorinya", "kategori", "pemicu", "penyebab", "kendala",
+  "januari", "februari", "maret", "april", "mei", "juni", "juli", "agustus",
+  "september", "oktober", "november", "desember", "bulan", "minggu", "week", "hari", "tanggal",
   "jelaskan", "penjelasan", "mengenai", "perihal", "berikan", "tolong", "kenapa",
   "mengapa", "apa", "apakah", "bagaimana", "harian", "bulanan", "mingguan",
   "per", "dan", "yang", "di", "ke", "dari", "untuk", "pada", "atau", "itu",
@@ -65,6 +72,9 @@ function withBigrams(text) {
   return out;
 }
 function termSet(text) { return withBigrams(text); }
+function isGenericTerm(term) {
+  return String(term).split(" ").some((part) => GENERIC.has(part));
+}
 
 // dimensions_json bisa berupa string ("Departemen"), qualified string
 // ("Tbl[Kol]"), atau object {table,column,humanName}. Ambil teks untuk scoring.
@@ -92,7 +102,7 @@ function scoreCandidate(candidate, questionTerms) {
   const b = buildBuckets(candidate);
   let score = 0;
   for (const t of questionTerms) {
-    if (GENERIC.has(t)) {
+    if (isGenericTerm(t)) {
       const anywhere = b.humanNameTerms.has(t) || b.synonymTerms.has(t) ||
         b.aqTerms.has(t) || b.domainDashTerms.has(t) || b.dimTerms.has(t);
       if (anywhere) score += WEIGHTS.genericTerm;
@@ -108,6 +118,69 @@ function scoreCandidate(candidate, questionTerms) {
     score += w;
   }
   return score;
+}
+
+function candidateBusinessText(candidate) {
+  return [
+    candidate.humanName,
+    ...(candidate.synonyms || []),
+    ...(candidate.answerableQuestions || []),
+    candidate.domain,
+    ...(candidate.bindings || []).flatMap((binding) => [
+      binding.measureName, binding.displayCaption,
+    ]),
+  ].filter(Boolean).join(" ");
+}
+
+function anchorMatches(candidate, intentFrame) {
+  const wanted = new Set((intentFrame?.concepts || []).map((value) => String(value).trim().toLowerCase()).filter(Boolean));
+  if (!wanted.size) return [];
+  const candidateText = candidateBusinessText(candidate);
+  const parsed = buildIntentFrame({ question: candidateText }).concepts;
+  const matches = parsed.filter((concept) => wanted.has(concept));
+  const candidateTerms = termSet(candidateText);
+  for (const concept of wanted) {
+    const conceptTerms = unigrams(concept).filter((term) => !isGenericTerm(term));
+    if (!matches.includes(concept) && conceptTerms.some((term) => candidateTerms.has(term))) matches.push(concept);
+  }
+  return matches;
+}
+
+function normalized(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function sourceLabelMatches(needle, values) {
+  const wanted = normalized(needle);
+  return wanted && values.some((value) => {
+    const actual = normalized(value);
+    if (!actual) return false;
+    if (/^\d+$/.test(actual) && /^\d+$/.test(wanted)) return actual === wanted;
+    return actual === wanted || actual.includes(wanted) || wanted.includes(actual);
+  });
+}
+
+function sourcePriority(binding, intentFrame, preferredDashboardIds) {
+  const explicitSource = (intentFrame?.sourceConstraints || []).some((constraint) => {
+    const values = constraint?.type === "dashboard"
+      ? [binding.dashboardId, binding.dashboardName]
+      : [binding.reportId, binding.dashboardName, binding.semanticModel];
+    return sourceLabelMatches(constraint?.value, values);
+  });
+  const preferred = new Set((preferredDashboardIds || []).map((id) => String(id)));
+  const contextSources = intentFrame?.contextSources || intentFrame?.context?.sources || [];
+  const contextSource = contextSources.some((source) => {
+    if (!source || typeof source !== "object") {
+      return sourceLabelMatches(source, [binding.bindingId, binding.dashboardId, binding.reportId]);
+    }
+    return sourceLabelMatches(source.bindingId, [binding.bindingId])
+      || sourceLabelMatches(source.dashboardId, [binding.dashboardId])
+      || sourceLabelMatches(source.reportId, [binding.reportId])
+      || sourceLabelMatches(source.semanticModel, [binding.semanticModel]);
+  }) || (intentFrame?.continuity && intentFrame.continuity !== "new_topic"
+    && binding.dashboardId != null && preferred.has(String(binding.dashboardId)));
+  const preferredDashboard = binding.dashboardId != null && preferred.has(String(binding.dashboardId));
+  return explicitSource ? 300 : contextSource ? 200 : preferredDashboard ? 100 : 0;
 }
 
 // ── Loader library ──────────────────────────────────────────────────────────
@@ -231,14 +304,31 @@ async function resolveCandidatePool(allowedDashboardIds) {
 }
 
 // ── API publik ──────────────────────────────────────────────────────────────
-export async function searchKpiCandidates({ question, allowedDashboardIds = null, limit = 10 } = {}) {
+export async function searchKpiCandidates({
+  question, intentFrame = {}, allowedDashboardIds = null, preferredDashboardIds = [], limit = 10,
+} = {}) {
   const questionTerms = [...termSet(question)];
   const { pool: candidatePool } = await resolveCandidatePool(allowedDashboardIds);
+  const concepts = Array.isArray(intentFrame.concepts) ? intentFrame.concepts.map(normalized).filter(Boolean) : [];
 
   const scored = candidatePool
-    .map((c) => ({ ...c, score: scoreCandidate(c, questionTerms) }))
-    .filter((c) => c.score > 0)
-    .sort((a, b) => b.score - a.score);
+    .map((candidate) => {
+      const matches = anchorMatches(candidate, intentFrame);
+      const bindings = candidate.bindings.map((binding) => ({
+        ...binding,
+        sourcePriority: sourcePriority(binding, intentFrame, preferredDashboardIds),
+      })).sort((left, right) => right.sourcePriority - left.sourcePriority);
+      return {
+        ...candidate,
+        bindings,
+        anchorMatches: matches,
+        sourcePriority: Math.max(0, ...bindings.map((binding) => binding.sourcePriority)),
+        score: scoreCandidate(candidate, questionTerms),
+      };
+    })
+    .filter((candidate) => candidate.score > 0
+      && (!concepts.length || candidate.anchorMatches.some((value) => concepts.includes(value))))
+    .sort((left, right) => right.sourcePriority - left.sourcePriority || right.score - left.score);
 
   return scored.slice(0, Math.max(1, Math.min(Number(limit) || 10, 100)));
 }

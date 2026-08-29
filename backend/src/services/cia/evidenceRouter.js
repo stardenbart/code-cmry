@@ -73,6 +73,8 @@ function flattenCandidates(kpis) {
         unit: kpi.unit ?? binding.unit ?? null,
         numberFormat: kpi.numberFormat ?? binding.numberFormat ?? null,
         score: Number(kpi.score) || 0,
+        anchorMatches: cleanStrings(kpi.anchorMatches, 20).map((value) => value.toLowerCase()),
+        sourcePriority: Number(binding.sourcePriority ?? kpi.sourcePriority) || 0,
         dashboardId: binding.dashboardId == null ? null : String(binding.dashboardId),
         dashboardName: binding.dashboardName || null,
         reportId: binding.reportId || null,
@@ -91,10 +93,15 @@ function flattenCandidates(kpis) {
         purpose: "primary",
       };
       const routeKey = routeIdentity(kpi, binding);
-      if (!flattened.has(routeKey)) flattened.set(routeKey, candidate);
+      const current = flattened.get(routeKey);
+      if (!current || candidate.sourcePriority > current.sourcePriority
+        || (candidate.sourcePriority === current.sourcePriority && candidate.score > current.score)) {
+        flattened.set(routeKey, candidate);
+      }
     }
   }
-  return [...flattened.values()];
+  return [...flattened.values()].sort((left, right) => right.sourcePriority - left.sourcePriority
+    || right.score - left.score);
 }
 
 function safePlannerCandidate(value, allowed) {
@@ -145,10 +152,14 @@ export async function routeEvidence(input = {}, injected = {}) {
   }
   const deterministicKpis = await deps.searchKpiCandidates({
     question: input.question,
+    intentFrame: input.intentFrame,
     allowedDashboardIds: scope.allowedDashboardIds,
+    preferredDashboardIds: scope.preferredDashboardIds,
     limit: 20,
   });
-  const deterministic = flattenCandidates(deterministicKpis);
+  const concepts = cleanStrings(input.intentFrame?.concepts, 20).map((value) => value.toLowerCase());
+  const deterministic = flattenCandidates(deterministicKpis).filter((candidate) => !concepts.length
+    || candidate.anchorMatches.some((value) => concepts.includes(value)));
   const allowed = new Map(deterministic.map((item) => [item.bindingId, item]));
   const warnings = [];
 
@@ -180,7 +191,8 @@ export async function routeEvidence(input = {}, injected = {}) {
 
   await deps.tracker?.event?.("route_candidates", {
     candidateCount: candidates.length,
-    metadata: { candidates: candidates.map((item) => item.bindingId) },
+    conceptCount: concepts.length,
+    metadata: { candidates: candidates.map((item) => item.bindingId), concepts },
   });
 
   if (!candidates.length) {

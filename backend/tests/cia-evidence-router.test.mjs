@@ -21,6 +21,14 @@ const po = {
     dimensions: ["Produk"] }],
 };
 
+const downtime = {
+  kpiId: 4, slug: "top_machine_downtime", humanName: "Top mesin downtime tertinggi",
+  score: 90, anchorMatches: ["downtime"], sourcePriority: 100,
+  bindings: [{ bindingId: "b-dt", dashboardId: "52", dashboardName: "ORS",
+    semanticModel: "ORS", tableName: "Measure", measureName: "DT_TOP",
+    dimensions: ["Departemen"] }],
+};
+
 function fakeSearch({ question }) {
   if (/lembur.*PO|PO.*lembur/i.test(question)) return [overtime, po];
   if (/lembur/i.test(question)) return [overtime];
@@ -43,6 +51,55 @@ const scope = {
   preferredDashboardIds: [], mode: "user_acl",
 };
 const periods = [{ from: "2026-08-01", to: "2026-08-28", comparisonKey: "current" }];
+
+section("Business anchor mengalahkan token ranking generik");
+let searchInput;
+const anchorEvents = [];
+const anchoredRoute = await routeEvidence({
+  question: "top departemen dengan lembur tertinggi",
+  intentFrame: { concepts: ["overtime"], sourceConstraints: [] },
+  periods,
+  scope: { ...scope, preferredDashboardIds: ["52"] },
+}, {
+  async searchKpiCandidates(input) {
+    searchInput = input;
+    return [{ ...overtime, anchorMatches: ["overtime"], sourcePriority: 0 }, downtime];
+  },
+  async getDashboardVocabulary() { return {}; },
+  tracker: { async event(stage, data) { anchorEvents.push({ stage, data }); } },
+});
+ok("downtime dieliminasi", anchoredRoute.candidates.every((candidate) => candidate.slug !== "top_machine_downtime"),
+  JSON.stringify(anchoredRoute.candidates));
+ok("intent dan preferred dashboard diteruskan ke library",
+  searchInput?.intentFrame?.concepts?.includes("overtime")
+    && JSON.stringify(searchInput?.preferredDashboardIds) === JSON.stringify(["52"]),
+  JSON.stringify(searchInput));
+const anchorRouteEvent = anchorEvents.find((event) => event.stage === "route_candidates");
+ok("route telemetry menyimpan concept IDs/count tanpa prompt mentah",
+  anchorRouteEvent?.data?.conceptCount === 1
+    && anchorRouteEvent?.data?.metadata?.concepts?.includes("overtime")
+    && !JSON.stringify(anchorRouteEvent).includes("lembur tertinggi"),
+  JSON.stringify(anchorRouteEvent));
+
+section("Report aktif didahulukan di antara kandidat dengan anchor sama");
+const activeReport = await routeEvidence({
+  question: "masalah evergreen bulan juni",
+  intentFrame: { concepts: ["downtime"], entities: [{ type: "machine", value: "evergreen" }] },
+  periods,
+  scope: { ...scope, allowedDashboardIds: ["44", "65"], preferredDashboardIds: ["44"] },
+}, {
+  async searchKpiCandidates() {
+    return [
+      { ...downtime, score: 90, sourcePriority: 0,
+        bindings: [{ ...downtime.bindings[0], bindingId: "b-ors", dashboardId: "65" }] },
+      { ...downtime, kpiId: 5, slug: "maintenance_downtime", score: 50, sourcePriority: 100,
+        bindings: [{ ...downtime.bindings[0], bindingId: "b-maint", dashboardId: "44" }] },
+    ];
+  },
+  async getDashboardVocabulary() { return {}; },
+});
+ok("report aktif didahulukan", activeReport.candidates[0]?.dashboardId === "44",
+  JSON.stringify(activeReport.candidates));
 
 section("AI planner kosong tidak boleh membuang deterministic match");
 for (const [label, question, bindingId] of [

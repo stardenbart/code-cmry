@@ -18,6 +18,7 @@ import { normalizeEnvelope, normalizeAnswer } from "./contracts.js";
 import { startCiaTelemetry, safeError } from "../ciaTelemetry.service.js";
 import { resolveEvidenceScope } from "./accessScope.js";
 import { resolvePeriods } from "./periodResolver.js";
+import { buildIntentFrame } from "./intentFrame.js";
 import { routeEvidence } from "./evidenceRouter.js";
 import { planEvidence } from "./evidencePlanner.js";
 import { buildDaxPlan } from "./daxPlanBuilder.js";
@@ -62,13 +63,19 @@ function entityFilters(question, binding) {
   return dimension ? [{ dimension: dimLabel(dimension), value: `CMD${cmd[1]}` }] : [];
 }
 
+function bestCandidates(candidates, limit = 3) {
+  const all = Array.isArray(candidates) ? candidates : [];
+  const bestPriority = Math.max(...all.map((candidate) => Number(candidate.sourcePriority) || 0), 0);
+  const prioritized = all.filter((candidate) => (Number(candidate.sourcePriority) || 0) === bestPriority);
+  const bestScore = Math.max(...prioritized.map((candidate) => Number(candidate.score) || 0), 0);
+  return prioritized.filter((candidate) => (Number(candidate.score) || 0) === bestScore).slice(0, limit);
+}
+
 // Fallback goals ketika planner AI kosong/gagal: pakai kandidat deterministic
 // teratas apa adanya, meminta seluruh dimensi binding (dibatasi builder).
 function deterministicGoals(candidates, periods, limit = 6) {
   const goals = [];
-  const all = Array.isArray(candidates) ? candidates : [];
-  const bestScore = Math.max(...all.map((candidate) => Number(candidate.score) || 0), 0);
-  const primary = all.filter((candidate) => (Number(candidate.score) || 0) === bestScore).slice(0, 3);
+  const primary = bestCandidates(candidates);
   for (const candidate of primary) {
     const count = Math.max(1, Math.min(Array.isArray(periods) ? periods.length : 1, 6));
     for (let periodIndex = 0; periodIndex < count && goals.length < limit; periodIndex += 1) {
@@ -101,7 +108,7 @@ function statusFor(answer) {
 
 const DEFAULTS = {
   normalizeEnvelope, normalizeAnswer, startCiaTelemetry, safeError,
-  resolveEvidenceScope, resolvePeriods, routeEvidence, planEvidence,
+  resolveEvidenceScope, buildIntentFrame, resolvePeriods, routeEvidence, planEvidence,
   buildDaxPlan, executeEvidencePlan, analyzeEvidenceGap, synthesizeEvidence,
   getSchema: (semanticModel) => skemaModel(semanticModel),
   now: () => new Date(),
@@ -164,13 +171,20 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
       }, "error");
     }
 
-    // 2. Periode dari pertanyaan (bukan filter report).
+    // 2. Intent bisnis dibangun sekali dan dipakai bersama oleh seluruh routing.
+    const intentFrame = d.buildIntentFrame({
+      question: env.question,
+      conversation: env.conversation,
+      preferredDashboardIds: scope.preferredDashboardIds,
+    }, deps.intentFrameDeps);
+
+    // 3. Periode dari pertanyaan (bukan filter report).
     const periods = d.resolvePeriods(env.question, d.now(), d.timezone);
     for (const p of periods) if (Array.isArray(p.warnings)) warnings.push(...p.warnings);
 
-    // 3. Router deterministic (planner AI opsional; tidak boleh membuang kandidat).
+    // 4. Router deterministic (planner AI opsional; tidak boleh membuang kandidat).
     const route = await d.routeEvidence(
-      { question: env.question, periods, scope, aiPlanner: deps.routerAiPlanner },
+      { question: env.question, intentFrame, periods, scope, aiPlanner: deps.routerAiPlanner },
       { ...deps.routerDeps, tracker },
     );
     if (Array.isArray(route.warnings)) warnings.push(...route.warnings);
@@ -214,9 +228,7 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
       const rankingQuestion = /\b(top\s+\d+|tertinggi|terendah|paling\s+(?:tinggi|rendah)|terbesar|terkecil)\b/i
         .test(env.question);
       if (rankingQuestion && route.candidates.length) {
-        const maxScore = Math.max(...route.candidates.map((candidate) => Number(candidate.score) || 0));
-        const rankingIds = new Set(route.candidates
-          .filter((candidate) => (Number(candidate.score) || 0) === maxScore)
+        const rankingIds = new Set(bestCandidates(route.candidates)
           .map((candidate) => String(candidate.bindingId)));
         plannedGoals = plannedGoals.filter((goal) => rankingIds.has(String(goal.kpiBindingId)));
       }
