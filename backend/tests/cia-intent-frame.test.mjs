@@ -30,7 +30,13 @@ const constrained = buildIntentFrame({
   preferredDashboardIds: ["7", "7", 8, ""],
 });
 ok("source dashboard dipertahankan", hasValues(constrained.sourceConstraints.map((item) => item.value), ["nc", "deviasi"]));
+ok("source dashboard mempertahankan type", constrained.sourceConstraints
+  .every((item) => item.type === "dashboard"));
 ok("preferred dashboard unik", JSON.stringify(constrained.preferredDashboardIds) === JSON.stringify(["7", "8"]));
+
+const reportConstrained = buildIntentFrame({ question: "gunakan report maintenance saja" });
+ok("source report mempertahankan type dan value", reportConstrained.sourceConstraints
+  .some((item) => item.type === "report" && item.value === "maintenance"));
 
 const followUp = buildIntentFrame({
   question: "coba jelaskan techical downtime nya saja",

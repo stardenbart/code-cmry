@@ -102,10 +102,11 @@ function matchOperations(question) {
 }
 
 function extractSourceConstraints(question) {
-  const match = /\b(?:dashboard|report)\s+([^,?.]+?)(?=\s+(?:saja|hanya|untuk|yang|produk)\b|[,?.]|$)/.exec(question);
+  const match = /\b(dashboard|report)\s+([^,?.]+?)(?=\s+(?:saja|hanya|untuk|yang|produk)\b|[,?.]|$)/.exec(question);
   if (!match) return [];
-  return unique(match[1].split(/\s+(?:dan|atau)\s+|\s*,\s*/).map(normalize))
-    .map((value) => ({ type: "dashboard", value }));
+  const type = normalize(match[1]);
+  return unique(match[2].split(/\s+(?:dan|atau)\s+|\s*,\s*/).map(normalize))
+    .map((value) => ({ type, value }));
 }
 
 function periodKinds(question) {
