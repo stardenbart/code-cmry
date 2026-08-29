@@ -160,13 +160,17 @@ function sourceLabelMatches(needle, values) {
   });
 }
 
-function sourcePriority(binding, intentFrame, preferredDashboardIds) {
-  const explicitSource = (intentFrame?.sourceConstraints || []).some((constraint) => {
+function matchesExplicitSource(binding, intentFrame) {
+  return (intentFrame?.sourceConstraints || []).some((constraint) => {
     const values = constraint?.type === "dashboard"
       ? [binding.dashboardId, binding.dashboardName]
       : [binding.reportId, binding.dashboardName, binding.semanticModel];
     return sourceLabelMatches(constraint?.value, values);
   });
+}
+
+function sourcePriority(binding, intentFrame, preferredDashboardIds) {
+  const explicitSource = matchesExplicitSource(binding, intentFrame);
   const preferred = new Set((preferredDashboardIds || []).map((id) => String(id)));
   const contextSources = intentFrame?.contextSources || intentFrame?.context?.sources || [];
   const contextSource = contextSources.some((source) => {
@@ -177,8 +181,7 @@ function sourcePriority(binding, intentFrame, preferredDashboardIds) {
       || sourceLabelMatches(source.dashboardId, [binding.dashboardId])
       || sourceLabelMatches(source.reportId, [binding.reportId])
       || sourceLabelMatches(source.semanticModel, [binding.semanticModel]);
-  }) || (intentFrame?.continuity && intentFrame.continuity !== "new_topic"
-    && binding.dashboardId != null && preferred.has(String(binding.dashboardId)));
+  });
   const preferredDashboard = binding.dashboardId != null && preferred.has(String(binding.dashboardId));
   return explicitSource ? 300 : contextSource ? 200 : preferredDashboard ? 100 : 0;
 }
@@ -310,6 +313,8 @@ export async function searchKpiCandidates({
   const questionTerms = [...termSet(question)];
   const { pool: candidatePool } = await resolveCandidatePool(allowedDashboardIds);
   const concepts = Array.isArray(intentFrame.concepts) ? intentFrame.concepts.map(normalized).filter(Boolean) : [];
+  const hasExplicitSource = (intentFrame.sourceConstraints || [])
+    .some((constraint) => normalized(constraint?.value));
 
   const scored = candidatePool
     .map((candidate) => {
@@ -317,7 +322,8 @@ export async function searchKpiCandidates({
       const bindings = candidate.bindings.map((binding) => ({
         ...binding,
         sourcePriority: sourcePriority(binding, intentFrame, preferredDashboardIds),
-      })).sort((left, right) => right.sourcePriority - left.sourcePriority);
+      })).filter((binding) => !hasExplicitSource || binding.sourcePriority === 300)
+        .sort((left, right) => right.sourcePriority - left.sourcePriority);
       return {
         ...candidate,
         bindings,
@@ -326,7 +332,7 @@ export async function searchKpiCandidates({
         score: scoreCandidate(candidate, questionTerms),
       };
     })
-    .filter((candidate) => candidate.score > 0
+    .filter((candidate) => candidate.bindings.length && candidate.score > 0
       && (!concepts.length || candidate.anchorMatches.some((value) => concepts.includes(value))))
     .sort((left, right) => right.sourcePriority - left.sourcePriority || right.score - left.score);
 

@@ -158,8 +158,11 @@ export async function routeEvidence(input = {}, injected = {}) {
     limit: 20,
   });
   const concepts = cleanStrings(input.intentFrame?.concepts, 20).map((value) => value.toLowerCase());
+  const hasExplicitSource = Array.isArray(input.intentFrame?.sourceConstraints)
+    && input.intentFrame.sourceConstraints.some((constraint) => String(constraint?.value ?? "").trim());
   const deterministic = flattenCandidates(deterministicKpis).filter((candidate) => !concepts.length
-    || candidate.anchorMatches.some((value) => concepts.includes(value)));
+    || candidate.anchorMatches.some((value) => concepts.includes(value)))
+    .filter((candidate) => !hasExplicitSource || candidate.sourcePriority === 300);
   const allowed = new Map(deterministic.map((item) => [item.bindingId, item]));
   const warnings = [];
 

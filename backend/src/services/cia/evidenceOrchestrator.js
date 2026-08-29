@@ -71,6 +71,19 @@ function bestCandidates(candidates, limit = 3) {
   return prioritized.filter((candidate) => (Number(candidate.score) || 0) === bestScore).slice(0, limit);
 }
 
+function bestRankingCandidatesBySource(candidates) {
+  const all = Array.isArray(candidates) ? candidates : [];
+  const sourceKey = (candidate) => candidate.dashboardId != null ? `dashboard:${candidate.dashboardId}`
+    : candidate.reportId ? `report:${candidate.reportId}`
+      : candidate.semanticModel ? `model:${candidate.semanticModel}` : `binding:${candidate.bindingId}`;
+  const bestScores = new Map();
+  for (const candidate of all) {
+    const key = sourceKey(candidate);
+    bestScores.set(key, Math.max(bestScores.get(key) ?? 0, Number(candidate.score) || 0));
+  }
+  return all.filter((candidate) => (Number(candidate.score) || 0) === bestScores.get(sourceKey(candidate)));
+}
+
 // Fallback goals ketika planner AI kosong/gagal: pakai kandidat deterministic
 // teratas apa adanya, meminta seluruh dimensi binding (dibatasi builder).
 function deterministicGoals(candidates, periods, limit = 6) {
@@ -224,14 +237,17 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
       });
 
       const fallbackGoals = deterministicGoals(route.candidates, periods);
-      let plannedGoals = Array.isArray(plan.goals) ? plan.goals : [];
+      let plannedGoals = Array.isArray(plan.goals) ? [...plan.goals] : [];
       const rankingQuestion = /\b(top\s+\d+|tertinggi|terendah|paling\s+(?:tinggi|rendah)|terbesar|terkecil)\b/i
         .test(env.question);
       if (rankingQuestion && route.candidates.length) {
-        const rankingIds = new Set(bestCandidates(route.candidates)
+        const rankingIds = new Set(bestRankingCandidatesBySource(route.candidates)
           .map((candidate) => String(candidate.bindingId)));
         plannedGoals = plannedGoals.filter((goal) => rankingIds.has(String(goal.kpiBindingId)));
       }
+      plannedGoals.sort((left, right) =>
+        (Number(bindingIndex.get(String(right.kpiBindingId))?.sourcePriority) || 0)
+        - (Number(bindingIndex.get(String(left.kpiBindingId))?.sourcePriority) || 0));
       let goals = fallbackGoals;
       if (plannedGoals.length) {
         const plannedKeys = new Set(plannedGoals.map(goalKey));

@@ -131,7 +131,18 @@ try {
     explicit[0]?.kpiId === maint.id && explicit[0]?.sourcePriority === 300,
     JSON.stringify(explicit.map((candidate) => ({ id: candidate.kpiId, priority: candidate.sourcePriority }))));
 
-  const contextual = await searchKpiCandidates({
+  const unavailableExplicit = await searchKpiCandidates({
+    question: "downtime",
+    intentFrame: { concepts: ["downtime"],
+      sourceConstraints: [{ type: "dashboard", value: `dashboard-tidak-ada-${TAG}` }] },
+    allowedDashboardIds: ALL,
+    preferredDashboardIds: [D[2]],
+    limit: 20,
+  });
+  ok("source eksplisit yang tidak tersedia tidak diganti dashboard lain",
+    unavailableExplicit.length === 0, JSON.stringify(unavailableExplicit));
+
+  const continuityOnly = await searchKpiCandidates({
     question: "rincian downtime nya saja",
     intentFrame: buildIntentFrame({
       question: "rincian downtime nya saja",
@@ -142,7 +153,19 @@ try {
     preferredDashboardIds: [D[2]],
     limit: 20,
   });
-  ok("binding follow-up bernilai 200 dan mengalahkan preferred dashboard",
+  ok("continuity tanpa metadata sumber tetap preferred priority 100",
+    continuityOnly[0]?.kpiId === orsDowntime.id && continuityOnly[0]?.sourcePriority === 100,
+    JSON.stringify(continuityOnly.map((candidate) => ({ id: candidate.kpiId, priority: candidate.sourcePriority }))));
+
+  const contextual = await searchKpiCandidates({
+    question: "downtime",
+    intentFrame: { concepts: ["downtime"], sourceConstraints: [], continuity: "refinement",
+      contextSources: [{ dashboardId: String(D[2]) }] },
+    allowedDashboardIds: ALL,
+    preferredDashboardIds: [D[1]],
+    limit: 20,
+  });
+  ok("metadata binding follow-up bernilai 200 dan mengalahkan preferred dashboard",
     contextual[0]?.kpiId === orsDowntime.id && contextual[0]?.sourcePriority === 200,
     JSON.stringify(contextual.map((candidate) => ({ id: candidate.kpiId, priority: candidate.sourcePriority }))));
 

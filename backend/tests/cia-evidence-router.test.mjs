@@ -101,6 +101,21 @@ const activeReport = await routeEvidence({
 ok("report aktif didahulukan", activeReport.candidates[0]?.dashboardId === "44",
   JSON.stringify(activeReport.candidates));
 
+section("Source eksplisit yang tidak tersedia tidak boleh disubstitusi");
+const unavailableSource = await routeEvidence({
+  question: "downtime dari report tidak tersedia",
+  intentFrame: { concepts: ["downtime"],
+    sourceConstraints: [{ type: "report", value: "report-tidak-tersedia" }] },
+  periods,
+  scope: { ...scope, preferredDashboardIds: ["52"] },
+}, {
+  async searchKpiCandidates() { return [downtime]; },
+  async getDashboardVocabulary() { return {}; },
+});
+ok("router menghasilkan no_match tanpa kandidat pengganti",
+  unavailableSource.status === "no_match" && unavailableSource.candidates.length === 0,
+  JSON.stringify(unavailableSource));
+
 section("AI planner kosong tidak boleh membuang deterministic match");
 for (const [label, question, bindingId] of [
   ["lembur", "jelaskan breakdown lembur harian per departemen karena alasan dan kategori", "b-ot"],

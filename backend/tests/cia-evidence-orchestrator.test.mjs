@@ -260,7 +260,7 @@ try {
       async routeEvidence() {
         return { status: "ready", candidates: [
           candidate("b-high", "10", { score: 60, humanName: "Top downtime tertinggi" }),
-          candidate("b-low", "20", { score: 20, humanName: "Top downtime terendah" }),
+          candidate("b-low", "10", { score: 20, humanName: "Top downtime terendah" }),
         ], periods: [], warnings: [] };
       },
       async planEvidence() {
@@ -273,6 +273,35 @@ try {
     await answerWithEvidence(envelope({ question: "top 3 downtime tertinggi bulan Juni" }), deps);
     ok("hanya kandidat ranking dengan skor tertinggi dieksekusi", deps.calls.exec === 1,
       String(deps.calls.exec));
+  }
+
+  section("Ranking mempertahankan sumber tambahan valid setelah preferred primary");
+  {
+    const executedDashboards = [];
+    const deps = baseDeps({
+      async routeEvidence() {
+        return { status: "ready", candidates: [
+          candidate("b-preferred", "44", { score: 50, sourcePriority: 100 }),
+          candidate("b-additional", "65", { score: 80, sourcePriority: 0 }),
+        ], periods: [], warnings: [] };
+      },
+      async planEvidence() {
+        return { goals: [
+          { kpiBindingId: "b-additional", dimensions: ["Departemen"], periodIndex: 0, purpose: "correlation" },
+          { kpiBindingId: "b-preferred", dimensions: ["Departemen"], periodIndex: 0, purpose: "primary" },
+        ], warnings: [] };
+      },
+      async executeEvidencePlan(plan) {
+        executedDashboards.push(plan.dashboardId);
+        return { status: "success", errorCode: null, attempts: 1, rows: [{ value: 1 }], columns: [],
+          rowCount: 1, durationMs: 1, period: plan.period,
+          source: { dashboardId: plan.dashboardId, dashboardName: plan.dashboardName } };
+      },
+    });
+    await answerWithEvidence(envelope({ question: "top 3 downtime tertinggi bulan Juni" }), deps);
+    ok("preferred dieksekusi dulu dan sumber planner valid tetap diambil",
+      JSON.stringify(executedDashboards) === JSON.stringify(["44", "65"]),
+      JSON.stringify(executedDashboards));
   }
 
   section("Fallback deterministic mengambil semua comparison period");
