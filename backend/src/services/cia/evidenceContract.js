@@ -1,3 +1,5 @@
+import { matchConcepts } from "./intentVocabulary.js";
+
 const LIMITS = Object.freeze({ sources: 6, goals: 6, entities: 12, filters: 12, concepts: 12, periods: 6 });
 
 function text(value, max = 160) {
@@ -129,7 +131,7 @@ export function resolveFollowUpContext({ question, conversation, currentConcepts
   const empty = { sources: [], entities: [], periods: [], goals: [], requiredConcepts: [] };
   if (!contract) return empty;
 
-  const resolvedConcepts = strings(currentConcepts, LIMITS.concepts);
+  const resolvedConcepts = strings(currentConcepts?.length ? currentConcepts : matchConcepts(question), LIMITS.concepts);
   const switched = resolvedConcepts.length > 0 && !resolvedConcepts.some((current) =>
     contract.concepts.some((previous) => conceptsOverlap(current, previous)));
   if (switched) return { ...empty, requiredConcepts: resolvedConcepts };

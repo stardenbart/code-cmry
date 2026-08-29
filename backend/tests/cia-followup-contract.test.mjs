@@ -28,7 +28,6 @@ const previousDowntimeContract = createEvidenceContract({
 section("Follow-up mewarisi bukti relevan");
 const inherited = resolveFollowUpContext({
   question: "berapa persentasenya terhadap used time?",
-  currentConcepts: [],
   conversation: [{ role: "assistant", evidenceContract: previousDowntimeContract }],
 });
 ok("mewarisi downtime source", inherited.sources[0]?.dashboardId === "44", JSON.stringify(inherited));
@@ -39,7 +38,6 @@ ok("mewarisi mesin dan periode", inherited.entities[0]?.value === "evergreen"
 section("Topic switch memutus konteks domain lama");
 const switched = resolveFollowUpContext({
   question: "sekarang rekap overtime bulan juli",
-  currentConcepts: ["overtime"],
   conversation: [{ role: "assistant", evidenceContract: previousDowntimeContract }],
 });
 ok("topic switch tidak membawa mesin", switched.entities.length === 0, JSON.stringify(switched));
