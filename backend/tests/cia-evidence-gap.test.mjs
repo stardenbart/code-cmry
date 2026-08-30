@@ -166,7 +166,10 @@ const achievement = await analyzeEvidenceGap({
   plan: {
     periods: [period],
     operations: ["calculation"],
-    goals: [{ kpiBindingId: "b-actual", periodIndex: 0, dimensions: [], purpose: "primary", metricRole: "primary" }],
+    goals: [
+      { kpiBindingId: "b-actual", periodIndex: 0, dimensions: [], purpose: "primary", metricRole: "primary" },
+      { kpiBindingId: "b-target", periodIndex: 0, dimensions: [], purpose: "primary", metricRole: "target" },
+    ],
     candidates: [
       { bindingId: "b-actual", humanName: "Actual produksi", blueprint: { role: "total" }, anchorMatches: ["production"] },
       { bindingId: "b-target", humanName: "Target produksi", blueprint: { role: "target" }, anchorMatches: ["production"] },
@@ -184,7 +187,10 @@ const detail = await analyzeEvidenceGap({
   plan: {
     periods: [period],
     operations: ["breakdown"],
-    goals: [{ kpiBindingId: "b-dt", periodIndex: 0, dimensions: [], purpose: "primary", metricRole: "primary" }],
+    goals: [
+      { kpiBindingId: "b-dt", periodIndex: 0, dimensions: [], purpose: "primary", metricRole: "primary" },
+      { kpiBindingId: "b-detail", periodIndex: 0, dimensions: ["Masalah"], purpose: "primary", metricRole: "detail" },
+    ],
     candidates: [
       { bindingId: "b-dt", humanName: "Durasi downtime", blueprint: { role: "total" }, anchorMatches: ["downtime"] },
       { bindingId: "b-detail", humanName: "Detail masalah downtime", blueprint: { role: "detail" },
@@ -213,6 +219,59 @@ const directRatio = await analyzeEvidenceGap({
 ok("ratio langsung tidak dipaksa menjadi numerator dan denominator",
   directRatio.complete === true && directRatio.additionalGoals.length === 0,
   JSON.stringify(directRatio));
+
+const mixedPoolRatio = await analyzeEvidenceGap({
+  question: "berapa persentase downtime",
+  plan: {
+    periods: [period], operations: ["calculation"],
+    goals: [{ kpiBindingId: "b-ratio", periodIndex: 0, dimensions: [], purpose: "primary", metricRole: "primary" }],
+    candidates: [
+      { bindingId: "b-ratio", blueprint: { role: "ratio" }, anchorMatches: ["downtime"] },
+      { bindingId: "b-dt", blueprint: { role: "numerator" }, anchorMatches: ["downtime"] },
+      { bindingId: "b-hours", blueprint: { role: "denominator" }, anchorMatches: ["running hours"] },
+    ],
+  },
+  evidence: [evidence({ bindingId: "b-ratio", humanName: "Persentase downtime" }, [])],
+  round: 1,
+});
+ok("ratio terpilih tetap langsung meski pool punya alternatif raw",
+  mixedPoolRatio.complete === true && mixedPoolRatio.additionalGoals.length === 0,
+  JSON.stringify(mixedPoolRatio));
+
+const plainNumerator = await analyzeEvidenceGap({
+  question: "berapa durasi downtime",
+  plan: {
+    periods: [period], operations: [],
+    goals: [{ kpiBindingId: "b-dt", periodIndex: 0, dimensions: [], purpose: "primary", metricRole: "numerator" }],
+    candidates: [
+      { bindingId: "b-dt", blueprint: { role: "numerator" }, anchorMatches: ["downtime"] },
+      { bindingId: "b-hours", blueprint: { role: "denominator" }, anchorMatches: ["running hours"] },
+    ],
+  },
+  evidence: [evidence({ bindingId: "b-dt", humanName: "Durasi downtime" }, [])],
+  round: 1,
+});
+ok("numerator raw tanpa calculation tidak mengambil denominator",
+  plainNumerator.complete === true && plainNumerator.additionalGoals.length === 0,
+  JSON.stringify(plainNumerator));
+
+const calculatedNumerator = await analyzeEvidenceGap({
+  question: "berapa persentase downtime terhadap running hours",
+  plan: {
+    periods: [period], operations: ["calculation"],
+    goals: [{ kpiBindingId: "b-dt", periodIndex: 0, dimensions: [], purpose: "primary", metricRole: "numerator" }],
+    candidates: [
+      { bindingId: "b-dt", blueprint: { role: "numerator" }, anchorMatches: ["downtime"] },
+      { bindingId: "b-hours", blueprint: { role: "denominator" }, anchorMatches: ["running hours"] },
+    ],
+  },
+  evidence: [evidence({ bindingId: "b-dt", humanName: "Durasi downtime" }, [])],
+  round: 1,
+});
+ok("numerator terpilih dengan calculation mengambil denominator anchored",
+  calculatedNumerator.additionalGoals.some((goal) => goal.kpiBindingId === "b-hours"
+    && goal.metricRole === "denominator"),
+  JSON.stringify(calculatedNumerator));
 
 const nameOnlyTarget = await analyzeEvidenceGap({
   question: "berapa achievement produksi",

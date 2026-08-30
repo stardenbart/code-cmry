@@ -93,15 +93,13 @@ function metricRole(value) {
   return "primary";
 }
 
-function requiredMetricRoles(plan, candidates) {
-  const roles = new Set([
-    ...(Array.isArray(plan?.goals) ? plan.goals : []).map(metricRole),
-    ...candidates.filter((candidate) => Array.isArray(candidate?.anchorMatches)
-      && candidate.anchorMatches.length > 0).map(metricRole),
-  ]);
+function requiredMetricRoles(plan) {
+  const roles = new Set((Array.isArray(plan?.goals) ? plan.goals : []).map(metricRole));
   const operations = new Set(Array.isArray(plan?.operations) ? plan.operations : []);
   const required = [];
-  if (roles.has("numerator") || roles.has("denominator")) required.push("numerator", "denominator");
+  if (operations.has("calculation") && (roles.has("numerator") || roles.has("denominator"))) {
+    required.push("numerator", "denominator");
+  }
   if (roles.has("target") && operations.has("calculation")) required.push("primary", "target");
   if (roles.has("detail") && operations.has("breakdown")) required.push("primary", "detail");
   return [...new Set(required)];
@@ -178,7 +176,7 @@ export async function analyzeEvidenceGap({ question = "", plan = {}, evidence = 
   }));
   const requestedPeriodIndexes = [...new Set(primaryGoals.map((goal) => Number(goal.periodIndex) || 0))];
   for (const periodIndex of requestedPeriodIndexes.length ? requestedPeriodIndexes : [0]) {
-    for (const role of requiredMetricRoles(plan, candidates)) {
+    for (const role of requiredMetricRoles(plan)) {
       if (successfulRolePeriods.has(`${role}:${periodIndex}`)) continue;
       missing.push(`metric:${role}:period:${periodIndex}`);
       const candidate = candidates.find((item) => Array.isArray(item?.anchorMatches)
