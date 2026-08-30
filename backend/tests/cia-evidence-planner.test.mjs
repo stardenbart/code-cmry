@@ -1,6 +1,7 @@
 import { pathToFileURL } from "url";
 import { ok, section, summary } from "./harness.mjs";
 import { planEvidence } from "../src/services/cia/evidencePlanner.js";
+import { buildDaxPlan } from "../src/services/cia/daxPlanBuilder.js";
 import { tanyaModelTerstruktur } from "../src/services/modelRouter.js";
 
 const bindings = [
@@ -173,6 +174,45 @@ ok("planner mempertahankan multi-select pada channel report",
     { dimension: "Mesin", value: "Tetra Pak" },
   ]), JSON.stringify(multiViewPlanned.goals[0]));
 
+const sevenValueViewPlanned = await planEvidence({
+  question: "jelaskan data yang sedang tampil",
+  periods,
+  candidateBindings: [{ ...blueprintBinding, semanticModel: "Cost Model" }],
+  reportFilters: [
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "Evergreen" },
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "Tetra Pak" },
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "Sidel" },
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "Krones" },
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "Serac" },
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "Elopak" },
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "SIG" },
+  ],
+}, { callModel: callReturning(JSON.stringify({
+  goals: [{ kpiBindingId: "b-blueprint", dimensions: ["Mesin"], periodIndex: 0, purpose: "primary" }],
+  followUpSignals: [],
+})) });
+const sevenValueDaxPlan = buildDaxPlan({
+  question: "jelaskan data yang sedang tampil",
+  goal: sevenValueViewPlanned.goals[0],
+  binding: { ...blueprintBinding, semanticModel: "Cost Model" },
+  period: periods[0],
+  schema: {
+    berhasil: true,
+    model: "Cost Model",
+    tabel: [
+      { tabel: "Calendar", kolom: ["Date:datetime", "Month:string"] },
+      { tabel: "Machine", kolom: ["Machine Name:string"] },
+      { tabel: "Measures", kolom: [] },
+    ],
+    measure: ["TECHNICAL_DT"],
+  },
+});
+ok("planner ke builder mempertahankan lebih dari enam nilai untuk satu dimensi",
+  sevenValueViewPlanned.goals[0]?.filterPolicy?.reportFilters?.length === 7
+    && /IN\s*\{\s*"evergreen",\s*"tetrapak",\s*"sidel",\s*"krones",\s*"serac",\s*"elopak",\s*"sig"\s*\}/i
+      .test(sevenValueDaxPlan.dax),
+  JSON.stringify({ goal: sevenValueViewPlanned.goals[0], dax: sevenValueDaxPlan.dax }));
+
 const contextPlanned = await planEvidence({
   question: "bagaimana masalahnya",
   periods,
@@ -207,6 +247,29 @@ const capped = await planEvidence({ question: "q", periods, candidateBindings: b
 ok("maksimum enam goals", capped.goals.length <= 6, String(capped.goals.length));
 ok("maksimum enam dimensi", capped.goals.every((goal) => goal.dimensions.length <= 6),
   JSON.stringify(capped.goals));
+
+const filterCappedBinding = {
+  bindingId: "b-filter-cap",
+  blueprint: {
+    dimensions: ["A", "B", "C", "D", "E", "F", "G"].map((column) => ({
+      table: "Fact", column, humanName: column,
+    })),
+  },
+};
+const filterCapped = await planEvidence({
+  question: "q",
+  periods,
+  candidateBindings: [filterCappedBinding],
+}, { callModel: callReturning(JSON.stringify({
+  goals: [{
+    kpiBindingId: "b-filter-cap", dimensions: [], periodIndex: 0, purpose: "primary",
+    filters: ["A", "B", "C", "D", "E", "F", "G"].map((dimension) => ({ dimension, value: "x" })),
+  }],
+  followUpSignals: [],
+})) });
+ok("maksimum enam dimensi filter tetap dipertahankan",
+  filterCapped.goals[0]?.filterPolicy?.explicitFilters?.length === 6,
+  JSON.stringify(filterCapped.goals[0]));
 
 section("Malformed, empty, timeout tidak membatalkan deterministic route");
 for (const [label, callModel, warning] of [

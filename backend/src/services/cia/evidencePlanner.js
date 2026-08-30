@@ -67,12 +67,19 @@ function filtersForBinding(value, binding) {
       if (normalized) dimensionsByKey.set(normalized, label);
     }
   }
+  const admittedDimensions = new Set();
   return (Array.isArray(value) ? value : []).flatMap((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return [];
     const dimension = dimensionsByKey.get(cleanText(item.dimension ?? item.field ?? item.column).toLowerCase());
     const filterValue = cleanText(item.value, 160);
     return dimension && filterValue ? [{ dimension, value: filterValue }] : [];
-  }).slice(0, MAX_DIMENSIONS);
+  }).filter((filter) => {
+    const dimension = filter.dimension.toLowerCase();
+    if (admittedDimensions.has(dimension)) return true;
+    if (admittedDimensions.size >= MAX_DIMENSIONS) return false;
+    admittedDimensions.add(dimension);
+    return true;
+  });
 }
 
 function normalizeGoals(value, candidates, periodCount, input, followUp) {
