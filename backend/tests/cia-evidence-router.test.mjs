@@ -1,6 +1,8 @@
 import { pathToFileURL } from "url";
 import { ok, section, summary } from "./harness.mjs";
 import { routeEvidence } from "../src/services/cia/evidenceRouter.js";
+import { buildIntentFrame } from "../src/services/cia/intentFrame.js";
+import { analyzeEvidenceGap } from "../src/services/cia/evidenceGapAnalyzer.js";
 
 const overtime = {
   kpiId: 1, slug: "overtime", humanName: "Jam lembur", score: 40,
@@ -89,6 +91,62 @@ ok("route telemetry menyimpan concept IDs/count tanpa prompt mentah",
 ok("router mempertahankan blueprint visual untuk planner dan builder",
   anchoredRoute.candidates[0]?.blueprint?.labels?.visualTitle === "Lembur per Departemen",
   JSON.stringify(anchoredRoute.candidates[0]));
+
+section("Derived concept dari contract penuh mencapai routing dan denominator recovery");
+const fullContractFrame = buildIntentFrame({
+  question: "berapa persentasenya terhadap used time?",
+  conversation: [{ role: "assistant", text: "Downtime tersedia.", evidenceContract: {
+    concepts: ["downtime", ...Array.from({ length: 11 }, (_, index) => `stale-${index}`)],
+    periods: periods.map((item) => ({ ...item, label: "Agustus", grain: "day" })),
+    goals: [], sources: [], entities: [],
+  } }],
+});
+const fullContractRoute = await routeEvidence({
+  question: "berapa persentasenya terhadap used time?",
+  intentFrame: fullContractFrame,
+  periods,
+  scope: { ...scope, allowedDashboardIds: ["44"] },
+}, {
+  async searchKpiCandidates() {
+    return [
+      { kpiId: 40, slug: "downtime", humanName: "Durasi downtime", score: 10,
+        anchorMatches: ["downtime"], bindings: [{
+          bindingId: "b-dt-full", dashboardId: "44", dashboardName: "Maintenance",
+          semanticModel: "Maintenance", tableName: "Measures", measureName: "DT",
+          blueprint: { role: "numerator", dimensions: [] }, dimensions: [],
+        }] },
+      { kpiId: 41, slug: "running_hours", humanName: "Running hours", score: 9,
+        anchorMatches: ["running hours"], bindings: [{
+          bindingId: "b-hours-full", dashboardId: "44", dashboardName: "Maintenance",
+          semanticModel: "Maintenance", tableName: "Measures", measureName: "HOURS",
+          blueprint: { role: "denominator", dimensions: [] }, dimensions: [],
+        }] },
+    ];
+  },
+  async getDashboardVocabulary() { return {}; },
+});
+const fullContractGap = await analyzeEvidenceGap({
+  question: "berapa persentasenya terhadap used time?",
+  plan: {
+    periods, operations: fullContractFrame.operations,
+    goals: [{ kpiBindingId: "b-dt-full", periodIndex: 0, dimensions: [], purpose: "primary", metricRole: "numerator" }],
+    candidates: fullContractRoute.candidates,
+  },
+  evidence: [{
+    status: "success", goal: { kpiBindingId: "b-dt-full", periodIndex: 0, metricRole: "numerator" },
+    period: periods[0], columns: [{ label: "Durasi downtime" }], rows: [{ "Durasi downtime": 42 }],
+  }],
+  round: 1,
+});
+ok("running hours tidak terpotong sebelum routing",
+  fullContractFrame.concepts.length === 12
+    && fullContractFrame.concepts.includes("running hours")
+    && fullContractRoute.candidates.some((candidate) => candidate.bindingId === "b-hours-full"),
+  JSON.stringify({ concepts: fullContractFrame.concepts, candidates: fullContractRoute.candidates }));
+ok("running hours menjadi denominator recovery",
+  fullContractGap.additionalGoals.some((goal) => goal.kpiBindingId === "b-hours-full"
+    && goal.metricRole === "denominator"),
+  JSON.stringify(fullContractGap));
 
 section("Report aktif didahulukan di antara kandidat dengan anchor sama");
 const activeReport = await routeEvidence({

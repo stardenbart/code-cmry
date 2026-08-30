@@ -2,6 +2,7 @@ import { pathToFileURL } from "url";
 import { ok, section, summary } from "./harness.mjs";
 import { planEvidence } from "../src/services/cia/evidencePlanner.js";
 import { answerWithEvidence } from "../src/services/cia/evidenceOrchestrator.js";
+import { analyzeEvidenceGap } from "../src/services/cia/evidenceGapAnalyzer.js";
 
 const period = { label: "Juni 2026", from: "2026-06-01", to: "2026-06-30" };
 const binding = (bindingId, humanName, metricRole) => ({
@@ -150,6 +151,37 @@ ok("CMD dengan variasi spasi tetap cocok",
   cmdSynthesisInput?.evidence?.[0]?.intentMatch?.entities === true,
   JSON.stringify(cmdSynthesisInput?.evidence?.[0]?.intentMatch));
 
+async function entityMatchFor(entity, row) {
+  let captured;
+  await answerWithEvidence({
+    surface: "dashboard", actor: { userId: 1 }, requestId: `REQ-ENTITY-${entity.value}`,
+    question: "uji entity",
+  }, {
+    ...mismatchDeps,
+    buildIntentFrame: () => ({
+      concepts: ["downtime"], entities: [entity], operations: [], sourceConstraints: [],
+      contextSources: [], contextPeriods: [], context: { sources: [], entities: [], periods: [], goals: [] },
+    }),
+    executeEvidencePlan: async () => ({
+      status: "success", rows: [row], columns: Object.keys(row).map((label) => ({ label })),
+      rowCount: 1, period,
+      source: { dashboardId: "44", dashboardName: "Maintenance Downtime",
+        semanticModel: "Maintenance Downtime", kpis: ["Durasi downtime"] },
+    }),
+    synthesizeEvidence: async (input) => {
+      captured = input.evidence[0]?.intentMatch?.entities;
+      return { answer: "Uji.", confidence: "low", retrievalMethod: "none", sources: [], warnings: [] };
+    },
+  });
+  return captured;
+}
+
+ok("CMD1 tidak cocok dengan CMD10",
+  await entityMatchFor({ type: "cmd", value: "cmd 1" }, { "CMD / Gedung": "CMD10", Nilai: 1 }) === false);
+ok("Tetra Pak Line 3 tidak cocok dengan Line 30",
+  await entityMatchFor({ type: "machine", value: "tetra pak line 3" },
+    { Mesin: "Tetra Pak Line 30", Nilai: 1 }) === false);
+
 section("Recovery deterministic tidak melampaui enam goal planner");
 let executions = 0;
 const candidates = Array.from({ length: 7 }, (_, index) => ({
@@ -193,6 +225,51 @@ await answerWithEvidence({
   }),
 });
 ok("maksimum enam goal dieksekusi", executions === 6, String(executions));
+
+section("Evidence mismatch dapat diambil ulang secara bounded");
+let denominatorExecutions = 0;
+const numerator = { ...binding("b-dt", "Durasi downtime", "numerator"),
+  blueprint: { role: "numerator", dimensions: [{ column: "Mesin", humanName: "Mesin" }] } };
+const denominator = { ...binding("b-hours", "Running hours", "denominator"),
+  blueprint: { role: "denominator", dimensions: [{ column: "Mesin", humanName: "Mesin" }] } };
+await answerWithEvidence({
+  surface: "dashboard", actor: { userId: 1 }, requestId: "REQ-RETRY-MISMATCH",
+  question: "berapa persentase downtime Evergreen terhadap running hours",
+}, {
+  ...mismatchDeps,
+  buildIntentFrame: () => ({
+    concepts: ["downtime", "running hours"], entities: [{ type: "machine", value: "evergreen" }],
+    operations: ["calculation"], sourceConstraints: [], contextSources: [], contextPeriods: [],
+    context: { sources: [], entities: [], periods: [], goals: [] },
+  }),
+  routeEvidence: async () => ({ status: "ready", candidates: [numerator, denominator], warnings: [] }),
+  planEvidence: async () => ({ goals: [
+    { kpiBindingId: "b-dt", dimensions: ["Mesin"], periodIndex: 0, purpose: "primary", metricRole: "numerator" },
+    { kpiBindingId: "b-hours", dimensions: ["Mesin"], periodIndex: 0, purpose: "primary", metricRole: "denominator" },
+  ], warnings: [] }),
+  buildDaxPlan: ({ binding: selected, period: selectedPeriod }) => ({
+    semanticModel: selected.semanticModel, dashboardId: selected.dashboardId,
+    dashboardName: selected.dashboardName, selectedKpis: [{ bindingId: selected.bindingId, humanName: selected.humanName }],
+    period: selectedPeriod, selectedFilters: [{ humanName: "Mesin", value: "Evergreen" }], dax: "EVALUATE 1",
+  }),
+  executeEvidencePlan: async (plan) => {
+    const isDenominator = plan.selectedKpis[0].bindingId === "b-hours";
+    if (isDenominator) denominatorExecutions += 1;
+    const mismatch = isDenominator && denominatorExecutions === 1;
+    return {
+      status: "success", rows: [{ Mesin: mismatch ? "ORS" : "Evergreen", Nilai: 42 }],
+      columns: [{ label: "Mesin" }, { label: "Nilai" }], rowCount: 1, period: plan.period,
+      source: { dashboardId: mismatch ? "65" : "44",
+        dashboardName: mismatch ? "Dashboard DT ORS" : "Maintenance Downtime",
+        semanticModel: mismatch ? "DT ORS" : "Maintenance Downtime", kpis: [plan.selectedKpis[0].humanName] },
+    };
+  },
+  analyzeEvidenceGap,
+  synthesizeEvidence: async () => ({
+    answer: "Bukti relevan tersedia.", confidence: "high", retrievalMethod: "live_dax", sources: [], warnings: [],
+  }),
+});
+ok("denominator yang salah diulang lalu diterima", denominatorExecutions === 2, String(denominatorExecutions));
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exit(summary() ? 0 : 1);

@@ -44,6 +44,11 @@ function evidenceBindingId(item) {
   return clean(item?.goal?.kpiBindingId ?? item?.bindingId);
 }
 
+function matchesIntent(item) {
+  const match = item?.intentMatch;
+  return !match || ["concepts", "entities", "period", "source"].every((key) => match[key] !== false);
+}
+
 function columns(item) {
   return new Set((Array.isArray(item?.columns) ? item.columns : []).map((column) =>
     normalized(typeof column === "string" ? column : column?.label ?? column?.humanName)));
@@ -56,6 +61,18 @@ function hasDimension(item, dimension) {
 
 function compatiblePeriod(left, right) {
   return left?.from === right?.from && left?.to === right?.to;
+}
+
+function evidencePeriodIndex(item, plan) {
+  const explicitIndex = Number((item?.goal || item)?.periodIndex);
+  return Number.isInteger(explicitIndex) && explicitIndex >= 0
+    ? explicitIndex
+    : Math.max(0, (plan?.periods || []).findIndex((period) => compatiblePeriod(item?.period, period)));
+}
+
+function matchesPlannedPeriod(item, plan) {
+  const expected = plan?.periods?.[evidencePeriodIndex(item, plan)];
+  return !expected || compatiblePeriod(item?.period, expected);
 }
 
 function goalKey(goal) {
@@ -71,19 +88,23 @@ function metricRole(value) {
   const explicit = clean(value?.metricRole).toLowerCase();
   if (METRIC_ROLES.has(explicit)) return explicit;
   if (value?.purpose === "correlation") return "correlation";
-  const identity = normalized(`${value?.humanName || ""} ${value?.slug || ""} ${value?.blueprint?.role || ""}`);
-  if (/running hours|denominator|capacity|kapasitas/.test(identity)) return "denominator";
-  if (/target|planning|rencana/.test(identity)) return "target";
-  if (/detail|rincian/.test(identity)) return "detail";
+  const blueprintRole = clean(value?.blueprint?.role).toLowerCase();
+  if (METRIC_ROLES.has(blueprintRole)) return blueprintRole;
   return "primary";
 }
 
-function requiredMetricRoles(question) {
-  const q = normalized(question);
-  if (/persen|persentase|percentage/.test(q) && /downtime/.test(q)) return ["numerator", "denominator"];
-  if (/achievement|achivement|capaian/.test(q)) return ["primary", "target"];
-  if (/detail|rincian|breakdown/.test(q)) return ["primary", "detail"];
-  return [];
+function requiredMetricRoles(plan, candidates) {
+  const roles = new Set([
+    ...(Array.isArray(plan?.goals) ? plan.goals : []).map(metricRole),
+    ...candidates.filter((candidate) => Array.isArray(candidate?.anchorMatches)
+      && candidate.anchorMatches.length > 0).map(metricRole),
+  ]);
+  const operations = new Set(Array.isArray(plan?.operations) ? plan.operations : []);
+  const required = [];
+  if (roles.has("numerator") || roles.has("denominator")) required.push("numerator", "denominator");
+  if (roles.has("target") && operations.has("calculation")) required.push("primary", "target");
+  if (roles.has("detail") && operations.has("breakdown")) required.push("primary", "detail");
+  return [...new Set(required)];
 }
 
 async function candidatePool(plan, library, question) {
@@ -100,8 +121,11 @@ async function candidatePool(plan, library, question) {
 export async function analyzeEvidenceGap({ question = "", plan = {}, evidence = [], round = 1, library = {} } = {}) {
   const candidates = await candidatePool(plan, library, question);
   const candidateById = new Map(candidates.map((item) => [clean(item.bindingId), item]));
-  const successful = evidence.filter((item) => item?.status === "success" && Array.isArray(item.rows) && item.rows.length);
-  const attempted = new Set(evidence.map((item) => goalKey(item?.goal || item)).filter(Boolean));
+  const relevantEvidence = evidence.filter(matchesIntent);
+  const successful = relevantEvidence.filter((item) => item?.status === "success"
+    && Array.isArray(item.rows) && item.rows.length);
+  const attempted = new Set(relevantEvidence.filter((item) => matchesPlannedPeriod(item, plan))
+    .map((item) => goalKey(item?.goal || item)).filter(Boolean));
   const missing = [];
   const warnings = [];
   const desired = [];
@@ -146,18 +170,15 @@ export async function analyzeEvidenceGap({ question = "", plan = {}, evidence = 
     }
   }
 
-  const successfulRolePeriods = new Set(successful.map((item) => {
+  const successfulRolePeriods = new Set(successful.filter((item) => matchesPlannedPeriod(item, plan)).map((item) => {
     const evidenceGoal = item?.goal || item;
     const planned = (plan.goals || []).find((goal) => clean(goal.kpiBindingId) === evidenceBindingId(item));
-    const explicitIndex = Number(evidenceGoal?.periodIndex);
-    const periodIndex = Number.isInteger(explicitIndex) && explicitIndex >= 0
-      ? explicitIndex
-      : Math.max(0, (plan.periods || []).findIndex((period) => compatiblePeriod(item?.period, period)));
+    const periodIndex = evidencePeriodIndex(item, plan);
     return `${metricRole({ ...planned, ...evidenceGoal })}:${periodIndex}`;
   }));
   const requestedPeriodIndexes = [...new Set(primaryGoals.map((goal) => Number(goal.periodIndex) || 0))];
   for (const periodIndex of requestedPeriodIndexes.length ? requestedPeriodIndexes : [0]) {
-    for (const role of requiredMetricRoles(question)) {
+    for (const role of requiredMetricRoles(plan, candidates)) {
       if (successfulRolePeriods.has(`${role}:${periodIndex}`)) continue;
       missing.push(`metric:${role}:period:${periodIndex}`);
       const candidate = candidates.find((item) => Array.isArray(item?.anchorMatches)

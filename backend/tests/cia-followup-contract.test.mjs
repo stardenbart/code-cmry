@@ -35,6 +35,18 @@ ok("menambah denominator", inherited.requiredConcepts.includes("running hours"),
 ok("mewarisi mesin dan periode", inherited.entities[0]?.value === "evergreen"
   && inherited.periods[0]?.from === "2026-06-01", JSON.stringify(inherited));
 
+const fullConceptContract = createEvidenceContract({
+  intentFrame: { concepts: ["downtime", ...Array.from({ length: 11 }, (_, index) => `stale-${index}`)] },
+});
+const fullConceptFollowUp = resolveFollowUpContext({
+  question: "berapa persentasenya terhadap used time?",
+  conversation: [{ role: "assistant", evidenceContract: fullConceptContract }],
+});
+ok("derived denominator bertahan saat contract sudah dua belas konsep",
+  fullConceptFollowUp.requiredConcepts.length === 12
+    && fullConceptFollowUp.requiredConcepts.includes("running hours"),
+  JSON.stringify(fullConceptFollowUp.requiredConcepts));
+
 section("Topic switch memutus konteks domain lama");
 const switched = resolveFollowUpContext({
   question: "sekarang rekap overtime bulan juli",

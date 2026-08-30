@@ -136,15 +136,17 @@ export function resolveFollowUpContext({ question, conversation, currentConcepts
     contract.concepts.some((previous) => conceptsOverlap(current, previous)));
   if (switched) return { ...empty, requiredConcepts: resolvedConcepts };
 
-  const requiredConcepts = [...new Set([...contract.concepts, ...resolvedConcepts])];
+  const derivedConcepts = [];
   if (/\b(?:persen|persentase|percentage|used time)\b/i.test(String(question || ""))) {
-    requiredConcepts.push("running hours");
+    derivedConcepts.push("running hours");
   }
+  const requiredConcepts = [...new Set([...resolvedConcepts, ...derivedConcepts, ...contract.concepts])]
+    .slice(0, LIMITS.concepts);
   return {
     sources: contract.sources,
     entities: contract.entities,
     periods: contract.periods,
     goals: contract.goals,
-    requiredConcepts: [...new Set(requiredConcepts)].slice(0, LIMITS.concepts),
+    requiredConcepts,
   };
 }

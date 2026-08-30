@@ -60,9 +60,14 @@ function normalizedText(value) {
 }
 
 function entityValueMatches(left, right) {
-  const actual = normalizedText(left).replace(/\s+/g, "");
-  const wanted = normalizedText(right).replace(/\s+/g, "");
-  return Boolean(actual && wanted && (actual.includes(wanted) || wanted.includes(actual)));
+  const tokens = (value) => normalizedText(value)
+    .replace(/([\p{L}])(\d)/gu, "$1 $2").replace(/(\d)([\p{L}])/gu, "$1 $2")
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(/\s+/).filter(Boolean);
+  const actual = tokens(left);
+  const wanted = tokens(right);
+  const contains = (values, subset) => subset.length > 0 && values.some((_, index) =>
+    subset.every((token, offset) => values[index + offset] === token));
+  return contains(actual, wanted) || contains(wanted, actual);
 }
 
 function compatiblePeriod(left, right) {
@@ -393,18 +398,20 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
           const result = await d.executeEvidencePlan(daxPlan, { ...deps.executorDeps, tracker });
           addUsage(result?.usage);
           const source = result?.source || sourceFrom(daxPlan);
+          const match = intentMatch({ intentFrame, period, binding, goal: effectiveGoal, result, source });
+          if (Object.values(match).some((matched) => matched === false)) seenGoals.delete(gk);
           roundResults.push({
             ...result,
             goal: effectiveGoal,
             source,
-            intentMatch: intentMatch({ intentFrame, period, binding, goal: effectiveGoal, result, source }),
+            intentMatch: match,
           });
         }
         evidence.push(...roundResults);
 
         const gap = await d.analyzeEvidenceGap({
           question: env.question,
-          plan: { goals, periods, candidates: route.candidates },
+          plan: { goals, periods, candidates: route.candidates, operations: intentFrame.operations },
           evidence, round: rounds, library: { candidates: route.candidates },
         });
         if (Array.isArray(gap.warnings)) warnings.push(...gap.warnings);
