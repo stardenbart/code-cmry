@@ -1,5 +1,5 @@
 import { tanyaModelTerstruktur } from "../modelRouter.js";
-import { humanizeIdentifier } from "../ciaHumanLabels.service.js";
+import { humanizeIdentifier, humanizeTechnicalText } from "../ciaHumanLabels.service.js";
 
 const MAX_ROWS_PER_SOURCE = 20;
 const clean = (value, limit = 4_000) => typeof value === "string" ? value.trim().slice(0, limit) : "";
@@ -54,10 +54,10 @@ function snapshotSources(snapshot) {
   const dashboards = Array.isArray(snapshot?.dashboards) && snapshot.dashboards.length
     ? snapshot.dashboards : [{ id: null, name: "Snapshot dashboard" }];
   const perDashboard = dashboards.slice(0, 10).flatMap((dashboard) => {
-    const text = clean(dashboard?.text, 6_000);
+    const text = humanizeTechnicalText(clean(dashboard?.text, 6_000));
     return text ? [{ dashboard, text }] : [];
   });
-  const shared = clean(snapshot?.text, 6_000);
+  const shared = humanizeTechnicalText(clean(snapshot?.text, 6_000));
   const entries = perDashboard.length
     ? perDashboard
     : shared
@@ -192,9 +192,7 @@ function safeAnswerLabels(answer, evidence) {
   for (const [technical, label] of replacements) {
     result = result.replace(new RegExp(escapePattern(technical), "gi"), label);
   }
-  return result
-    .replace(/'?[^'\s\[]+'?\[[^\]]+\]/g, (value) => humanLabel(value))
-    .replace(/\b[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+\b/g, (value) => humanLabel(value));
+  return humanizeTechnicalText(result);
 }
 
 function requestedRowLimit(question) {

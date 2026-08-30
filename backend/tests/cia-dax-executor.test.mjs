@@ -32,6 +32,7 @@ function success(rows = [{ "Measures[OT_HOURS]": 12, "Overtime[Department]": "Pr
 
 section("Success pertama langsung diberi label manusia");
 let calls = 0;
+const firstEvents = [];
 const first = await executeEvidencePlan(plan, {
   async executeDax(datasetId, dax, options) {
     calls += 1;
@@ -40,6 +41,7 @@ const first = await executeEvidencePlan(plan, {
       `${datasetId}/${dax}/${JSON.stringify(options)}`);
     return success();
   },
+  tracker: { event: async (stage, data) => firstEvents.push({ stage, ...data }) },
 });
 ok("success hanya satu attempt", first.status === "success" && first.attempts === 1 && calls === 1,
   JSON.stringify(first));
@@ -49,10 +51,15 @@ ok("measure teknis tidak menjadi key row",
 ok("dimension ikut humanized", first.rows[0].Departemen === "Produksi", JSON.stringify(first.rows));
 ok("source dan period terbawa",
   first.source.dashboardId === "dash-ot" && first.period.from === "2026-08-01", JSON.stringify(first));
+ok("attempt sukses punya event started dan terminal dengan row count nyata",
+  firstEvents.filter((event) => event.stage === "dax_attempt").map((event) => `${event.status}:${event.rowsReturned ?? "null"}`).join("|")
+    === "started:null|success:1",
+  JSON.stringify(firstEvents));
 
 section("DAX invalid diperbaiki tepat satu kali");
 calls = 0;
 let repairCalls = 0;
+const repairEvents = [];
 const repaired = await executeEvidencePlan(plan, {
   async executeDax(_dataset, dax) {
     calls += 1;
@@ -67,9 +74,15 @@ const repaired = await executeEvidencePlan(plan, {
       JSON.stringify(input));
     return plan.dax;
   },
+  tracker: { event: async (stage, data) => repairEvents.push({ stage, ...data }) },
 });
 ok("repair success memakai dua attempt", repaired.status === "success" && repaired.attempts === 2
   && calls === 2 && repairCalls === 1, JSON.stringify(repaired));
+ok("setiap physical attempt punya outcome terminal sendiri",
+  repairEvents.filter((event) => event.stage === "dax_attempt" && event.status !== "started")
+    .map((event) => `${event.status}:${event.rowsReturned}:${event.errorCode || "ok"}`).join("|")
+    === "error:0:DAX_INVALID|success:1:ok",
+  JSON.stringify(repairEvents));
 
 section("Invalid kedua berhenti dan tidak repair berulang");
 calls = 0;
@@ -143,13 +156,19 @@ for (const [label, raw, expected] of [
   ["unknown", { response: { status: 500 } }, "POWERBI_UNKNOWN"],
 ]) {
   let count = 0;
+  const attemptEvents = [];
   const result = await executeEvidencePlan(plan, {
     async executeDax() { count += 1; throw Object.assign(new Error(label), raw); },
     async repairDax() { throw new Error("tidak boleh dipanggil"); },
+    tracker: { event: async (stage, data) => attemptEvents.push({ stage, ...data }) },
   });
   ok(`${label}: error code`, result.status === "failed" && result.errorCode === expected,
     JSON.stringify(result));
   ok(`${label}: satu attempt`, count === 1, String(count));
+  ok(`${label}: thrown error punya terminal attempt`,
+    attemptEvents.some((event) => event.stage === "dax_attempt" && event.status === "error"
+      && event.rowsReturned === 0 && event.errorCode === expected),
+    JSON.stringify(attemptEvents));
 }
 
 section("Query sukses tanpa baris dibedakan dari gagal");

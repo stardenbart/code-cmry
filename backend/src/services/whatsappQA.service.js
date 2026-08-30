@@ -22,9 +22,68 @@ import { ambilSnapshotMingguan } from "./historicalStore.service.js";
 import { jendelaMinggu, jendelaLaporan } from "../utils/dateWindow.util.js";
 import { sanitasiTeks, mengandungPolaInstruksi } from "../utils/sanitizeText.util.js";
 import { aturanGayaSantai } from "./gayaBahasa.js";
+import { getSanitizer } from "./aiSanitizer.js";
+import { humanizeIdentifier, humanizeTechnicalText } from "./ciaHumanLabels.service.js";
 
 /** Batas panjang jawaban di grup. Lebih pendek dari laporan: ini balasan chat. */
 export const BATAS_JAWABAN = Number(process.env.WHATSAPP_QA_MAX_CHARS) || 1200;
+
+function sanitizeBreakdowns(domains, sanitizer) {
+  return (domains || []).map((domain) => ({
+    ...domain,
+    kpi: (domain.kpi || []).map((kpi) => {
+      if (kpi.jenis !== "breakdown" || !Array.isArray(kpi.baris)) return kpi;
+      const textColumns = Array.isArray(kpi.kolomTeksDipakai) ? kpi.kolomTeksDipakai : [];
+      const columns = [kpi.dimensi || "Label", ...textColumns];
+      const snapshot = sanitizer.sanitizeSnapshot({
+        visuals: [{ columns, rows: kpi.baris.map((row) => [row.label, ...textColumns.map((key) => row[key])]) }],
+      });
+      const visual = snapshot?.visuals?.[0];
+      return {
+        ...kpi,
+        dimensi: visual?.columns?.[0] || kpi.dimensi,
+        kolomTeksDipakai: (visual?.columns || []).slice(1),
+        baris: (visual?.rows || []).map((row, rowIndex) => ({
+          label: row[0], value: kpi.baris[rowIndex]?.value,
+          ...Object.fromEntries((visual.columns || []).slice(1).map((column, index) => [column, row[index + 1]])),
+        })),
+      };
+    }),
+  }));
+}
+
+function humanizePayload(value) {
+  if (Array.isArray(value)) return value.map(humanizePayload);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+      humanizeTechnicalText(key), humanizePayload(item),
+    ]));
+  }
+  return typeof value === "string" ? humanizeTechnicalText(value) : value;
+}
+
+export function prepareSnapshotModelInput({ question, jendela, domains }, injected = {}) {
+  const sanitizer = injected.sanitizer || getSanitizer();
+  const safeDomains = sanitizeBreakdowns(domains, sanitizer).map((domain) => ({
+    ...domain,
+    kpi: (domain.kpi || []).map((kpi) => ({
+      ...kpi,
+      kpi: humanizeIdentifier(kpi.kpi),
+      dimensi: kpi.dimensi ? humanizeIdentifier(kpi.dimensi) : kpi.dimensi,
+      measures: (kpi.measures || []).map(humanizeIdentifier),
+      values: (kpi.values || []).map((item) => ({ ...item, measure: humanizeIdentifier(item.measure) })),
+    })),
+  }));
+  return {
+    question: humanizeTechnicalText(sanitizer.sanitizeText(question)),
+    muatan: humanizePayload(susunMuatan({ jendela, domains: safeDomains })),
+    sanitizer,
+  };
+}
+
+export function sanitizeSnapshotModelAnswer(text, sanitizer = getSanitizer()) {
+  return humanizeTechnicalText(sanitizer.sanitizeText(text));
+}
 
 async function kunci() {
   const k = await aiSettings.kunciUntukJob();
@@ -212,7 +271,8 @@ export async function jawabDariSnapshot({ pertanyaan }) {
  * dipakai tanpa ada yang sadar.
  */
 async function tanyakanKeModel({ tanya, dicurigai, jendela, domains, sumber }) {
-  const muatan = susunMuatan({ jendela, domains });
+  const prepared = prepareSnapshotModelInput({ question: tanya, jendela, domains });
+  const { muatan, sanitizer } = prepared;
 
   const apiKey = await kunci();
   if (!apiKey) return { berhasil: false, alasan: "kunci universal CIA belum diatur" };
@@ -224,7 +284,7 @@ async function tanyakanKeModel({ tanya, dicurigai, jendela, domains, sumber }) {
     "```",
     "",
     "Pertanyaan dari grup:",
-    tanya,
+    prepared.question,
   ];
   if (dicurigai) {
     isi.push(
@@ -249,7 +309,7 @@ async function tanyakanKeModel({ tanya, dicurigai, jendela, domains, sumber }) {
       geminiTimeoutMs: Number(process.env.WHATSAPP_QA_TIMEOUT_MS) || 90_000,
     });
 
-    let teks = String(hasil?.text || "").trim();
+    let teks = sanitizeSnapshotModelAnswer(String(hasil?.text || "").trim(), sanitizer);
     if (!teks) return { berhasil: false, alasan: "model tidak mengembalikan jawaban" };
 
     if (teks.length > BATAS_JAWABAN) {

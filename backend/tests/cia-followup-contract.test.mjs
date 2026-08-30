@@ -35,6 +35,19 @@ ok("menambah denominator", inherited.requiredConcepts.includes("running hours"),
 ok("mewarisi mesin dan periode", inherited.entities[0]?.value === "evergreen"
   && inherited.periods[0]?.from === "2026-06-01", JSON.stringify(inherited));
 
+section("Turn assistant tanpa contract menjadi batas lineage");
+const afterSnapshot = resolveFollowUpContext({
+  question: "lanjutkan yang barusan",
+  conversation: [
+    { role: "assistant", text: "Downtime Evergreen 42 menit", evidenceContract: previousDowntimeContract },
+    { role: "user", text: "sekarang lihat lembur" },
+    { role: "assistant", text: "Ringkasan snapshot lembur tersedia" },
+  ],
+});
+ok("snapshot contract-less tidak mencari-through contract live lama",
+  afterSnapshot.sources.length === 0 && afterSnapshot.entities.length === 0 && afterSnapshot.periods.length === 0,
+  JSON.stringify(afterSnapshot));
+
 const fullConceptContract = createEvidenceContract({
   intentFrame: { concepts: ["downtime", ...Array.from({ length: 11 }, (_, index) => `stale-${index}`)] },
 });

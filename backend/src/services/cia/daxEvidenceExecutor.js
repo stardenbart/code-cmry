@@ -136,11 +136,21 @@ export async function executeEvidencePlan(plan, injected = {}) {
       });
       result = await executeDax(datasetId, dax, { maksBaris: plan.maxRows || 500 });
     } catch (error) {
+      await tracker?.event?.("dax_attempt", {
+        semanticModel: plan.semanticModel, status: "error", rowsReturned: 0,
+        errorCode: typedError(error), errorMessage: safeMessage(error?.message),
+        metadata: { attempt: attempts, dashboards: [plan.dashboardId].filter(Boolean), period: plan.period?.label || null },
+      });
       return failure(plan, startedAt, attempts, typedError(error), error?.message);
     }
 
     if (result?.berhasil === true || result?.status === "success") {
       const rawRows = result.baris ?? result.rows ?? [];
+      await tracker?.event?.("dax_attempt", {
+        semanticModel: plan.semanticModel, status: "success", rowsReturned: rawRows.length,
+        errorCode: null,
+        metadata: { attempt: attempts, dashboards: [plan.dashboardId].filter(Boolean), period: plan.period?.label || null },
+      });
       if (!rawRows.length) {
         return {
           ...failure(plan, startedAt, attempts, null),
@@ -169,6 +179,11 @@ export async function executeEvidencePlan(plan, injected = {}) {
 
     const errorCode = typedError(result);
     const errorMessage = result?.alasan ?? result?.errorMessage ?? "";
+    await tracker?.event?.("dax_attempt", {
+      semanticModel: plan.semanticModel, status: "error", rowsReturned: 0,
+      errorCode, errorMessage: safeMessage(errorMessage),
+      metadata: { attempt: attempts, dashboards: [plan.dashboardId].filter(Boolean), period: plan.period?.label || null },
+    });
     if (errorCode !== "DAX_INVALID" || attempts >= 2) {
       return failure(plan, startedAt, attempts, errorCode, errorMessage);
     }

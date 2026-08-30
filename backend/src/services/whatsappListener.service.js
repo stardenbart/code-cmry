@@ -664,7 +664,9 @@ export async function jawabPertanyaanUmum(sock, jid, msg, teks, overrides = {}) 
     async event(stage, data = {}) {
       if (stage === "response_sent") deferredResponse = data;
       else {
-        if (stage === "dax_attempt") daxAttempts.push(data);
+        if (stage === "dax_attempt" && (data.status === "success" || data.status === "error")) {
+          daxAttempts.push(data);
+        }
         await telemetry.event(stage, data);
       }
     },
@@ -689,20 +691,21 @@ export async function jawabPertanyaanUmum(sock, jid, msg, teks, overrides = {}) 
     deferredFailure = { error: err, data: { retrievalMethod: "none" } };
   }
 
-  const emitLegacyDax = async (status) => {
+  const emitLegacyDax = async () => {
     for (const attempt of daxAttempts) {
       await telemetry?.event("execute_dax", {
         semanticModel: attempt.semanticModel || null,
-        rowsReturned: attempt.rowsReturned || null,
-        status,
-        errorCode: status === "success" ? null : "DAX_AGENT_FAILED",
-        errorMessage: status === "success" ? null : "Kueri evidence WhatsApp belum menghasilkan jawaban",
+        rowsReturned: Number.isFinite(attempt.rowsReturned) ? attempt.rowsReturned : 0,
+        status: attempt.status,
+        errorCode: attempt.status === "success" ? null : (attempt.errorCode || "DAX_AGENT_FAILED"),
+        errorMessage: attempt.status === "success" ? null
+          : (attempt.errorMessage || "Kueri evidence WhatsApp belum menghasilkan jawaban"),
       });
     }
   };
 
   if (evidenceAnswer?.answer?.trim() && evidenceAnswer.retrievalMethod !== "none") {
-    await emitLegacyDax("success");
+    await emitLegacyDax();
     const sent = await balas(sock, jid, msg, evidenceAnswer.answer);
     if (!sent) {
       await telemetry?.fail({ code: "WA_DELIVERY_FAILED" }, {
@@ -722,7 +725,7 @@ export async function jawabPertanyaanUmum(sock, jid, msg, teks, overrides = {}) 
     return;
   }
 
-  await emitLegacyDax("error");
+  await emitLegacyDax();
   await telemetry?.event("fallback", {
     status: "error",
     errorCode: evidenceAnswer?.warnings?.[0] || deferredFailure?.error?.code || "EMPTY_RESULT",

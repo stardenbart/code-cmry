@@ -120,8 +120,9 @@ function latestContract(conversation) {
   for (let index = turns.length - 1; index >= 0; index -= 1) {
     const turn = turns[index];
     if (turn?.role !== "assistant") continue;
-    const contract = normalizeEvidenceContract(turn.evidenceContract ?? turn.evidence_contract);
-    if (contract) return contract;
+    // The latest assistant turn is a lineage boundary. A snapshot answer has no
+    // live evidence contract and must not inherit an older, unrelated result.
+    return normalizeEvidenceContract(turn.evidenceContract ?? turn.evidence_contract);
   }
   return null;
 }

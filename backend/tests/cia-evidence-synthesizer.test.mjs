@@ -183,6 +183,31 @@ ok("snapshot-only method/low", snapshotOnly.retrievalMethod === "snapshot"
   && snapshotOnly.confidence === "low", JSON.stringify(snapshotOnly));
 ok("snapshot-only tidak menyamar sebagai live", snapshotOnly.answer.includes("data snapshot"), snapshotOnly.answer);
 
+section("Snapshot model packet dan jawaban tidak membawa identifier teknis atau nilai filter mentah");
+let safeSnapshotPacket;
+const safeSnapshot = await synthesizeEvidence({
+  question: "berapa performa supplier",
+  evidence: [],
+  snapshotFallback: {
+    text: "'MeasureTable'[OT_HOURS]: 7; Supplier.Name = MITRA_1",
+    period: "Agustus 2026",
+    dashboards: [{ id: "d-safe", name: "Supplier OT",
+      text: "OT_HOURS: 7; Supplier.Name = MITRA_1" }],
+  },
+}, {
+  callModel: async (args) => {
+    safeSnapshotPacket = JSON.parse(args.question);
+    return modelReply({ answer: "OT_HOURS 7 untuk MITRA_1.", citedSourceIndexes: [0] })();
+  },
+});
+ok("packet snapshot memakai label manusia dan tidak punya filter asli",
+  !/OT_HOURS|Supplier\.Name|AJI/.test(JSON.stringify(safeSnapshotPacket))
+    && /Ot hours/.test(JSON.stringify(safeSnapshotPacket)),
+  JSON.stringify(safeSnapshotPacket));
+ok("jawaban snapshot tidak mengekspos identifier teknis atau filter asli",
+  !/OT_HOURS|Supplier\.Name|AJI/.test(safeSnapshot.answer) && /Ot hours/.test(safeSnapshot.answer),
+  safeSnapshot.answer);
+
 section("Tanpa bukti menghasilkan keterbatasan jujur tanpa memanggil AI");
 let calls = 0;
 const none = await synthesizeEvidence({ question: "jelaskan deviasi", evidence: [] }, {
