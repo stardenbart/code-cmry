@@ -194,6 +194,47 @@ ok("jawaban menyatakan bukti tidak tersedia",
 ok("method none dan low", none.retrievalMethod === "none" && none.confidence === "low",
   JSON.stringify(none));
 
+section("Evidence yang tidak cocok intent dibuang sebelum synthesis");
+let relevanceCalls = 0;
+const mismatched = await synthesizeEvidence({
+  question: "berapa downtime Evergreen dari Maintenance Downtime bulan Juni",
+  evidence: [{
+    status: "success", rows: [{ Mesin: "ORS", "Durasi downtime": 91 }],
+    period: { from: "2026-07-01", to: "2026-07-31" },
+    source: { dashboardId: "d-ors", dashboardName: "Dashboard DT ORS", kpis: ["Durasi downtime"] },
+    intentMatch: { concepts: true, entities: false, period: false, source: false },
+  }],
+  snapshotFallback: {
+    text: "ORS 91 menit", period: "Juli 2026", dashboards: [{ id: "d-ors", name: "Dashboard DT ORS" }],
+  },
+}, { callModel: async () => { relevanceCalls += 1; throw new Error("tidak boleh dipanggil"); } });
+ok("mismatch tidak dikirim ke model", relevanceCalls === 0, String(relevanceCalls));
+ok("row dan dashboard lain tidak masuk jawaban",
+  !/ORS|91|Dashboard DT ORS/i.test(mismatched.answer), mismatched.answer);
+ok("keterbatasan menyebut kategori mismatch",
+  /entitas|periode|sumber/i.test(mismatched.answer)
+    && mismatched.warnings.includes("EVIDENCE_RELEVANCE_MISMATCH"),
+  JSON.stringify(mismatched));
+ok("mismatch tidak diganti snapshot", mismatched.retrievalMethod === "none", JSON.stringify(mismatched));
+
+let filteredPacket;
+const relevantOnly = await synthesizeEvidence({
+  question: "berapa downtime Evergreen",
+  evidence: [
+    { ...overtime, intentMatch: { concepts: true, entities: true, period: true, source: true } },
+    { ...po, rows: [{ Mesin: "ORS", "Jam downtime": 91 }],
+      intentMatch: { concepts: false, entities: false, period: true, source: false } },
+  ],
+}, { callModel: async (args) => {
+  filteredPacket = JSON.parse(args.question);
+  return modelReply({ answer: "Downtime Evergreen tersedia.", citedSourceIndexes: [0] })();
+} });
+ok("packet hanya memuat evidence relevan",
+  filteredPacket?.sources?.length === 1 && !JSON.stringify(filteredPacket).includes("ORS"),
+  JSON.stringify(filteredPacket));
+ok("partial mismatch diberi warning", relevantOnly.warnings.includes("EVIDENCE_RELEVANCE_MISMATCH"),
+  JSON.stringify(relevantOnly));
+
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exit(summary() ? 0 : 1);
 }

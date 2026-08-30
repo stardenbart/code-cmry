@@ -7,6 +7,7 @@ import {
 const MAX_GOALS = 6;
 const MAX_DIMENSIONS = 6;
 const MAX_TEXT = 100;
+const METRIC_ROLES = new Set(["primary", "numerator", "denominator", "target", "detail", "correlation"]);
 
 function cleanText(value, limit = MAX_TEXT) {
   return typeof value === "string" ? value.trim().slice(0, limit) : "";
@@ -96,6 +97,9 @@ function normalizeGoals(value, candidates, periodCount, input, followUp) {
       .map((name) => dimensionsByKey.get(cleanText(name).toLowerCase()))
       .filter(Boolean))].slice(0, MAX_DIMENSIONS);
     const purpose = item.purpose === "correlation" ? "correlation" : "primary";
+    const requestedRole = cleanText(item.metricRole).toLowerCase();
+    const metricRole = purpose === "correlation" ? "correlation"
+      : METRIC_ROLES.has(requestedRole) ? requestedRole : "primary";
     const contextFilters = [
       ...(Array.isArray(input.contextFilters) ? input.contextFilters : []),
       ...(followUp.goals || []).filter((goal) => String(goal.kpiBindingId) === kpiBindingId)
@@ -115,10 +119,10 @@ function normalizeGoals(value, candidates, periodCount, input, followUp) {
       blueprint: binding.blueprint,
       ...filterPolicy,
     });
-    const goalKey = `${kpiBindingId}|${periodIndex}|${purpose}|${dimensions.join("|")}|${JSON.stringify(policy.filters)}`;
+    const goalKey = `${kpiBindingId}|${periodIndex}|${purpose}|${metricRole}|${dimensions.join("|")}|${JSON.stringify(policy.filters)}`;
     if (seen.has(goalKey)) continue;
     seen.add(goalKey);
-    goals.push({ kpiBindingId, dimensions, periodIndex, purpose, filters: policy.filters, filterPolicy });
+    goals.push({ kpiBindingId, dimensions, periodIndex, purpose, metricRole, filters: policy.filters, filterPolicy });
   }
   return goals;
 }
@@ -171,7 +175,7 @@ export async function planEvidence(input = {}, injected = {}) {
   try {
     response = await callModel({
       ...(input.modelOptions || {}),
-      systemInstruction: "Kembalikan JSON saja: {goals:[{kpiBindingId,dimensions,filters:[{dimension,value}],periodIndex,purpose}],followUpSignals:[{concept,reason}]}. Gunakan hanya bindingId dan dimensi dari blueprint kandidat.",
+      systemInstruction: "Kembalikan JSON saja: {goals:[{kpiBindingId,dimensions,filters:[{dimension,value}],periodIndex,purpose,metricRole}],followUpSignals:[{concept,reason}]}. metricRole hanya primary, numerator, denominator, target, detail, atau correlation. Gunakan hanya bindingId dan dimensi dari blueprint kandidat.",
       question: planningPrompt({ ...input, periods, candidateBindings: [...candidates.values()] }),
       maxOutputTokens: 1_000,
     });

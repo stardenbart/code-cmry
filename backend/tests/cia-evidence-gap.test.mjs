@@ -139,6 +139,105 @@ ok("periode tidak compatible belum complete", incompatible.complete === false,
 ok("warning periode tidak compatible",
   incompatible.warnings.includes("CORRELATION_PERIOD_MISMATCH"), JSON.stringify(incompatible));
 
+section("Role komposit hanya diperluas dari kandidat anchored");
+const composite = await analyzeEvidenceGap({
+  question: "berapa persentase downtime terhadap running hours",
+  plan: {
+    periods: [period],
+    goals: [{ kpiBindingId: "b-dt", periodIndex: 0, dimensions: [], purpose: "primary", metricRole: "numerator" }],
+    candidates: [
+      { bindingId: "b-dt", humanName: "Durasi downtime", metricRole: "numerator", anchorMatches: ["downtime"] },
+      { bindingId: "b-hours", humanName: "Running hours", metricRole: "denominator", anchorMatches: ["running hours"] },
+      { bindingId: "b-random", humanName: "Running hours", metricRole: "denominator", anchorMatches: [] },
+    ],
+  },
+  evidence: [evidence({ bindingId: "b-dt", slug: "downtime", humanName: "Durasi downtime" }, [])],
+  round: 1,
+});
+ok("denominator anchored ditambahkan",
+  composite.additionalGoals.some((goal) => goal.kpiBindingId === "b-hours" && goal.metricRole === "denominator"),
+  JSON.stringify(composite));
+ok("kandidat tanpa anchor tidak pernah dipakai",
+  composite.additionalGoals.every((goal) => goal.kpiBindingId !== "b-random"), JSON.stringify(composite));
+
+const achievement = await analyzeEvidenceGap({
+  question: "berapa achievement produksi terhadap target",
+  plan: {
+    periods: [period],
+    goals: [{ kpiBindingId: "b-actual", periodIndex: 0, dimensions: [], purpose: "primary", metricRole: "primary" }],
+    candidates: [
+      { bindingId: "b-actual", humanName: "Actual produksi", metricRole: "primary", anchorMatches: ["production"] },
+      { bindingId: "b-target", humanName: "Target produksi", metricRole: "target", anchorMatches: ["production"] },
+    ],
+  },
+  evidence: [evidence({ bindingId: "b-actual", slug: "production", humanName: "Actual produksi" }, [])],
+  round: 1,
+});
+ok("target anchored ditambahkan untuk achievement",
+  achievement.additionalGoals.some((goal) => goal.kpiBindingId === "b-target" && goal.metricRole === "target"),
+  JSON.stringify(achievement));
+
+const detail = await analyzeEvidenceGap({
+  question: "tampilkan detail downtime per masalah",
+  plan: {
+    periods: [period],
+    goals: [{ kpiBindingId: "b-dt", periodIndex: 0, dimensions: [], purpose: "primary", metricRole: "primary" }],
+    candidates: [
+      { bindingId: "b-dt", humanName: "Durasi downtime", metricRole: "primary", anchorMatches: ["downtime"] },
+      { bindingId: "b-detail", humanName: "Detail masalah downtime", metricRole: "detail",
+        dimensions: ["Masalah"], anchorMatches: ["downtime"] },
+    ],
+  },
+  evidence: [evidence({ bindingId: "b-dt", slug: "downtime", humanName: "Durasi downtime" }, [])],
+  round: 1,
+});
+ok("detail anchored ditambahkan saat diminta",
+  detail.additionalGoals.some((goal) => goal.kpiBindingId === "b-detail" && goal.metricRole === "detail"),
+  JSON.stringify(detail));
+
+const directRatio = await analyzeEvidenceGap({
+  question: "berapa persentase fulfillment",
+  plan: {
+    periods: [period],
+    goals: [{ kpiBindingId: "b-ratio", periodIndex: 0, dimensions: [], purpose: "primary", metricRole: "primary" }],
+    candidates: [{ bindingId: "b-ratio", humanName: "Fulfillment", blueprint: { role: "ratio" },
+      anchorMatches: ["purchase order"] }],
+  },
+  evidence: [evidence({ bindingId: "b-ratio", slug: "fulfillment", humanName: "Fulfillment" }, [])],
+  round: 1,
+});
+ok("ratio langsung tidak dipaksa menjadi numerator dan denominator",
+  directRatio.complete === true && directRatio.additionalGoals.length === 0,
+  JSON.stringify(directRatio));
+
+const previousPeriod = { from: "2026-07-01", to: "2026-07-31", comparisonKey: "previous" };
+const multiPeriod = await analyzeEvidenceGap({
+  question: "bandingkan persentase downtime terhadap running hours",
+  plan: {
+    periods: [period, previousPeriod],
+    goals: [0, 1].map((periodIndex) => ({
+      kpiBindingId: "b-dt", periodIndex, dimensions: [], purpose: "primary", metricRole: "numerator",
+    })),
+    candidates: [
+      { bindingId: "b-dt", humanName: "Durasi downtime", metricRole: "numerator", anchorMatches: ["downtime"] },
+      { bindingId: "b-hours", humanName: "Running hours", metricRole: "denominator", anchorMatches: ["running hours"] },
+    ],
+  },
+  evidence: [
+    { ...evidence({ bindingId: "b-dt", humanName: "Durasi downtime" }, []),
+      goal: { kpiBindingId: "b-dt", periodIndex: 0, metricRole: "numerator" } },
+    { ...evidence({ bindingId: "b-dt", humanName: "Durasi downtime" }, []), period: previousPeriod,
+      goal: { kpiBindingId: "b-dt", periodIndex: 1, metricRole: "numerator" } },
+    { ...evidence({ bindingId: "b-hours", humanName: "Running hours" }, []),
+      goal: { kpiBindingId: "b-hours", periodIndex: 0, metricRole: "denominator" } },
+  ],
+  round: 2,
+});
+ok("setiap periode mendapat denominator sendiri",
+  multiPeriod.additionalGoals.some((goal) => goal.kpiBindingId === "b-hours"
+    && goal.metricRole === "denominator" && goal.periodIndex === 1),
+  JSON.stringify(multiPeriod));
+
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exit(summary() ? 0 : 1);
 }

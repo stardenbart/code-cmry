@@ -53,6 +53,71 @@ function goalShapeKey(goal) {
   const period = Number.isInteger(Number(goal?.periodIndex)) ? Number(goal.periodIndex) : 0;
   return `${String(goal?.kpiBindingId ?? "").trim()}::${period}::${dims}`;
 }
+
+function normalizedText(value) {
+  return String(value ?? "").normalize("NFKD").toLocaleLowerCase("id-ID")
+    .replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function entityValueMatches(left, right) {
+  const actual = normalizedText(left).replace(/\s+/g, "");
+  const wanted = normalizedText(right).replace(/\s+/g, "");
+  return Boolean(actual && wanted && (actual.includes(wanted) || wanted.includes(actual)));
+}
+
+function compatiblePeriod(left, right) {
+  return Boolean(left?.from && left?.to && right?.from && right?.to
+    && left.from === right.from && left.to === right.to);
+}
+
+function sourceMatches(source, binding, constraints) {
+  const expectedDashboard = binding?.dashboardId == null ? "" : String(binding.dashboardId);
+  const actualDashboard = source?.dashboardId == null ? "" : String(source.dashboardId);
+  if (expectedDashboard && actualDashboard && expectedDashboard !== actualDashboard) return false;
+  const requested = Array.isArray(constraints) ? constraints : [];
+  if (!requested.length) return true;
+  const labels = [source?.dashboardId, source?.dashboardName, source?.reportId, source?.semanticModel]
+    .map(normalizedText).filter(Boolean);
+  return requested.some((constraint) => {
+    const value = normalizedText(constraint?.value);
+    return value && labels.some((label) => label === value || label.includes(value) || value.includes(label));
+  });
+}
+
+const ENTITY_COLUMNS = {
+  machine: /machine|mesin/i,
+  cmd: /cmd|gedung/i,
+  product: /product|produk/i,
+  plant: /plant/i,
+};
+
+function entitiesMatch(entities, result, goal) {
+  const requested = Array.isArray(entities) ? entities : [];
+  if (!requested.length) return true;
+  const rows = Array.isArray(result?.rows) ? result.rows : [];
+  const filters = Array.isArray(goal?.filters) ? goal.filters : [];
+  return requested.every((entity) => {
+    const wanted = normalizedText(entity?.value);
+    if (!wanted) return true;
+    const columnPattern = ENTITY_COLUMNS[entity?.type];
+    if (!columnPattern) return true;
+    const rowValues = rows.flatMap((row) => Object.entries(row || {})
+      .filter(([label]) => columnPattern.test(label)).map(([, value]) => normalizedText(value)));
+    if (rowValues.length) return rowValues.some((value) => entityValueMatches(value, wanted));
+    return filters.some((filter) => entityValueMatches(filter?.value, wanted));
+  });
+}
+
+function intentMatch({ intentFrame, period, binding, goal, result, source }) {
+  const concepts = Array.isArray(intentFrame?.concepts) ? intentFrame.concepts.map(normalizedText) : [];
+  const anchors = Array.isArray(binding?.anchorMatches) ? binding.anchorMatches.map(normalizedText) : [];
+  return {
+    concepts: !concepts.length || !anchors.length || anchors.some((anchor) => concepts.includes(anchor)),
+    entities: entitiesMatch(intentFrame?.entities, result, goal),
+    period: compatiblePeriod(result?.period, period),
+    source: sourceMatches(source, binding, intentFrame?.sourceConstraints),
+  };
+}
 function goalKey(goal) {
   const filters = (Array.isArray(goal?.filters) ? goal.filters : []).map((filter) =>
     `${String(filter?.dimension ?? "").trim().toLowerCase()}=${String(filter?.value ?? "").trim().toLowerCase()}`)
@@ -106,6 +171,7 @@ function deterministicGoals(candidates, periods, limit = 6) {
           .map(dimLabel).filter(Boolean).slice(0, 6),
         periodIndex,
         purpose: "primary",
+        metricRole: "primary",
       });
     }
   }
@@ -279,7 +345,7 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
           : new Set(fallbackGoals.length ? [String(fallbackGoals[0].kpiBindingId)] : []);
         const recoveryGoals = fallbackGoals.filter((goal) => recoveryBinding.has(String(goal.kpiBindingId))
           && !plannedKeys.has(goalShapeKey(goal)));
-        goals = [...plannedGoals, ...recoveryGoals];
+        goals = [...plannedGoals, ...recoveryGoals].slice(0, 6);
       }
 
       // 5-10. Bounded retrieval loop.
@@ -326,7 +392,13 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
 
           const result = await d.executeEvidencePlan(daxPlan, { ...deps.executorDeps, tracker });
           addUsage(result?.usage);
-          roundResults.push({ ...result, goal: effectiveGoal, source: result?.source || sourceFrom(daxPlan) });
+          const source = result?.source || sourceFrom(daxPlan);
+          roundResults.push({
+            ...result,
+            goal: effectiveGoal,
+            source,
+            intentMatch: intentMatch({ intentFrame, period, binding, goal: effectiveGoal, result, source }),
+          });
         }
         evidence.push(...roundResults);
 

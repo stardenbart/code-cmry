@@ -127,6 +127,21 @@ function emptyResult(warnings = []) {
   };
 }
 
+function matchesIntent(item) {
+  const match = item?.intentMatch;
+  return !match || ["concepts", "entities", "period", "source"].every((key) => match[key] !== false);
+}
+
+function relevanceFailure(evidence, warnings) {
+  const labels = { concepts: "metrik bisnis", entities: "entitas", period: "periode", source: "sumber dashboard" };
+  const mismatches = [...new Set(evidence.flatMap((item) => Object.entries(item?.intentMatch || {})
+    .filter(([, matched]) => matched === false).map(([key]) => labels[key]).filter(Boolean)))];
+  return {
+    ...emptyResult([...warnings, "EVIDENCE_RELEVANCE_MISMATCH"]),
+    answer: `Bukti yang ditemukan tidak cocok dengan ${mismatches.join(", ") || "intent pertanyaan"} yang diminta. CIA tidak akan menggantinya dengan data lain.`,
+  };
+}
+
 function displayValue(value) {
   if (value == null) return "-";
   if (typeof value === "number") return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(value);
@@ -205,10 +220,17 @@ function evidenceFallback(sources, retrievalMethod, warnings, metadata = {}, que
 
 export async function synthesizeEvidence(input = {}, injected = {}) {
   const callModel = injected.callModel || tanyaModelTerstruktur;
-  const live = liveSources(input.evidence, input.question);
   const warnings = [...new Set((Array.isArray(input.warnings) ? input.warnings : [])
     .map((value) => clean(value, 100)).filter(Boolean))];
-  const evidence = Array.isArray(input.evidence) ? input.evidence : [];
+  const allEvidence = Array.isArray(input.evidence) ? input.evidence : [];
+  const mismatched = allEvidence.filter((item) => !matchesIntent(item));
+  const evidence = allEvidence.filter(matchesIntent);
+  if (mismatched.length) warnings.push("EVIDENCE_RELEVANCE_MISMATCH");
+  if (mismatched.some((item) => item?.status === "success" && Array.isArray(item.rows) && item.rows.length)
+    && !evidence.some((item) => item?.status === "success" && Array.isArray(item.rows) && item.rows.length)) {
+    return relevanceFailure(mismatched, warnings);
+  }
+  const live = liveSources(evidence, input.question);
   const unresolved = warnings.some((warning) => ["EVIDENCE_GAP_UNRESOLVED", "MAX_RETRIEVAL_ROUNDS_REACHED"].includes(warning));
   const liveIncomplete = !live.length || evidence.some((item) => item?.status !== "success") || unresolved;
   const snapshots = liveIncomplete ? snapshotSources(input.snapshotFallback) : [];
@@ -250,8 +272,7 @@ export async function synthesizeEvidence(input = {}, injected = {}) {
   const citations = validCitationIndexes(requestedCitations, sources.length);
   const invalidCitation = citations.length !== requestedCitations.length || citations.length === 0;
   if (invalidCitation) warnings.push("INVALID_SOURCE_CITATION");
-  const hasMechanism = (Array.isArray(input.evidence) ? input.evidence : [])
-    .some((item) => item?.causalMechanism === true);
+  const hasMechanism = evidence.some((item) => item?.causalMechanism === true);
   const asksCausality = /\b(karena|penyebab|menyebabkan|memicu|akibat|korelasi|berkorelasi|hubungan)\b/i
     .test(String(input.question || ""));
   let correlationInsufficient = false;

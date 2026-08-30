@@ -1,5 +1,7 @@
 const clean = (value) => typeof value === "string" ? value.trim() : "";
 const normalized = (value) => clean(value).toLowerCase().replace(/[_-]+/g, " ");
+const MAX_GOALS = 6;
+const METRIC_ROLES = new Set(["primary", "numerator", "denominator", "target", "detail", "correlation"]);
 
 const DIMENSION_TERMS = [
   { match: /tanggal|date|hari/, concept: "tanggal" },
@@ -60,8 +62,28 @@ function goalKey(goal) {
   return [
     clean(goal?.kpiBindingId),
     Number.isInteger(Number(goal?.periodIndex)) ? Number(goal.periodIndex) : 0,
+    metricRole(goal),
     [...new Set((goal?.dimensions || []).map(dimensionConcept))].sort().join("|"),
   ].join("::");
+}
+
+function metricRole(value) {
+  const explicit = clean(value?.metricRole).toLowerCase();
+  if (METRIC_ROLES.has(explicit)) return explicit;
+  if (value?.purpose === "correlation") return "correlation";
+  const identity = normalized(`${value?.humanName || ""} ${value?.slug || ""} ${value?.blueprint?.role || ""}`);
+  if (/running hours|denominator|capacity|kapasitas/.test(identity)) return "denominator";
+  if (/target|planning|rencana/.test(identity)) return "target";
+  if (/detail|rincian/.test(identity)) return "detail";
+  return "primary";
+}
+
+function requiredMetricRoles(question) {
+  const q = normalized(question);
+  if (/persen|persentase|percentage/.test(q) && /downtime/.test(q)) return ["numerator", "denominator"];
+  if (/achievement|achivement|capaian/.test(q)) return ["primary", "target"];
+  if (/detail|rincian|breakdown/.test(q)) return ["primary", "detail"];
+  return [];
 }
 
 async function candidatePool(plan, library, question) {
@@ -124,9 +146,40 @@ export async function analyzeEvidenceGap({ question = "", plan = {}, evidence = 
     }
   }
 
+  const successfulRolePeriods = new Set(successful.map((item) => {
+    const evidenceGoal = item?.goal || item;
+    const planned = (plan.goals || []).find((goal) => clean(goal.kpiBindingId) === evidenceBindingId(item));
+    const explicitIndex = Number(evidenceGoal?.periodIndex);
+    const periodIndex = Number.isInteger(explicitIndex) && explicitIndex >= 0
+      ? explicitIndex
+      : Math.max(0, (plan.periods || []).findIndex((period) => compatiblePeriod(item?.period, period)));
+    return `${metricRole({ ...planned, ...evidenceGoal })}:${periodIndex}`;
+  }));
+  const requestedPeriodIndexes = [...new Set(primaryGoals.map((goal) => Number(goal.periodIndex) || 0))];
+  for (const periodIndex of requestedPeriodIndexes.length ? requestedPeriodIndexes : [0]) {
+    for (const role of requiredMetricRoles(question)) {
+      if (successfulRolePeriods.has(`${role}:${periodIndex}`)) continue;
+      missing.push(`metric:${role}:period:${periodIndex}`);
+      const candidate = candidates.find((item) => Array.isArray(item?.anchorMatches)
+        && item.anchorMatches.length > 0 && metricRole(item) === role);
+      if (candidate) {
+        desired.push({
+          kpiBindingId: clean(candidate.bindingId),
+          periodIndex,
+          dimensions: requestedDimensions(question, candidate),
+          purpose: role === "correlation" ? "correlation" : "primary",
+          metricRole: role,
+        });
+      }
+    }
+  }
+
   const uniqueMissing = [...new Set(missing)];
   let additionalGoals = [...new Map(desired.map((goal) => [goalKey(goal), goal])).values()]
     .filter((goal) => !attempted.has(goalKey(goal)));
+  const goalCount = new Set([...(plan.goals || []), ...evidence.map((item) => item?.goal || item)]
+    .map(goalKey).filter(Boolean)).size;
+  additionalGoals = additionalGoals.slice(0, Math.max(0, MAX_GOALS - goalCount));
 
   if (round >= 4 && uniqueMissing.length) {
     additionalGoals = [];
