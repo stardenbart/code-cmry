@@ -25,7 +25,9 @@ export async function askUnified(options, conversationId = null, legacySnapshots
     const { data } = await API.post(`${BASE}/ask`, {
       question: input.question,
       conversationId: input.conversationId || null,
+      conversation: input.conversation || [],
       preferredDashboardIds: input.preferredDashboardIds || [],
+      reportContext: input.reportContext || null,
       snapshots: input.legacySnapshots || [],
     });
     return data;

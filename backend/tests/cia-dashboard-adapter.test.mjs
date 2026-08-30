@@ -13,6 +13,16 @@ function request(overrides = {}) {
       dashboardId: 10,
       preferredDashboardIds: [20, 10],
       conversationId: "conv-1",
+      conversation: [
+        { role: "user", text: "berapa lembur?" },
+        { role: "assistant", text: "120 jam", evidenceContract: {
+          concepts: ["overtime"], entities: [], periods: [], sources: [{ dashboardId: "10" }], goals: [],
+        } },
+      ],
+      reportContext: {
+        dashboardId: "10", activePage: "Overview", selectedPages: ["Overview"],
+        filters: ["Supplier.Name = AJI"],
+      },
       question: "lembur bulan lalu kenapa naik?",
       ...overrides,
     },
@@ -51,6 +61,14 @@ section("Flag aktif membentuk envelope dashboard yang kompatibel");
     JSON.stringify(envelope.preferredDashboardIds));
   ok("periode tetap berasal dari pertanyaan", envelope.question.includes("bulan lalu"));
   ok("conversation diteruskan", envelope.conversationId === "conv-1");
+  ok("turn contract dashboard diteruskan",
+    envelope.conversation[1]?.evidenceContract?.sources?.[0]?.dashboardId === "10",
+    JSON.stringify(envelope.conversation));
+  ok("report aktif diteruskan sebagai context aman",
+    envelope.reportContext?.activePage === "Overview"
+      && envelope.reportContext?.selectedPages?.[0] === "Overview"
+      && envelope.reportContext?.filters === undefined,
+    JSON.stringify(envelope.reportContext));
   ok("snapshot hanya fallback", envelope.snapshotFallback?.text === "Total lembur 7 jam");
   ok("actor berasal dari server", envelope.actor.id === 7 && envelope.actor.department === "Produksi");
   ok("field lama answer tetap ada", result.answer.includes("Lembur naik"));
@@ -72,12 +90,15 @@ section("Kegagalan orchestrator meminta legacy fallback, bukan blank");
 
 section("Multi-Chat mendapat kontrak lama plus metadata evidence");
 {
+  let envelope;
   const result = await runWebEvidence({
     ...request({ dashboardId: undefined, preferredDashboardIds: [20, 30] }),
     surface: "multi_chat",
   }, {
     enabled: true,
-    answerWithEvidence: async () => ({
+    answerWithEvidence: async (value) => {
+      envelope = value;
+      return ({
       answer: "PO dan lembur berkorelasi.", requestId: "req-web-1",
       confidence: "medium", retrievalMethod: "live_dax", rounds: 2,
       warnings: ["CORRELATION_ONLY"], usage: { inputTokens: 5, outputTokens: 6, totalTokens: 11 },
@@ -89,7 +110,8 @@ section("Multi-Chat mendapat kontrak lama plus metadata evidence");
         { dashboardId: "20", dashboardName: "Lembur", period: "2026-07", kpis: ["Jam lembur"], rowCount: 5 },
         { dashboardId: "30", dashboardName: "PPIC", period: "2026-07", kpis: ["PO"], rowCount: 3 },
       ],
-    }),
+      });
+    },
   });
   ok("kontrak dashboards_used tersedia", result.dashboards_used?.length === 2);
   ok("conversation contract tetap disiapkan controller", result.answer === "PO dan lembur berkorelasi.");
@@ -97,6 +119,9 @@ section("Multi-Chat mendapat kontrak lama plus metadata evidence");
     && result.confidence === "medium" && result.warnings[0] === "CORRELATION_ONLY");
   ok("evidence contract diteruskan untuk disimpan controller",
     result.evidenceContract?.sources?.[0]?.dashboardId === "20", JSON.stringify(result.evidenceContract));
+  ok("Multi-Chat meneruskan contract turn ke orchestrator",
+    envelope.conversation[1]?.evidenceContract?.concepts?.[0] === "overtime",
+    JSON.stringify(envelope.conversation));
 }
 
 section("Controller memisahkan teks model tersanitasi dari filter DAX internal");

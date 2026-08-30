@@ -1,4 +1,5 @@
 import { tanyaModelTerstruktur } from "../modelRouter.js";
+import { humanizeIdentifier } from "../ciaHumanLabels.service.js";
 
 const MAX_ROWS_PER_SOURCE = 20;
 const clean = (value, limit = 4_000) => typeof value === "string" ? value.trim().slice(0, limit) : "";
@@ -14,8 +15,12 @@ function liveSources(evidence, question = "") {
   const ranking = /\b(top\s+\d+|tertinggi|terendah|terbesar|terkecil)\b/i.test(String(question));
   const sources = (Array.isArray(evidence) ? evidence : []).filter((item) => item?.status === "success"
     && Array.isArray(item.rows) && item.rows.length).map((item) => {
+    const configuredLabels = new Map((Array.isArray(item.columns) ? item.columns : [])
+      .flatMap((column) => column?.key
+        ? [[String(column.key), humanLabel(column.label || column.key, true)]] : []));
     const rows = item.rows.map((row) => Object.fromEntries(Object.entries(row || {})
-      .map(([label, value]) => [humanLabel(label), typeof value === "string" ? decodeText(value) : value])));
+      .map(([label, value]) => [configuredLabels.get(label) || humanLabel(label),
+        typeof value === "string" ? decodeText(value) : value])));
     return {
     kind: "live_dax",
     dashboardId: item.source?.dashboardId ?? null,
@@ -155,14 +160,41 @@ function decodeText(value) {
     .replace(/&quot;/gi, '"').replace(/&#(?:39|x27);/gi, "'");
 }
 
-function humanLabel(label) {
-  const normalized = String(label || "").trim().toLowerCase().replace(/[\s_-]+/g, " ");
+function humanLabel(label, configured = false) {
+  const raw = String(label || "").trim();
+  const qualified = /\[([^\]]+)\]\s*$/.exec(raw);
+  const field = qualified?.[1] || raw;
+  const normalized = field.toLowerCase().replace(/[\s_-]+/g, " ");
   if (/^nama mesin$|^machine name$|^mesin$/.test(normalized)) return "Mesin";
   if (/^issue$|^masalah$/.test(normalized)) return "Masalah";
   if (/^action$|^tindakan$/.test(normalized)) return "Tindakan";
   if (/^gedung$|^cmd( \/ gedung)?$/.test(normalized)) return "CMD / Gedung";
   if (/top mesin downtime|durasi downtime|downtime.*tertinggi/.test(normalized)) return "Durasi downtime";
-  return String(label || "").trim().replaceAll("_", " ");
+  if (configured && !qualified) return raw;
+  return qualified || /[_-]|[a-z0-9][A-Z]/.test(raw) ? humanizeIdentifier(field) : raw;
+}
+
+function escapePattern(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function safeAnswerLabels(answer, evidence) {
+  let result = String(answer || "");
+  const replacements = (Array.isArray(evidence) ? evidence : []).flatMap((item) =>
+    (Array.isArray(item?.columns) ? item.columns : []).flatMap((column) => {
+      const key = String(column?.key || "").trim();
+      if (!key) return [];
+      const label = humanLabel(column?.label || key, true);
+      const inner = /\[([^\]]+)\]\s*$/.exec(key)?.[1] || null;
+      return [[key, label], ...(inner && inner !== label ? [[inner, label]] : [])];
+    }));
+  replacements.sort((left, right) => right[0].length - left[0].length);
+  for (const [technical, label] of replacements) {
+    result = result.replace(new RegExp(escapePattern(technical), "gi"), label);
+  }
+  return result
+    .replace(/'?[^'\s\[]+'?\[[^\]]+\]/g, (value) => humanLabel(value))
+    .replace(/\b[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+\b/g, (value) => humanLabel(value));
 }
 
 function requestedRowLimit(question) {
@@ -288,6 +320,7 @@ export async function synthesizeEvidence(input = {}, injected = {}) {
   let answer = correlationInsufficient
     ? "Bukti yang tersedia belum cukup untuk menyimpulkan korelasi atau penyebab. CIA memerlukan sedikitnya dua sumber live pada periode yang sama."
     : correlationLanguage(clean(parsed.answer), hasMechanism);
+  answer = safeAnswerLabels(answer, evidence);
   const cited = citationText(citations, sources);
   if (cited) answer = `${answer}\n\n${cited}`;
   if (snapshots.length) {

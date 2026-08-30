@@ -328,6 +328,17 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
       const { data } = await API.post("/api/ai/ask", {
         dashboardId: dashboard.id,
         question: q,
+        conversation: messages.slice(-12).map((message) => ({
+          role: message.role === "ai" ? "assistant" : "user",
+          text: message.text,
+          ...(message.evidenceContract ? { evidenceContract: message.evidenceContract } : {}),
+        })),
+        preferredDashboardIds: [dashboard.id],
+        reportContext: {
+          dashboardId: String(dashboard.id),
+          activePage: payloadSnapshot?.pageName || pages.find((page) => page.isActive)?.name || null,
+          selectedPages: payloadSnapshot?.pagesRead || selectedPages,
+        },
         snapshot: payloadSnapshot,
         tier,
         // Dikirim oleh tombol "Tanya AI untuk analisa lebih dalam", supaya
@@ -337,6 +348,7 @@ const AskAIPanel = React.forwardRef(function AskAIPanel({
       setMessages((prev) => [...prev, {
         role: "ai", text: data.answer, meta: data.meta, sourceQuestion: q,
         sources: data.sources, warnings: data.warnings, requestId: data.requestId,
+        evidenceContract: data.evidenceContract,
       }]);
       if (data.meta?.quota) setQuota((prev) => ({ ...prev, ...data.meta.quota }));
     } catch (err) {

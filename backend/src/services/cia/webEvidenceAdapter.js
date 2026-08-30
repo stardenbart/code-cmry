@@ -61,6 +61,17 @@ function multiChatPayload(answer) {
   };
 }
 
+function safeReportContext(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const dashboardId = String(value.dashboardId ?? "").trim() || null;
+  const dashboardIds = uniqueIds(Array.isArray(value.dashboardIds) ? value.dashboardIds : []).slice(0, 50);
+  const activePage = String(value.activePage ?? "").trim().slice(0, 150) || null;
+  const selectedPages = [...new Set((Array.isArray(value.selectedPages) ? value.selectedPages : [])
+    .map((page) => String(page ?? "").trim().slice(0, 150)).filter(Boolean))].slice(0, 50);
+  return dashboardId || dashboardIds.length || activePage || selectedPages.length
+    ? { dashboardId, dashboardIds, activePage, selectedPages } : null;
+}
+
 /**
  * Thin compatibility boundary between existing web endpoints and the shared
  * evidence orchestrator. A null result deliberately means "continue legacy".
@@ -81,6 +92,7 @@ export async function runWebEvidence(input = {}, injected = {}) {
         body.dashboardId,
         ...(Array.isArray(body.preferredDashboardIds) ? body.preferredDashboardIds : []),
       ]),
+      reportContext: safeReportContext(body.reportContext),
       snapshotFallback: input.snapshotFallback || null,
     }, input.tracker ? { tracker: input.tracker } : {});
     if (!answer?.answer?.trim()) throw new Error("EMPTY_ORCHESTRATOR_ANSWER");
