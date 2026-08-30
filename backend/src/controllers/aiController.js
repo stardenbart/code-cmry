@@ -204,16 +204,40 @@ async function resolveKey(userId, requestedModel) {
 // supaya penanganan error lama tidak berubah. Deklarasi function (bukan const)
 // dipakai sengaja: ia ter-hoist sehingga bisa membungkus method di object
 // literal AiController di bawahnya.
+export function buildEvidenceSnapshotFallback(snapshotResults = [], sanitizer = getSanitizer(),
+  charBudget = TIER_CHAR_BUDGET.cepat) {
+  const entries = (Array.isArray(snapshotResults) ? snapshotResults : []).filter((entry) =>
+    entry?.snapshot && entry?.dashboard);
+  if (!entries.length) return null;
+  const prepared = entries.map((entry) => {
+    const dashboardId = String(entry.dashboard_id ?? entry.dashboard.id);
+    const sanitized = sanitizer.sanitizeSnapshot(entry.snapshot);
+    const context = buildDataContext(sanitized, entry.dashboard, charBudget);
+    return {
+      dashboard: {
+        id: dashboardId,
+        name: entry.dashboard.title,
+        text: typeof context === "string" ? context : context?.text || "",
+      },
+      period: sanitized?.period || null,
+      reportFilters: extractReportFilters(entry.snapshot, { dashboardId }),
+    };
+  });
+  return {
+    ...(prepared.length === 1 ? {
+      text: prepared[0].dashboard.text,
+      period: prepared[0].period,
+    } : {}),
+    dashboards: prepared.map((entry) => entry.dashboard),
+    reportFilters: prepared.flatMap((entry) => entry.reportFilters),
+  };
+}
+
 async function tryDashboardEvidence(req, user, dashboard, snapshot) {
   const sanitizedSnapshot = getSanitizer().sanitizeSnapshot(snapshot);
   const snapshotFallback = Array.isArray(sanitizedSnapshot?.visuals)
     && sanitizedSnapshot.visuals.some((v) => Array.isArray(v?.rows) && v.rows.length)
-    ? {
-        text: buildDataContext(sanitizedSnapshot, dashboard, TIER_CHAR_BUDGET.cepat),
-        period: sanitizedSnapshot.period || null,
-        reportFilters: extractReportFilters(sanitizedSnapshot),
-        dashboards: [{ id: dashboard.id, name: dashboard.title }],
-      }
+    ? buildEvidenceSnapshotFallback([{ dashboard, dashboard_id: dashboard.id, snapshot }])
     : null;
   return runWebEvidence({
     surface: "dashboard",
@@ -1496,17 +1520,8 @@ export const AiController = {
         }
       }
 
-      const multiSanitizer = getSanitizer();
       const multiSnapshotFallback = snapshotResults.length
-        ? {
-            dashboards: snapshotResults.map((r) => ({
-              id: r.dashboard_id,
-              name: r.dashboard.title,
-              text: buildDataContext(
-                multiSanitizer.sanitizeSnapshot(r.snapshot), r.dashboard, TIER_CHAR_BUDGET.cepat,
-              ),
-            })),
-          }
+        ? buildEvidenceSnapshotFallback(snapshotResults)
         : null;
       const evidenceResponse = await runWebEvidence({
         surface: "multi_chat",

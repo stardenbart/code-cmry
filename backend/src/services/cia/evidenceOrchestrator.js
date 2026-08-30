@@ -23,6 +23,7 @@ import { createEvidenceContract } from "./evidenceContract.js";
 import { routeEvidence } from "./evidenceRouter.js";
 import { planEvidence } from "./evidencePlanner.js";
 import { buildDaxPlan } from "./daxPlanBuilder.js";
+import { filtersForBindingAssociation } from "./visualBlueprint.js";
 import { executeEvidencePlan } from "./daxEvidenceExecutor.js";
 import { analyzeEvidenceGap } from "./evidenceGapAnalyzer.js";
 import { synthesizeEvidence } from "./evidenceSynthesizer.js";
@@ -292,11 +293,8 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
           const binding = bindingIndex.get(String(goal.kpiBindingId));
           if (!binding) { warnings.push("GOAL_BINDING_UNKNOWN"); continue; }
           const period = periods[goal.periodIndex] || periods[0] || {};
-          const effectiveGoal = { ...goal, filters: [
-            ...(Array.isArray(goal.filters) ? goal.filters : []),
-            ...entityFilters(env.question, binding),
-          ] };
-          executedGoals.push(effectiveGoal);
+          const explicitFilters = entityFilters(env.question, binding);
+          let effectiveGoal = goal;
 
           let daxPlan;
           try {
@@ -305,9 +303,20 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
               .filter((item) => String(item?.kpiBindingId) === String(goal.kpiBindingId))
               .flatMap((item) => item?.filters || []);
             daxPlan = d.buildDaxPlan({
-              question: env.question, goal: effectiveGoal, binding, period, schema,
-              contextFilters, reportFilters,
+              question: env.question, goal, binding, period, schema, explicitFilters,
+              contextFilters: filtersForBindingAssociation(contextFilters, binding),
+              reportFilters: filtersForBindingAssociation(reportFilters, binding),
             });
+            effectiveGoal = {
+              ...goal,
+              filters: Array.isArray(daxPlan.selectedFilters)
+                ? daxPlan.selectedFilters.map((filter) => ({
+                    dimension: filter.humanName || filter.column,
+                    value: filter.value,
+                  }))
+                : [...explicitFilters, ...(Array.isArray(goal.filters) ? goal.filters : [])],
+            };
+            executedGoals.push(effectiveGoal);
           } catch (err) {
             // Typed planning failure (mis. DATE_COLUMN_NOT_ALLOWED / schema
             // unavailable): jangan mengarang, catat & lanjut → fallback transparan.

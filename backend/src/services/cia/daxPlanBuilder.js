@@ -1,4 +1,7 @@
-import { buildVisualBlueprint, resolveFilterPolicy } from "./visualBlueprint.js";
+import { humanizeIdentifier } from "../ciaHumanLabels.service.js";
+import {
+  buildVisualBlueprint, filtersForBindingAssociation, resolveFilterPolicy,
+} from "./visualBlueprint.js";
 
 export class DaxPlanError extends Error {
   constructor(code, message) {
@@ -69,15 +72,16 @@ function parseDimension(raw) {
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     const table = clean(raw.table ?? raw.tableName ?? raw.tabel);
     const column = clean(raw.column ?? raw.columnName ?? raw.kolom);
-    return table && column ? {
+    return column ? {
       table, column,
-      humanName: clean(raw.humanName ?? raw.displayCaption ?? raw.label) || column,
+      humanName: clean(raw.humanName ?? raw.displayCaption ?? raw.label) || humanizeIdentifier(column),
     } : null;
   }
   const value = clean(raw);
   const qualified = /^'?(.+?)'?\[([^\]]+)\]$/.exec(value);
-  if (qualified) return { table: clean(qualified[1]), column: clean(qualified[2]), humanName: clean(qualified[2]) };
-  return value ? { table: null, column: value, humanName: value } : null;
+  if (qualified) return { table: clean(qualified[1]), column: clean(qualified[2]),
+    humanName: humanizeIdentifier(qualified[2]) };
+  return value ? { table: null, column: value, humanName: humanizeIdentifier(value) } : null;
 }
 
 function resolveBareColumn(inventory, columnName, errorCode = "DIMENSION_NOT_ALLOWED") {
@@ -108,7 +112,8 @@ function selectDimensions(goal, blueprint, inventory) {
   const requested = Array.isArray(goal?.dimensions) ? goal.dimensions.map(clean).filter(Boolean) : [];
   if (!requested.length) return [];
   return requested.map((name) => {
-    const found = available.find((item) => [item.humanName, item.column, item.rawName]
+    const found = available.find((item) => [item.humanName, item.column, item.rawName,
+      `${item.table}[${item.column}]`, `${item.table}.${item.column}`]
       .some((candidate) => key(candidate) === key(name)));
     if (!found) throw new DaxPlanError("DIMENSION_NOT_ALLOWED", `Dimension ${name} tidak ada pada binding KPI`);
     return found;
@@ -119,7 +124,8 @@ function selectFilters(filters, blueprint, inventory) {
   const available = bindingDimensions(blueprint, inventory);
   return (Array.isArray(filters) ? filters : []).map((filter) => {
     const name = clean(filter?.dimension);
-    const found = available.find((item) => [item.humanName, item.column, item.rawName]
+    const found = available.find((item) => [item.humanName, item.column, item.rawName,
+      `${item.table}[${item.column}]`, `${item.table}.${item.column}`]
       .some((candidate) => key(candidate) === key(name)));
     if (!found) throw new DaxPlanError("FILTER_DIMENSION_NOT_ALLOWED", `Filter ${name} tidak ada pada binding KPI`);
     const value = clean(filter?.value).toLowerCase().replace(/\s+/g, "");
@@ -170,21 +176,39 @@ export function buildDaxPlan({
   }
 
   const dimensions = selectDimensions(goal, blueprint, inventory);
+  const plannedPolicy = goal?.filterPolicy;
   const policy = resolveFilterPolicy({
     question,
-    explicitFilters: [...(Array.isArray(explicitFilters) ? explicitFilters : []),
-      ...(Array.isArray(goal.filters) ? goal.filters : [])],
-    contextFilters,
-    reportFilters,
+    blueprint,
+    priorityFilters: filtersForBindingAssociation(explicitFilters, binding),
+    explicitFilters: plannedPolicy
+      ? plannedPolicy.explicitFilters
+      : filtersForBindingAssociation(goal.filters, binding),
+    contextFilters: plannedPolicy
+      ? plannedPolicy.contextFilters
+      : filtersForBindingAssociation(contextFilters, binding),
+    reportFilters: plannedPolicy
+      ? plannedPolicy.reportFilters
+      : filtersForBindingAssociation(reportFilters, binding),
   });
   const filters = selectFilters(policy.filters, blueprint, inventory);
   const humanName = clean(binding.humanName ?? blueprint.labels?.displayCaption) || measure;
   const measureRef = measureIdentifier(measureTable.table, measure);
   const dateRef = columnIdentifier(date.table, date.column);
   const dimensionRefs = dimensions.map((item) => columnIdentifier(item.table, item.column));
-  const entityFilters = filters.map((item) => {
+  const groupedFilters = new Map();
+  for (const item of filters) {
+    const filterKey = `${item.table}\u0000${item.column}`;
+    const group = groupedFilters.get(filterKey) || { ...item, values: [] };
+    if (!group.values.includes(item.value)) group.values.push(item.value);
+    groupedFilters.set(filterKey, group);
+  }
+  const entityFilters = [...groupedFilters.values()].map((item) => {
     const ref = columnIdentifier(item.table, item.column);
-    return `KEEPFILTERS(FILTER(ALL(${ref}), LOWER(SUBSTITUTE(${ref}, " ", "")) = "${item.value}"))`;
+    const predicate = item.values.length === 1
+      ? `LOWER(SUBSTITUTE(${ref}, " ", "")) = "${item.values[0]}"`
+      : `LOWER(SUBSTITUTE(${ref}, " ", "")) IN { ${item.values.map((value) => `"${value}"`).join(", ")} }`;
+    return `KEEPFILTERS(FILTER(ALL(${ref}), ${predicate}))`;
   });
   const alias = aliasIdentifier(humanName.slice(0, 100));
   const summarizeArgs = [...dimensionRefs, `"${humanName.replaceAll('"', '""').slice(0, 100)}", ${measureRef}`];

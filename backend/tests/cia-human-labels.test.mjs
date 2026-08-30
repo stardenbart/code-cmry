@@ -9,6 +9,7 @@ import { ok, section, summary } from "./harness.mjs";
 import {
   buildLabelMap, labelDaxRows, describeKpi, humanizeIdentifier,
 } from "../src/services/ciaHumanLabels.service.js";
+import { buildVisualBlueprint } from "../src/services/cia/visualBlueprint.js";
 
 section("buildLabelMap mengenali semua varian kunci");
 const bindings = [{
@@ -65,6 +66,18 @@ ok("strip table prefix + bracket", humanizeIdentifier("'MeasureTable'[OT_HOURS]"
   humanizeIdentifier("'MeasureTable'[OT_HOURS]"));
 ok("camelCase dipisah", humanizeIdentifier("ActualProductionQty") === "Actual production qty",
   humanizeIdentifier("ActualProductionQty"));
+
+section("Blueprint legacy memisahkan label manusia dari identifier DAX");
+const legacyBlueprint = buildVisualBlueprint({
+  tableName: "Measures",
+  measureName: "OT_HOURS",
+  dimensions: ["Machine[Machine_Name]"],
+});
+ok("label legacy di-humanize tanpa membuang identifier teknis",
+  legacyBlueprint.dimensions[0]?.humanName === "Machine name"
+    && legacyBlueprint.dimensions[0]?.table === "Machine"
+    && legacyBlueprint.dimensions[0]?.column === "Machine_Name",
+  JSON.stringify(legacyBlueprint.dimensions[0]));
 
 section("describeKpi");
 const d = describeKpi(bindings[0]);

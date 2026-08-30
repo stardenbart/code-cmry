@@ -162,6 +162,74 @@ try {
       JSON.stringify(builderInput));
   }
 
+  section("Filter entitas deterministik mengalahkan filter context planner");
+  {
+    let builderInput;
+    const deps = baseDeps({
+      async routeEvidence() {
+        return { status: "ready", candidates: [candidate("b1", "10", {
+          dimensions: [
+            { table: "Fact", column: "Departemen", humanName: "Departemen" },
+            { table: "Plant", column: "Gedung", humanName: "CMD / Gedung" },
+          ],
+        })], periods: [], warnings: [] };
+      },
+      async planEvidence() {
+        return { goals: [{ kpiBindingId: "b1", dimensions: ["Departemen", "CMD / Gedung"], periodIndex: 0,
+          purpose: "primary", filters: [{ dimension: "CMD / Gedung", value: "CMD1" }] }], warnings: [] };
+      },
+      buildDaxPlan(input) {
+        builderInput = input;
+        return { semanticModel: input.binding.semanticModel, dashboardId: input.binding.dashboardId,
+          dashboardName: input.binding.dashboardName, dax: "EVALUATE 1",
+          selectedKpis: [{ bindingId: input.binding.bindingId }], period: input.period, maxRows: 500 };
+      },
+    });
+    await answerWithEvidence(envelope({ question: "jelaskan masalah CMD2" }), deps);
+    ok("CMD2 dikirim melalui channel explicit sebelum filter goal CMD1",
+      builderInput?.explicitFilters?.[0]?.value === "CMD2"
+        && builderInput?.goal?.filters?.[0]?.value === "CMD1",
+      JSON.stringify(builderInput));
+  }
+
+  section("Multi-Chat mengisolasi report filters per dashboard");
+  {
+    const builderInputs = [];
+    const deps = baseDeps({
+      async routeEvidence() {
+        return { status: "ready", candidates: [candidate("b1", "10"), candidate("b2", "20")],
+          periods: [], warnings: [] };
+      },
+      async planEvidence() {
+        return { goals: ["b1", "b2"].map((kpiBindingId) => ({
+          kpiBindingId, dimensions: ["Departemen"], periodIndex: 0, purpose: "primary",
+        })), warnings: [] };
+      },
+      buildDaxPlan(input) {
+        builderInputs.push(input);
+        return { semanticModel: input.binding.semanticModel, dashboardId: input.binding.dashboardId,
+          dashboardName: input.binding.dashboardName, dax: "EVALUATE 1",
+          selectedKpis: [{ bindingId: input.binding.bindingId }], period: input.period, maxRows: 500 };
+      },
+    });
+    await answerWithEvidence(envelope({
+      surface: "multi_chat",
+      question: "jelaskan data yang sedang tampil",
+      snapshotFallback: { reportFilters: [
+        { dashboardId: "10", dimension: "Departemen", value: "QA" },
+        { dashboardId: "20", dimension: "Departemen", value: "Produksi" },
+      ], dashboards: [] },
+    }), deps);
+    ok("setiap builder hanya menerima filter dashboardnya",
+      builderInputs.length === 2
+        && builderInputs[0]?.reportFilters?.length === 1
+        && builderInputs[0]?.reportFilters?.[0]?.dashboardId === builderInputs[0]?.binding?.dashboardId
+        && builderInputs[1]?.reportFilters?.length === 1
+        && builderInputs[1]?.reportFilters?.[0]?.dashboardId === builderInputs[1]?.binding?.dashboardId,
+      JSON.stringify(builderInputs.map((input) => ({ dashboardId: input.binding?.dashboardId,
+        reportFilters: input.reportFilters }))));
+  }
+
   section("Goal berbeda entity filter tidak dideduplikasi");
   {
     const deps = baseDeps({
@@ -354,7 +422,7 @@ try {
 
   section("Entitas CMD pada pertanyaan diteruskan sebagai filter DAX");
   {
-    let receivedGoal;
+    let receivedInput;
     const deps = baseDeps({
       async routeEvidence() {
         return { status: "ready", candidates: [candidate("b1", "10", {
@@ -367,8 +435,9 @@ try {
       async planEvidence() {
         return { goals: [{ kpiBindingId: "b1", dimensions: ["Mesin", "CMD / Gedung"], periodIndex: 0, purpose: "primary" }], warnings: [] };
       },
-      buildDaxPlan({ goal, binding, period }) {
-        receivedGoal = goal;
+      buildDaxPlan(input) {
+        receivedInput = input;
+        const { binding, period } = input;
         return { semanticModel: binding.semanticModel, dashboardId: binding.dashboardId,
           dashboardName: binding.dashboardName, dax: "EVALUATE 1",
           selectedKpis: [{ bindingId: binding.bindingId, humanName: binding.humanName }], period, maxRows: 500 };
@@ -378,8 +447,8 @@ try {
       question: "top 3 mesin downtime tertinggi pada CMD1 bulan Juni",
     }), deps);
     ok("CMD1 menjadi structured filter, bukan instruksi bebas",
-      receivedGoal?.filters?.[0]?.dimension === "CMD / Gedung"
-        && receivedGoal?.filters?.[0]?.value === "CMD1", JSON.stringify(receivedGoal));
+      receivedInput?.explicitFilters?.[0]?.dimension === "CMD / Gedung"
+        && receivedInput?.explicitFilters?.[0]?.value === "CMD1", JSON.stringify(receivedInput));
   }
 
   section("Planner tidak boleh menambah KPI sibling pada pertanyaan ranking");

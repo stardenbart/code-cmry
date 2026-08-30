@@ -1,6 +1,8 @@
 import { tanyaModelTerstruktur } from "../modelRouter.js";
 import { resolveFollowUpContext } from "./evidenceContract.js";
-import { buildVisualBlueprint, resolveFilterPolicy } from "./visualBlueprint.js";
+import {
+  buildVisualBlueprint, filtersForBindingAssociation, resolveFilterPolicy,
+} from "./visualBlueprint.js";
 
 const MAX_GOALS = 6;
 const MAX_DIMENSIONS = 6;
@@ -96,16 +98,20 @@ function normalizeGoals(value, candidates, periodCount, input, followUp) {
       ...(Array.isArray(input.reportFilters) ? input.reportFilters : []),
       ...(Array.isArray(binding.reportFilters) ? binding.reportFilters : []),
     ];
+    const filterPolicy = {
+      explicitFilters: filtersForBinding(item.filters, binding),
+      contextFilters: filtersForBinding(filtersForBindingAssociation(contextFilters, binding), binding),
+      reportFilters: filtersForBinding(filtersForBindingAssociation(reportFilters, binding), binding),
+    };
     const policy = resolveFilterPolicy({
       question: input.question,
-      explicitFilters: filtersForBinding(item.filters, binding),
-      contextFilters: filtersForBinding(contextFilters, binding),
-      reportFilters: filtersForBinding(reportFilters, binding),
+      blueprint: binding.blueprint,
+      ...filterPolicy,
     });
     const goalKey = `${kpiBindingId}|${periodIndex}|${purpose}|${dimensions.join("|")}|${JSON.stringify(policy.filters)}`;
     if (seen.has(goalKey)) continue;
     seen.add(goalKey);
-    goals.push({ kpiBindingId, dimensions, periodIndex, purpose, filters: policy.filters });
+    goals.push({ kpiBindingId, dimensions, periodIndex, purpose, filters: policy.filters, filterPolicy });
   }
   return goals;
 }

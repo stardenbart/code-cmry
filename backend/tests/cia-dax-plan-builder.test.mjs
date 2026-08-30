@@ -12,6 +12,7 @@ const schema = {
     { tabel: "Quality", kolom: ["Category:string", "Issue Description:string", "CMD:string"] },
     { tabel: "PPIC", kolom: ["Product:string", "PO Type:string"] },
     { tabel: "Plant", kolom: ["Gedung:string"] },
+    { tabel: "Supplier", kolom: ["Name:string"] },
     { tabel: "Measures", kolom: [] },
   ],
   measure: ["OT_HOURS", "NC_CMD3", "PO_QTY"],
@@ -90,6 +91,28 @@ ok("CMD1 menjadi filter nilai kolom allowlisted",
 ok("filter ikut metadata plan", cmdFiltered.selectedFilters?.[0]?.humanName === "CMD / Gedung",
   JSON.stringify(cmdFiltered.selectedFilters));
 
+const cmdOverride = buildDaxPlan({
+  question: "jelaskan masalah CMD2",
+  goal: {
+    kpiBindingId: "b-dt", dimensions: ["Mesin"], periodIndex: 0, purpose: "primary",
+    filters: [{ dimension: "CMD / Gedung", value: "CMD1" }],
+  },
+  explicitFilters: [{ dimension: "CMD / Gedung", value: "CMD2" }],
+  binding: {
+    bindingId: "b-dt", semanticModel: "Cost Model", dashboardId: "dash-dt",
+    tableName: "Measures", measureName: "OT_HOURS", humanName: "Durasi downtime",
+    dateTable: "Calendar", dateColumn: "Date",
+    dimensions: [
+      { table: "Overtime", column: "Department", humanName: "Mesin" },
+      { table: "Plant", column: "Gedung", humanName: "CMD / Gedung" },
+    ],
+  },
+  period,
+  schema,
+});
+ok("filter deterministik CMD2 mengalahkan goal/context CMD1",
+  cmdOverride.dax.includes('"cmd2"') && !cmdOverride.dax.includes('"cmd1"'), cmdOverride.dax);
+
 section("Builder memakai blueprint dan precedence filter");
 const visualBinding = {
   bindingId: "b-visual", semanticModel: "Cost Model", dashboardId: "dash-dt",
@@ -139,6 +162,71 @@ const currentViewFiltered = buildDaxPlan({
 ok("current-view memakai context dan report filters",
   currentViewFiltered.selectedFilters.map((item) => item.value).join(",") === "evergreen,august",
   JSON.stringify(currentViewFiltered.selectedFilters));
+
+const aliasPrecedence = buildDaxPlan({
+  question: "jelaskan data yang sedang tampil",
+  goal: { kpiBindingId: "b-visual", dimensions: ["Mesin"] },
+  binding: visualBinding,
+  period,
+  explicitFilters: [{ dimension: "Month", value: "June" }],
+  reportFilters: [{ dimension: "Bulan", value: "August" }],
+  schema,
+});
+ok("alias Month dan Bulan memakai precedence eksplisit yang sama",
+  aliasPrecedence.dax.includes('"june"') && !aliasPrecedence.dax.includes('"august"'),
+  aliasPrecedence.dax);
+
+const multiSelectPlan = buildDaxPlan({
+  question: "jelaskan data yang sedang tampil",
+  goal: { kpiBindingId: "b-visual", dimensions: ["Mesin"] },
+  binding: visualBinding,
+  period,
+  reportFilters: [
+    { dimension: "Mesin", value: "Evergreen" },
+    { dimension: "Mesin", value: "Tetra Pak" },
+  ],
+  schema,
+});
+ok("multi-select menjadi satu predicate IN agar nilainya bersifat OR",
+  /IN\s*\{\s*"evergreen",\s*"tetrapak"\s*\}/i.test(multiSelectPlan.dax),
+  multiSelectPlan.dax);
+
+const associatedPlan = buildDaxPlan({
+  question: "jelaskan data yang sedang tampil",
+  goal: { kpiBindingId: "b-visual", dimensions: ["Mesin"] },
+  binding: visualBinding,
+  period,
+  reportFilters: [
+    { dashboardId: "dash-other", dimension: "Bulan", value: "July" },
+    { dashboardId: "dash-dt", dimension: "Bulan", value: "August" },
+  ],
+  schema,
+});
+ok("builder hanya memakai filter report milik dashboard binding",
+  associatedPlan.dax.includes('"august"') && !associatedPlan.dax.includes('"july"'),
+  associatedPlan.dax);
+
+const sensitiveCurrentView = buildDaxPlan({
+  question: "jelaskan data yang sedang tampil",
+  goal: { kpiBindingId: "b-supplier", dimensions: ["Supplier"] },
+  binding: {
+    ...visualBinding,
+    bindingId: "b-supplier",
+    dashboardId: "10",
+    blueprint: {
+      ...visualBinding.blueprint,
+      dimensions: [{ table: "Supplier", column: "Name", humanName: "Supplier" }],
+    },
+  },
+  period,
+  reportFilters: [{ dashboardId: "10", dimension: "Name", value: "AJI" }],
+  schema,
+});
+ok("nilai filter sensitif asli tetap dipakai untuk DAX current-view",
+  sensitiveCurrentView.dax.includes("'Supplier'[Name]")
+    && sensitiveCurrentView.dax.includes('"aji"')
+    && !sensitiveCurrentView.dax.includes("MITRA_"),
+  sensitiveCurrentView.dax);
 
 const allDataPlan = buildDaxPlan({
   question: "tampilkan keseluruhan data",

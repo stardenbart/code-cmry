@@ -2,6 +2,7 @@ import fs from "fs";
 import { pathToFileURL } from "url";
 import { ok, section, summary } from "./harness.mjs";
 import { runWebEvidence } from "../src/services/cia/webEvidenceAdapter.js";
+import { buildEvidenceSnapshotFallback } from "../src/controllers/aiController.js";
 
 function request(overrides = {}) {
   return {
@@ -96,6 +97,45 @@ section("Multi-Chat mendapat kontrak lama plus metadata evidence");
     && result.confidence === "medium" && result.warnings[0] === "CORRELATION_ONLY");
   ok("evidence contract diteruskan untuk disimpan controller",
     result.evidenceContract?.sources?.[0]?.dashboardId === "20", JSON.stringify(result.evidenceContract));
+}
+
+section("Controller memisahkan teks model tersanitasi dari filter DAX internal");
+{
+  const snapshotResults = [
+    {
+      dashboard_id: "10",
+      dashboard: { id: "10", title: "Supplier Quality" },
+      snapshot: {
+        period: { label: "Agustus" },
+        filters: ["Supplier.Name = AJI"],
+        visuals: [{ title: "Supplier", rows: [{ Supplier: "AJI", Score: 90 }] }],
+      },
+    },
+    {
+      dashboard_id: "20",
+      dashboard: { id: "20", title: "Supplier Delivery" },
+      snapshot: {
+        filters: ["Supplier.Name = BETA"],
+        visuals: [{ title: "Supplier", rows: [{ Supplier: "BETA", Score: 80 }] }],
+      },
+    },
+  ];
+  const fallback = buildEvidenceSnapshotFallback(snapshotResults, {
+    sanitizeSnapshot(snapshot) {
+      return JSON.parse(JSON.stringify(snapshot).replaceAll("AJI", "MITRA_1").replaceAll("BETA", "MITRA_2"));
+    },
+  });
+  ok("nilai sensitif tidak muncul pada text model-facing",
+    !fallback.dashboards.some((dashboard) => /AJI|BETA/.test(dashboard.text))
+      && fallback.dashboards.some((dashboard) => /MITRA_/.test(dashboard.text)),
+    JSON.stringify(fallback.dashboards));
+  ok("nilai asli tetap tersedia hanya pada filter eksekusi internal",
+    fallback.reportFilters.some((filter) => filter.value === "AJI" && filter.dashboardId === "10")
+      && fallback.reportFilters.some((filter) => filter.value === "BETA" && filter.dashboardId === "20"),
+    JSON.stringify(fallback.reportFilters));
+  ok("Multi-Chat mempertahankan asosiasi filter per dashboard",
+    fallback.reportFilters.every((filter) => filter.dashboardId === "10" || filter.dashboardId === "20"),
+    JSON.stringify(fallback.reportFilters));
 }
 
 section("Multi-Chat membatasi kartu sumber duplikat");

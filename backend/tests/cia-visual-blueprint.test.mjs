@@ -25,6 +25,11 @@ ok("measure visual dipertahankan", blueprint.measures[0]?.measureName === "TECHN
   JSON.stringify(blueprint.measures));
 ok("dimensi visual dipertahankan", blueprint.dimensions.length === 2,
   JSON.stringify(blueprint.dimensions));
+ok("dimensi legacy punya label manusia dan identifier teknis terpisah",
+  blueprint.dimensions[1]?.humanName === "Month"
+    && blueprint.dimensions[1]?.table === "Calendar"
+    && blueprint.dimensions[1]?.column === "Month",
+  JSON.stringify(blueprint.dimensions[1]));
 ok("role ranking berasal dari fungsi visual", blueprint.role === "ranking", blueprint.role);
 ok("date mapping menjadi period policy",
   blueprint.periodPolicy.dateTable === "Calendar"
@@ -47,6 +52,20 @@ const questionPolicy = resolveFilterPolicy({
 ok("filter pertanyaan menang", questionPolicy.filters.some((f) => f.value === "Evergreen")
   && questionPolicy.filters.every((f) => f.value !== "August"));
 
+const aliasPolicy = resolveFilterPolicy({
+  question: "jelaskan data yang sedang tampil",
+  blueprint: { ...blueprint, dimensions: [
+    { table: "Calendar", column: "Month", humanName: "Bulan" },
+  ] },
+  explicitFilters: [{ dimension: "Month", value: "June" }],
+  contextFilters: [],
+  reportFilters: [{ dimension: "Bulan", value: "August" }],
+});
+ok("precedence berlaku setelah alias dimensi dicanonicalkan",
+  JSON.stringify(aliasPolicy.filters) === JSON.stringify([
+    { dimension: "Bulan", value: "June" },
+  ]), JSON.stringify(aliasPolicy));
+
 section("Filter report hanya untuk referensi tampilan eksplisit");
 const currentView = resolveFilterPolicy({
   question: "jelaskan data yang sedang tampil",
@@ -59,6 +78,21 @@ ok("current-view mewarisi context lalu report filters",
     { dimension: "Mesin", value: "Evergreen" },
     { dimension: "Month", value: "August" },
   ]), JSON.stringify(currentView));
+
+const multiSelect = resolveFilterPolicy({
+  question: "jelaskan data yang sedang tampil",
+  explicitFilters: [],
+  contextFilters: [],
+  reportFilters: [
+    { dimension: "Mesin", value: "Evergreen" },
+    { dimension: "Mesin", value: "Tetra Pak" },
+  ],
+});
+ok("multi-select mempertahankan semua nilai pada precedence yang menang",
+  JSON.stringify(multiSelect.filters) === JSON.stringify([
+    { dimension: "Mesin", value: "Evergreen" },
+    { dimension: "Mesin", value: "Tetra Pak" },
+  ]), JSON.stringify(multiSelect));
 
 const allData = resolveFilterPolicy({
   question: "tampilkan keseluruhan data",
@@ -82,6 +116,14 @@ ok("hanya equality filter/slicer yang menjadi kandidat DAX",
     { dimension: "Machine Name", value: "Evergreen" },
     { dimension: "Machine Name", value: "Tetra Pak" },
   ]), JSON.stringify(extracted));
+
+const associated = extractReportFilters({ filters: ["Calendar.Month = August"] }, {
+  dashboardId: "dash-dt",
+  bindingId: "b-visual",
+});
+ok("filter snapshot membawa asosiasi dashboard dan binding",
+  associated[0]?.dashboardId === "dash-dt" && associated[0]?.bindingId === "b-visual",
+  JSON.stringify(associated));
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exit(summary() ? 0 : 1);

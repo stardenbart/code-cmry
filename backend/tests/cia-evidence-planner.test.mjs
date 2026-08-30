@@ -138,6 +138,41 @@ ok("nama kolom report dinormalisasi ke label blueprint",
     { dimension: "Bulan", value: "August" },
   ]), JSON.stringify(currentViewPlanned.goals[0]));
 
+const associatedViewPlanned = await planEvidence({
+  question: "jelaskan data yang sedang tampil",
+  periods,
+  candidateBindings: [blueprintBinding],
+  reportFilters: [
+    { dashboardId: "dash-other", dimension: "Month", value: "July" },
+    { dashboardId: "dash-dt", dimension: "Month", value: "August" },
+  ],
+}, { callModel: callReturning(JSON.stringify({
+  goals: [{ kpiBindingId: "b-blueprint", dimensions: ["Mesin"], periodIndex: 0, purpose: "primary" }],
+  followUpSignals: [],
+})) });
+ok("planner mengisolasi report filter berdasarkan dashboard binding",
+  JSON.stringify(associatedViewPlanned.goals[0]?.filters) === JSON.stringify([
+    { dimension: "Bulan", value: "August" },
+  ]), JSON.stringify(associatedViewPlanned.goals[0]));
+
+const multiViewPlanned = await planEvidence({
+  question: "jelaskan data yang sedang tampil",
+  periods,
+  candidateBindings: [blueprintBinding],
+  reportFilters: [
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "Evergreen" },
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "Tetra Pak" },
+  ],
+}, { callModel: callReturning(JSON.stringify({
+  goals: [{ kpiBindingId: "b-blueprint", dimensions: ["Mesin"], periodIndex: 0, purpose: "primary" }],
+  followUpSignals: [],
+})) });
+ok("planner mempertahankan multi-select pada channel report",
+  JSON.stringify(multiViewPlanned.goals[0]?.filters) === JSON.stringify([
+    { dimension: "Mesin", value: "Evergreen" },
+    { dimension: "Mesin", value: "Tetra Pak" },
+  ]), JSON.stringify(multiViewPlanned.goals[0]));
+
 const contextPlanned = await planEvidence({
   question: "bagaimana masalahnya",
   periods,
