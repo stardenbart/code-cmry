@@ -326,6 +326,15 @@ ok("corpus acceptance tetap tepat 27 pertanyaan",
   CIA_REGRESSION_CASES.length === 27 && new Set(CIA_REGRESSION_CASES.map((item) => item.id)).size === 27,
   String(CIA_REGRESSION_CASES.length));
 
+function sameNormalizedConceptSet(actual = [], expected = []) {
+  const normalize = (values) => [...new Set(values.map((value) => String(value).trim().toLowerCase()))].sort();
+  return JSON.stringify(normalize(actual)) === JSON.stringify(normalize(expected));
+}
+
+ok("concept matcher normalizes sets dan menolak konsep tambahan",
+  sameNormalizedConceptSet([" OVERTIME ", "downtime", "DOWNTIME"], ["downtime", "overtime"])
+    && !sameNormalizedConceptSet(["downtime", "overtime"], ["downtime"]));
+
 const observations = { library: [], plannerCalls: [], executions: [], scopeCalls: [], currentId: null };
 async function runInjectedQuery({
   id, question, conversation = [], preferredDashboardIds = [],
@@ -394,15 +403,11 @@ for (const item of CIA_REGRESSION_CASES) {
   results.set(item.id, { item, answer });
 
   const prefix = item.id;
-  ok(`${prefix}: parsed concepts`, item.expectsConcepts.length
-    ? item.expectsConcepts.every((value) => intent.concepts.includes(value))
-    : intent.concepts.length === 0,
+  ok(`${prefix}: parsed concepts`, sameNormalizedConceptSet(intent.concepts, item.expectsConcepts),
     JSON.stringify(intent.concepts));
   const executedConcepts = answer.evidenceContract?.concepts || [];
-  ok(`${prefix}: executed contract concepts`, item.expectsConcepts.length
-    ? item.expectsConcepts.every((value) => executedConcepts.includes(value))
-    : executedConcepts.length === 0,
-  JSON.stringify(executedConcepts));
+  ok(`${prefix}: executed contract concepts`, sameNormalizedConceptSet(executedConcepts, item.expectsConcepts),
+    JSON.stringify(executedConcepts));
   ok(`${prefix}: period kind`, !item.expectsPeriodKind || intent.periodKinds.includes(item.expectsPeriodKind),
     JSON.stringify(intent.periodKinds));
   const executedPeriod = EXPECTED_PERIODS[item.id];
