@@ -139,10 +139,21 @@ export async function analyzeEvidenceGap({ question = "", plan = {}, evidence = 
   }
 
   const primaryIds = new Set(primaryGoals.map((goal) => clean(goal.kpiBindingId)));
+  const primaryCandidates = (plan.candidates || [])
+    .filter((candidate) => primaryIds.has(clean(candidate.bindingId)));
+  const sourceKey = (candidate) => normalized(candidate?.dashboardId ?? candidate?.reportId
+    ?? candidate?.semanticModel ?? candidate?.bindingId);
+  const isCompetingSourceForSameConcept = (candidate) => primaryCandidates.some((primary) => {
+    if (sourceKey(primary) === sourceKey(candidate)) return false;
+    const anchors = new Set((primary.anchorMatches || []).map(normalized));
+    return (candidate.anchorMatches || []).some((anchor) => anchors.has(normalized(anchor)));
+  });
   const asksCorrelation = /\b(karena|penyebab|menyebabkan|memicu|akibat|korelasi|berkorelasi|hubungan|kait\w*|terkait)\b/i
     .test(question);
   const correlationCandidates = asksCorrelation ? candidates.filter((candidate) =>
-    !primaryIds.has(clean(candidate.bindingId)) && candidateRelevant(question, candidate)) : [];
+    !primaryIds.has(clean(candidate.bindingId))
+      && !isCompetingSourceForSameConcept(candidate)
+      && candidateRelevant(question, candidate)) : [];
 
   for (const candidate of correlationCandidates) {
     const dimensions = requestedDimensions(question, candidate);

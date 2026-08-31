@@ -1,6 +1,7 @@
 import { matchConcepts } from "./intentVocabulary.js";
 
 const LIMITS = Object.freeze({ sources: 6, goals: 6, entities: 12, filters: 12, concepts: 12, periods: 6 });
+const METRIC_ROLES = new Set(["primary", "numerator", "denominator", "target", "detail", "correlation"]);
 
 function text(value, max = 160) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
@@ -55,6 +56,11 @@ function filter(value) {
   return dimension && filterValue ? { dimension, value: filterValue } : null;
 }
 
+function metricRole(value) {
+  const normalized = text(value, 40).toLowerCase();
+  return METRIC_ROLES.has(normalized) ? normalized : "primary";
+}
+
 function normalizeGoals(value) {
   let filtersLeft = LIMITS.filters;
   return (Array.isArray(value) ? value : []).flatMap((item) => {
@@ -71,6 +77,7 @@ function normalizeGoals(value) {
       periodIndex: Number.isInteger(Number(item.periodIndex)) && Number(item.periodIndex) >= 0
         ? Number(item.periodIndex) : 0,
       purpose: text(item.purpose, 40) || "primary",
+      metricRole: metricRole(item.metricRole),
       filters,
     }];
   }).slice(0, LIMITS.goals);

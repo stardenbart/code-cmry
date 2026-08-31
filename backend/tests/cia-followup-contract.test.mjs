@@ -95,6 +95,17 @@ ok("konsep lebih umum dalam family yang sama mempertahankan context",
   JSON.stringify(productionRefinement));
 
 section("Contract bounded dan hanya metadata aman");
+const metricRoles = createEvidenceContract({
+  goals: [
+    { kpiBindingId: "binding-valid", metricRole: "numerator" },
+    { kpiBindingId: "binding-invalid", metricRole: "not-a-supported-role" },
+  ],
+});
+ok("metric role hanya menyimpan enum yang didokumentasikan",
+  JSON.stringify(metricRoles.goals.map((goal) => goal.metricRole))
+    === JSON.stringify(["numerator", "primary"]),
+  JSON.stringify(metricRoles.goals));
+
 const oversized = createEvidenceContract({
   intentFrame: {
     concepts: Array.from({ length: 20 }, (_, index) => `concept-${index}`),

@@ -301,6 +301,42 @@ sejak backup diambil. Kalau memang perlu, dan hanya kalau perlu:
 Pastikan dulu apa yang akan hilang. Jam berapa backupnya, dan transaksi apa saja
 yang masuk sesudah itu.
 
+### Rollout dan rollback Hybrid Query CIA
+
+`CIA_HYBRID_QUERY_ENABLED` sengaja ber-default `false` agar deploy kode tidak
+mengubah perilaku produksi. Saat `false` atau kosong, Tanya CIA dan Multi-Chat
+melewati orchestrator dan melanjutkan handler legacy, sedangkan pertanyaan
+WhatsApp memakai agen DAX legacy lalu snapshot existing bila agen itu tidak
+menghasilkan jawaban. Saat flag ini `true`, flag tunggal ini mengaktifkan shared
+intent/context/visual-blueprint pipeline di seluruh surface tanpa membuat
+orchestrator kedua. `CIA_ORCHESTRATOR_WEB_ENABLED` tidak menjadi prasyarat.
+
+Aktifkan hanya setelah regression dan smoke read-only pada koneksi staging/
+Power BI yang sebenarnya lulus. Rehearsal dengan fake executor tidak memenuhi
+gate aktivasi ini:
+
+    CIA_HYBRID_QUERY_ENABLED=true
+    pm2 restart cod-backend --update-env
+    curl -s localhost:5050/health
+
+Smoke minimal mencakup Evergreen bulan Juni pada dashboard 44, downtime bersama
+running hours, produksi dibanding PO, overtime periode cut-off, deviasi CMD3,
+dan satu follow-up. Catat dashboard/model sumber, jenis periode, entitas, metode
+retrieval, serta pastikan jawaban tidak menampilkan nama measure atau kolom
+teknis. Smoke ini read-only: jangan menjalankan import KPI, migration, atau query
+yang menulis data.
+
+Rollback tidak memerlukan migration atau penghapusan history. Ubah flag saja,
+restart supaya environment baru terbaca, lalu ulangi health check:
+
+    CIA_HYBRID_QUERY_ENABLED=false
+    pm2 restart cod-backend --update-env
+    curl -s localhost:5050/health
+
+Rollback flag mengembalikan surface ke jalur legacy pada release yang sama. Jika
+masalahnya lebih luas dari pipeline query, gunakan `./scripts/deploy.sh --rollback`
+sesuai prosedur rollback release di atas.
+
 ### Kalau git-nya yang gagal
 
 **`Permission denied (publickey)`** saat fetch. Deploy key tidak terpakai. Uji

@@ -48,7 +48,7 @@ import { hasGlmKey } from "../config/glm.js";
 import { tryAnswerLocally, AMBANG_KEYAKINAN } from "../services/aiLocalAnswer.js";
 import * as rateLimit from "../services/rateLimiter.js";
 import { getSanitizer, SANITIZER_CONFIG } from "../services/aiSanitizer.js";
-import { ciaOrchestratorWebEnabled } from "../config/featureFlags.js";
+import { ciaHybridWebEnabled } from "../config/featureFlags.js";
 import { runWebEvidence } from "../services/cia/webEvidenceAdapter.js";
 import { extractReportFilters } from "../services/cia/visualBlueprint.js";
 
@@ -249,7 +249,7 @@ async function tryDashboardEvidence(req, user, dashboard, snapshot) {
     snapshotFallback,
     sanitizer,
   }, {
-    enabled: ciaOrchestratorWebEnabled(),
+    enabled: ciaHybridWebEnabled(),
     onFallback: (warning) => {
       console.warn("[CIA] orchestrator dashboard fallback ke legacy:", warning.message);
       req.ciaTelemetry?.event("snapshot_fallback", {
@@ -1546,7 +1546,7 @@ export const AiController = {
         snapshotFallback: multiSnapshotFallback,
         sanitizer: evidenceSanitizer,
       }, {
-        enabled: ciaOrchestratorWebEnabled(),
+        enabled: ciaHybridWebEnabled(),
         onFallback: (warning) => {
           console.warn("[CIA] orchestrator Multi-Chat fallback ke legacy:", warning.message);
           req.ciaTelemetry?.event("snapshot_fallback", {

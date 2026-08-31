@@ -20,6 +20,7 @@ function fixture({ evidence, snapshot, attempts, failSendAt = 0 }) {
       if (failSendAt && calls.messages.length === failSendAt) throw new Error("WA disconnected");
     } },
     deps: {
+      hybridEnabled: true,
       startCiaTelemetry: async (envelope) => { calls.envelope = envelope; return tracker; },
       jawabDenganDax: async () => { calls.legacyDaxCalls = (calls.legacyDaxCalls || 0) + 1; },
       answerWithEvidence: async (envelope, injected = {}) => {

@@ -6,9 +6,11 @@ import { summary, results } from "./harness.mjs";
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const files = fs.readdirSync(dir).filter((f) => f.endsWith(".test.mjs")).sort();
+const failedFiles = [];
 
 for (const file of files) {
   console.log(`\n########  ${file}  ########`);
+  const failuresBefore = results.fail;
   try {
     await import(`file://${path.join(dir, file).replace(/\\/g, "/")}`);
   } catch (err) {
@@ -18,6 +20,9 @@ for (const file of files) {
     results.fail += 1;
     console.log(`  FAIL  ${file} melempar sebelum selesai: ${err?.message || err}`);
   }
+  if (results.fail > failuresBefore) failedFiles.push(file);
 }
+
+if (failedFiles.length) console.log(`\nFailed test files: ${failedFiles.join(", ")}`);
 
 process.exit(summary() ? 0 : 1);
