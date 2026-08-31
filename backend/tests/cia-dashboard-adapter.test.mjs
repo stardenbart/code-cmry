@@ -44,10 +44,13 @@ section("Flag mati mempertahankan jalur legacy");
 section("Flag aktif membentuk envelope dashboard yang kompatibel");
 {
   let envelope;
-  const result = await runWebEvidence(request(), {
+  let synthSanitizer;
+  const sanitizer = { sanitizeText: (value) => value };
+  const result = await runWebEvidence({ ...request(), sanitizer }, {
     enabled: true,
-    answerWithEvidence: async (value) => {
+    answerWithEvidence: async (value, deps) => {
       envelope = value;
+      synthSanitizer = deps?.synthDeps?.sanitizer;
       return {
         answer: "Lembur naik dan berkorelasi dengan PO.", requestId: value.requestId,
         confidence: "high", retrievalMethod: "live_dax", rounds: 2,
@@ -70,6 +73,8 @@ section("Flag aktif membentuk envelope dashboard yang kompatibel");
       && envelope.reportContext?.filters === undefined,
     JSON.stringify(envelope.reportContext));
   ok("snapshot hanya fallback", envelope.snapshotFallback?.text === "Total lembur 7 jam");
+  ok("sanitizer snapshot yang sama diteruskan ke synthesis tanpa masuk envelope",
+    synthSanitizer === sanitizer && envelope.sanitizer === undefined);
   ok("actor berasal dari server", envelope.actor.id === 7 && envelope.actor.department === "Produksi");
   ok("field lama answer tetap ada", result.answer.includes("Lembur naik"));
   ok("field lama period tetap ada", result.period === "2026-07-01 sampai 2026-07-31", result.period);

@@ -1,4 +1,5 @@
 import { answerWithEvidence as defaultAnswerWithEvidence } from "./evidenceOrchestrator.js";
+import { getSanitizer } from "../aiSanitizer.js";
 
 function uniqueIds(values) {
   return [...new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean))];
@@ -80,6 +81,7 @@ export async function runWebEvidence(input = {}, injected = {}) {
   if (injected.enabled !== true) return null;
   const body = input.body || {};
   const answerWithEvidence = injected.answerWithEvidence || defaultAnswerWithEvidence;
+  const sanitizer = input.sanitizer || getSanitizer();
   try {
     const answer = await answerWithEvidence({
       requestId: input.requestId,
@@ -94,7 +96,10 @@ export async function runWebEvidence(input = {}, injected = {}) {
       ]),
       reportContext: safeReportContext(body.reportContext),
       snapshotFallback: input.snapshotFallback || null,
-    }, input.tracker ? { tracker: input.tracker } : {});
+    }, {
+      ...(input.tracker ? { tracker: input.tracker } : {}),
+      synthDeps: { sanitizer },
+    });
     if (!answer?.answer?.trim()) throw new Error("EMPTY_ORCHESTRATOR_ANSWER");
     return input.surface === "multi_chat" ? multiChatPayload(answer) : dashboardPayload(answer);
   } catch (error) {

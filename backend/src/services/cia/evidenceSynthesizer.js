@@ -1,4 +1,5 @@
 import { tanyaModelTerstruktur } from "../modelRouter.js";
+import { getSanitizer } from "../aiSanitizer.js";
 import { humanizeIdentifier, humanizeTechnicalText } from "../ciaHumanLabels.service.js";
 
 const MAX_ROWS_PER_SOURCE = 20;
@@ -50,14 +51,18 @@ function liveSources(evidence, question = "") {
   return [...unique.values()].slice(0, 6);
 }
 
-function snapshotSources(snapshot) {
+function safeModelText(value, sanitizer, limit) {
+  return humanizeTechnicalText(sanitizer.sanitizeText(clean(value, limit)));
+}
+
+function snapshotSources(snapshot, sanitizer) {
   const dashboards = Array.isArray(snapshot?.dashboards) && snapshot.dashboards.length
     ? snapshot.dashboards : [{ id: null, name: "Snapshot dashboard" }];
   const perDashboard = dashboards.slice(0, 10).flatMap((dashboard) => {
-    const text = humanizeTechnicalText(clean(dashboard?.text, 6_000));
+    const text = safeModelText(dashboard?.text, sanitizer, 6_000);
     return text ? [{ dashboard, text }] : [];
   });
-  const shared = humanizeTechnicalText(clean(snapshot?.text, 6_000));
+  const shared = safeModelText(snapshot?.text, sanitizer, 6_000);
   const entries = perDashboard.length
     ? perDashboard
     : shared
@@ -178,7 +183,7 @@ function escapePattern(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function safeAnswerLabels(answer, evidence) {
+function safeAnswerLabels(answer, evidence, sanitizer) {
   let result = String(answer || "");
   const replacements = (Array.isArray(evidence) ? evidence : []).flatMap((item) =>
     (Array.isArray(item?.columns) ? item.columns : []).flatMap((column) => {
@@ -192,7 +197,7 @@ function safeAnswerLabels(answer, evidence) {
   for (const [technical, label] of replacements) {
     result = result.replace(new RegExp(escapePattern(technical), "gi"), label);
   }
-  return humanizeTechnicalText(result);
+  return humanizeTechnicalText(sanitizer.sanitizeText(result));
 }
 
 function requestedRowLimit(question) {
@@ -250,6 +255,7 @@ function evidenceFallback(sources, retrievalMethod, warnings, metadata = {}, que
 
 export async function synthesizeEvidence(input = {}, injected = {}) {
   const callModel = injected.callModel || tanyaModelTerstruktur;
+  const sanitizer = injected.sanitizer || getSanitizer();
   const warnings = [...new Set((Array.isArray(input.warnings) ? input.warnings : [])
     .map((value) => clean(value, 100)).filter(Boolean))];
   const allEvidence = Array.isArray(input.evidence) ? input.evidence : [];
@@ -263,14 +269,14 @@ export async function synthesizeEvidence(input = {}, injected = {}) {
   const live = liveSources(evidence, input.question);
   const unresolved = warnings.some((warning) => ["EVIDENCE_GAP_UNRESOLVED", "MAX_RETRIEVAL_ROUNDS_REACHED"].includes(warning));
   const liveIncomplete = !live.length || evidence.some((item) => item?.status !== "success") || unresolved;
-  const snapshots = liveIncomplete ? snapshotSources(input.snapshotFallback) : [];
+  const snapshots = liveIncomplete ? snapshotSources(input.snapshotFallback, sanitizer) : [];
   const sources = [...live, ...snapshots];
   const retrievalMethod = methodFor(live.length, snapshots.length);
   if (snapshots.length) warnings.push("SNAPSHOT_FALLBACK_USED");
   if (!sources.length) return emptyResult(warnings);
 
   const packet = {
-    question: clean(input.question, 1_000),
+    question: safeModelText(input.question, sanitizer, 1_000),
     rules: {
       citeOnlySourceIndexes: sources.map((_, index) => index),
       correlationIsNotCausation: true,
@@ -318,7 +324,7 @@ export async function synthesizeEvidence(input = {}, injected = {}) {
   let answer = correlationInsufficient
     ? "Bukti yang tersedia belum cukup untuk menyimpulkan korelasi atau penyebab. CIA memerlukan sedikitnya dua sumber live pada periode yang sama."
     : correlationLanguage(clean(parsed.answer), hasMechanism);
-  answer = safeAnswerLabels(answer, evidence);
+  answer = safeAnswerLabels(answer, evidence, sanitizer);
   const cited = citationText(citations, sources);
   if (cited) answer = `${answer}\n\n${cited}`;
   if (snapshots.length) {

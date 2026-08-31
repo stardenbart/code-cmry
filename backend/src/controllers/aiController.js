@@ -234,10 +234,11 @@ export function buildEvidenceSnapshotFallback(snapshotResults = [], sanitizer = 
 }
 
 async function tryDashboardEvidence(req, user, dashboard, snapshot) {
-  const sanitizedSnapshot = getSanitizer().sanitizeSnapshot(snapshot);
+  const sanitizer = getSanitizer();
+  const sanitizedSnapshot = sanitizer.sanitizeSnapshot(snapshot);
   const snapshotFallback = Array.isArray(sanitizedSnapshot?.visuals)
     && sanitizedSnapshot.visuals.some((v) => Array.isArray(v?.rows) && v.rows.length)
-    ? buildEvidenceSnapshotFallback([{ dashboard, dashboard_id: dashboard.id, snapshot }])
+    ? buildEvidenceSnapshotFallback([{ dashboard, dashboard_id: dashboard.id, snapshot }], sanitizer)
     : null;
   return runWebEvidence({
     surface: "dashboard",
@@ -246,6 +247,7 @@ async function tryDashboardEvidence(req, user, dashboard, snapshot) {
     user,
     body: req.body,
     snapshotFallback,
+    sanitizer,
   }, {
     enabled: ciaOrchestratorWebEnabled(),
     onFallback: (warning) => {
@@ -1520,8 +1522,9 @@ export const AiController = {
         }
       }
 
+      const evidenceSanitizer = getSanitizer();
       const multiSnapshotFallback = snapshotResults.length
-        ? buildEvidenceSnapshotFallback(snapshotResults)
+        ? buildEvidenceSnapshotFallback(snapshotResults, evidenceSanitizer)
         : null;
       const evidenceResponse = await runWebEvidence({
         surface: "multi_chat",
@@ -1541,6 +1544,7 @@ export const AiController = {
           ],
         },
         snapshotFallback: multiSnapshotFallback,
+        sanitizer: evidenceSanitizer,
       }, {
         enabled: ciaOrchestratorWebEnabled(),
         onFallback: (warning) => {

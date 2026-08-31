@@ -1,6 +1,7 @@
 import { pathToFileURL } from "url";
 import { ok, section, summary } from "./harness.mjs";
 import { synthesizeEvidence } from "../src/services/cia/evidenceSynthesizer.js";
+import { createSanitizer } from "../src/services/aiSanitizer.js";
 
 const overtime = {
   status: "success",
@@ -183,30 +184,65 @@ ok("snapshot-only method/low", snapshotOnly.retrievalMethod === "snapshot"
   && snapshotOnly.confidence === "low", JSON.stringify(snapshotOnly));
 ok("snapshot-only tidak menyamar sebagai live", snapshotOnly.answer.includes("data snapshot"), snapshotOnly.answer);
 
-section("Snapshot model packet dan jawaban tidak membawa identifier teknis atau nilai filter mentah");
+section("Snapshot model packet dan jawaban menyaring raw entity/contact dan qualified identifier");
 let safeSnapshotPacket;
+const snapshotSanitizer = createSanitizer({ secret: "snapshot-boundary-test" });
+snapshotSanitizer.sanitizeSnapshot({
+  visuals: [{ columns: ["Supplier.Name"], rows: [["AJI"]] }],
+});
 const safeSnapshot = await synthesizeEvidence({
-  question: "berapa performa supplier",
+  question: "berapa performa Supplier AJI?",
   evidence: [],
   snapshotFallback: {
-    text: "'MeasureTable'[OT_HOURS]: 7; Supplier.Name = MITRA_1",
+    text: "'Measure Table'[OT_HOURS]: 7; Supplier.Name = AJI; kontak aji@example.com",
     period: "Agustus 2026",
     dashboards: [{ id: "d-safe", name: "Supplier OT",
-      text: "OT_HOURS: 7; Supplier.Name = MITRA_1" }],
+      text: "'Measure Table'[OT_HOURS]: 7; Supplier.Name = AJI; kontak aji@example.com" }],
   },
 }, {
+  sanitizer: snapshotSanitizer,
   callModel: async (args) => {
     safeSnapshotPacket = JSON.parse(args.question);
-    return modelReply({ answer: "OT_HOURS 7 untuk MITRA_1.", citedSourceIndexes: [0] })();
+    return modelReply({
+      answer: "AJI punya 'Measure Table'[OT_HOURS] 7; hubungi aji@example.com.",
+      citedSourceIndexes: [0],
+    })();
   },
 });
-ok("packet snapshot memakai label manusia dan tidak punya filter asli",
-  !/OT_HOURS|Supplier\.Name|AJI/.test(JSON.stringify(safeSnapshotPacket))
+ok("packet snapshot menyamarkan raw entity/contact di question dan source tanpa merusak angka",
+  !/AJI|aji@example\.com/i.test(JSON.stringify(safeSnapshotPacket))
+    && /MITRA_/.test(JSON.stringify(safeSnapshotPacket))
+    && JSON.stringify(safeSnapshotPacket).includes("7"),
+  JSON.stringify(safeSnapshotPacket));
+ok("packet snapshot membuang qualified identifier quoted table berspasi",
+  !/Measure Table|OT_HOURS/.test(JSON.stringify(safeSnapshotPacket))
     && /Ot hours/.test(JSON.stringify(safeSnapshotPacket)),
   JSON.stringify(safeSnapshotPacket));
-ok("jawaban snapshot tidak mengekspos identifier teknis atau filter asli",
-  !/OT_HOURS|Supplier\.Name|AJI/.test(safeSnapshot.answer) && /Ot hours/.test(safeSnapshot.answer),
+ok("jawaban snapshot tidak mengekspos entity/contact/qualified identifier mentah",
+  !/AJI|aji@example\.com|Measure Table|OT_HOURS/i.test(safeSnapshot.answer)
+    && /MITRA_/.test(safeSnapshot.answer) && /Ot hours/.test(safeSnapshot.answer)
+    && safeSnapshot.answer.includes("7"),
   safeSnapshot.answer);
+
+section("Live packet mempertahankan wording biasa, configured label, dan angka bisnis");
+let ordinaryLivePacket;
+const ordinaryLive = await synthesizeEvidence({
+  question: "berapa total jam lembur produksi?",
+  evidence: [{
+    ...overtime,
+    rows: [{ "'Measure Table'[OT_HOURS]": 120 }],
+    columns: [{ key: "'Measure Table'[OT_HOURS]", label: "Jam lembur" }],
+  }],
+}, { callModel: async (args) => {
+  ordinaryLivePacket = JSON.parse(args.question);
+  return modelReply({ answer: "Jam lembur produksi 120.", citedSourceIndexes: [0] })();
+} });
+ok("question biasa tidak berubah dan packet live mempertahankan configured label/numeric result",
+  ordinaryLivePacket?.question === "berapa total jam lembur produksi?"
+    && ordinaryLivePacket?.sources?.[0]?.rows?.[0]?.["Jam lembur"] === 120,
+  JSON.stringify(ordinaryLivePacket));
+ok("jawaban live biasa tidak over-sanitized", ordinaryLive.answer.includes("Jam lembur produksi 120"),
+  ordinaryLive.answer);
 
 section("Tanpa bukti menghasilkan keterbatasan jujur tanpa memanggil AI");
 let calls = 0;

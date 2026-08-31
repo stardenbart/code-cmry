@@ -7,7 +7,7 @@
 import { pathToFileURL } from "url";
 import { ok, section, summary } from "./harness.mjs";
 import {
-  buildLabelMap, labelDaxRows, describeKpi, humanizeIdentifier,
+  buildLabelMap, labelDaxRows, describeKpi, humanizeIdentifier, humanizeTechnicalText,
 } from "../src/services/ciaHumanLabels.service.js";
 import { buildVisualBlueprint } from "../src/services/cia/visualBlueprint.js";
 import { synthesizeEvidence } from "../src/services/cia/evidenceSynthesizer.js";
@@ -83,6 +83,17 @@ ok("strip table prefix + bracket", humanizeIdentifier("'MeasureTable'[OT_HOURS]"
   humanizeIdentifier("'MeasureTable'[OT_HOURS]"));
 ok("camelCase dipisah", humanizeIdentifier("ActualProductionQty") === "Actual production qty",
   humanizeIdentifier("ActualProductionQty"));
+ok("qualified identifier dengan quoted table berspasi dibuang seluruh prefix-nya",
+  humanizeTechnicalText("Nilai 'Measure Table'[OT_HOURS] adalah 7") === "Nilai Ot hours adalah 7",
+  humanizeTechnicalText("Nilai 'Measure Table'[OT_HOURS] adalah 7"));
+
+const spacedConfigured = labelDaxRows({
+  rows: [{ "'Measure Table'[OT_HOURS]": 7 }],
+  bindings: [{ tableName: "Measure Table", measureName: "OT_HOURS", humanName: "Jam lembur" }],
+});
+ok("configured human label tetap mengalahkan fallback untuk table berspasi",
+  spacedConfigured.rows[0]?.["Jam lembur"] === 7,
+  JSON.stringify(spacedConfigured));
 
 section("Blueprint legacy memisahkan label manusia dari identifier DAX");
 const legacyBlueprint = buildVisualBlueprint({

@@ -37,7 +37,7 @@ export function humanizeIdentifier(raw) {
 /** Humanize technical identifiers embedded in otherwise user-facing text. */
 export function humanizeTechnicalText(raw) {
   return String(raw ?? "")
-    .replace(/'?[^'\s\[]+'?\[[^\]]+\]/g, (value) => humanizeIdentifier(value))
+    .replace(/(?:'[^']+'|[^\s\[\]']+)\[[^\]]+\]/g, (value) => humanizeIdentifier(value))
     .replace(/\b[A-Za-z][A-Za-z0-9]*(?:[_.][A-Za-z0-9]+)+\b/g,
       (value) => /^(?:ORANG|MITRA|DOK|DATA)_[0-9a-f]+$/i.test(value) ? value : humanizeIdentifier(value))
     .replace(/\b[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+\b/g,
