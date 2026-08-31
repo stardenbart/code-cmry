@@ -2,7 +2,9 @@ import fs from "fs";
 import { pathToFileURL } from "url";
 import { ok, section, summary } from "./harness.mjs";
 import { runWebEvidence } from "../src/services/cia/webEvidenceAdapter.js";
-import { buildEvidenceSnapshotFallback } from "../src/controllers/aiController.js";
+import * as aiController from "../src/controllers/aiController.js";
+
+const { buildEvidenceSnapshotFallback } = aiController;
 
 function request(overrides = {}) {
   return {
@@ -129,6 +131,38 @@ section("Multi-Chat mendapat kontrak lama plus metadata evidence");
     JSON.stringify(envelope.conversation));
 }
 
+section("Controller endpoint menghormati flag sebelum jawaban lokal");
+{
+  ok("controller routing seam tersedia", typeof aiController.routeDashboardEvidence === "function");
+  if (typeof aiController.routeDashboardEvidence === "function") {
+    const previous = process.env.CIA_HYBRID_QUERY_ENABLED;
+    let calls = 0;
+    const input = {
+      req: {}, user: { id: 7 }, dashboard: { id: 10 }, snapshot: { visuals: [] },
+      localAnswer: { answered: true, confidence: 1, text: "Jawaban snapshot lokal" },
+    };
+    const deps = { tryDashboardEvidence: async () => {
+      calls += 1;
+      return { answer: "Jawaban shared orchestrator", meta: { retrievalMethod: "live_dax" } };
+    } };
+    try {
+      process.env.CIA_HYBRID_QUERY_ENABLED = "false";
+      const legacy = await aiController.routeDashboardEvidence(input, deps);
+      ok("flag false mempertahankan jawaban lokal tanpa orchestrator", legacy === null && calls === 0,
+        JSON.stringify({ legacy, calls }));
+
+      process.env.CIA_HYBRID_QUERY_ENABLED = "true";
+      const hybrid = await aiController.routeDashboardEvidence(input, deps);
+      ok("flag true melewati local confidence dan memakai shared orchestrator",
+        hybrid?.meta?.retrievalMethod === "live_dax" && calls === 1,
+        JSON.stringify({ hybrid, calls }));
+    } finally {
+      if (previous == null) delete process.env.CIA_HYBRID_QUERY_ENABLED;
+      else process.env.CIA_HYBRID_QUERY_ENABLED = previous;
+    }
+  }
+}
+
 section("Controller memisahkan teks model tersanitasi dari filter DAX internal");
 {
   const snapshotResults = [
@@ -191,7 +225,7 @@ section("Controller memasang adapter sebelum syarat snapshot legacy");
 {
   const source = fs.readFileSync("src/controllers/aiController.js", "utf8");
   const askStart = source.indexOf("ask: withCiaTelemetry");
-  const adapter = source.indexOf("tryDashboardEvidence(", askStart);
+  const adapter = source.indexOf("routeDashboardEvidence({", askStart);
   const legacySnapshot = source.indexOf("if (!hasVisualData)", adapter);
   ok("adapter terpasang di endpoint ask", adapter > 0);
   ok("live evidence dicoba sebelum snapshot diwajibkan", legacySnapshot > adapter,

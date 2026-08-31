@@ -2,6 +2,7 @@ import { pathToFileURL } from "url";
 import { ok, section, summary } from "./harness.mjs";
 import {
   CIA_HYBRID_REGRESSION_CASES as CIA_REGRESSION_CASES,
+  CIA_HYBRID_EXECUTED_PERIODS as EXPECTED_PERIODS,
 } from "./fixtures/cia-regression-cases.mjs";
 import * as featureFlags from "../src/config/featureFlags.js";
 import { answerWithEvidence } from "../src/services/cia/evidenceOrchestrator.js";
@@ -97,7 +98,10 @@ function fakeKpiLibrary(observations) {
         }],
       };
     });
-    observations.library.push({ question, concepts: [...conceptsOf(intentFrame)], selected: [...selected] });
+    observations.library.push({
+      question, concepts: [...conceptsOf(intentFrame)], selected: [...selected],
+      preferredDashboardIds: [...preferredDashboardIds],
+    });
     return kpis;
   };
 }
@@ -218,21 +222,6 @@ function expectedRoles(item) {
   return ["primary"];
 }
 
-function expectedExecutedPeriod(item) {
-  const explicit = {
-    "overtime-cost-department": { comparisonKey: "explicit_date", from: "2026-08-02", to: "2026-08-02" },
-    "planning-output-august": { comparisonKey: "explicit_date", from: "2026-08-10", to: "2026-08-10" },
-    "evergreen-routine-downtime": { comparisonKey: "explicit_range", from: "2026-08-10", to: "2026-08-16" },
-    "evergreen-routine-downtime-day-issue": { comparisonKey: "explicit_range", from: "2026-08-10", to: "2026-08-16" },
-  }[item.id];
-  if (explicit) return explicit;
-  if (item.expectsPeriodKind === "current_week") return "current_week";
-  if (item.expectsPeriodKind === "today") return "today";
-  if (item.expectsPeriodKind === "yesterday") return "yesterday";
-  if (["named_month", "explicit_date", "explicit_range"].includes(item.expectsPeriodKind)) return item.expectsPeriodKind;
-  return "current";
-}
-
 const PREVIOUS_TURN = Object.freeze({
   "production-issue-today-detail": "production-issue-today",
   "technical-downtime-only": "production-issue-today-detail",
@@ -337,8 +326,11 @@ ok("corpus acceptance tetap tepat 27 pertanyaan",
   CIA_REGRESSION_CASES.length === 27 && new Set(CIA_REGRESSION_CASES.map((item) => item.id)).size === 27,
   String(CIA_REGRESSION_CASES.length));
 
-const observations = { library: [], plannerCalls: [], executions: [], currentId: null };
-async function runInjectedQuery({ id, question, conversation = [], preferredDashboardIds = [] }) {
+const observations = { library: [], plannerCalls: [], executions: [], scopeCalls: [], currentId: null };
+async function runInjectedQuery({
+  id, question, conversation = [], preferredDashboardIds = [],
+  allowedDashboardIds = ALL_DASHBOARD_IDS,
+}) {
   observations.currentId = id;
   try {
     return await answerWithEvidence({
@@ -350,12 +342,16 @@ async function runInjectedQuery({ id, question, conversation = [], preferredDash
       preferredDashboardIds,
     }, {
       tracker: tracker(),
-      resolveEvidenceScope: async () => ({
-        denied: false,
-        mode: "centralized",
-        allowedDashboardIds: ALL_DASHBOARD_IDS,
-        preferredDashboardIds,
-      }),
+      scopeDeps: {
+        loadCentralizedDashboardIds: async () => {
+          observations.scopeCalls.push({ id, loader: "centralized", allowedDashboardIds });
+          return allowedDashboardIds;
+        },
+        loadUserDashboardIds: async () => {
+          observations.scopeCalls.push({ id, loader: "user" });
+          throw new Error("trusted WhatsApp acceptance must not use the user ACL loader");
+        },
+      },
       routerDeps: {
         searchKpiCandidates: fakeKpiLibrary(observations),
         getDashboardVocabulary: async () => ({}),
@@ -389,7 +385,8 @@ for (const item of CIA_REGRESSION_CASES) {
     { role: "user", text: previous.item.question },
     { role: "assistant", text: previous.answer.answer, evidenceContract: previous.answer.evidenceContract },
   ] : [];
-  const preferredDashboardIds = item.id.includes("evergreen") ? [DASHBOARDS.maintenance.id] : [];
+  const preferredDashboardIds = item.id.includes("evergreen")
+    ? [DASHBOARDS.maintenance.id, "not-allowed"] : [];
   const intent = buildIntentFrame({ question: item.question, conversation, preferredDashboardIds });
   const answer = await runInjectedQuery({
     id: item.id, question: item.question, conversation, preferredDashboardIds,
@@ -397,15 +394,21 @@ for (const item of CIA_REGRESSION_CASES) {
   results.set(item.id, { item, answer });
 
   const prefix = item.id;
-  ok(`${prefix}: concepts`, item.expectsConcepts.every((value) => intent.concepts.includes(value)),
+  ok(`${prefix}: parsed concepts`, item.expectsConcepts.length
+    ? item.expectsConcepts.every((value) => intent.concepts.includes(value))
+    : intent.concepts.length === 0,
     JSON.stringify(intent.concepts));
+  const executedConcepts = answer.evidenceContract?.concepts || [];
+  ok(`${prefix}: executed contract concepts`, item.expectsConcepts.length
+    ? item.expectsConcepts.every((value) => executedConcepts.includes(value))
+    : executedConcepts.length === 0,
+  JSON.stringify(executedConcepts));
   ok(`${prefix}: period kind`, !item.expectsPeriodKind || intent.periodKinds.includes(item.expectsPeriodKind),
     JSON.stringify(intent.periodKinds));
-  const executedPeriod = expectedExecutedPeriod(item);
-  const matchesExecutedPeriod = (period) => typeof executedPeriod === "string"
-    ? period?.comparisonKey === executedPeriod
-    : period?.comparisonKey === executedPeriod.comparisonKey
-      && period.from === executedPeriod.from && period.to === executedPeriod.to;
+  const executedPeriod = EXPECTED_PERIODS[item.id];
+  const matchesExecutedPeriod = (period) => executedPeriod
+    && period?.comparisonKey === executedPeriod.comparisonKey
+    && period.from === executedPeriod.from && period.to === executedPeriod.to;
   ok(`${prefix}: executed period contract`, answer.evidenceContract?.periods?.some((period) =>
     matchesExecutedPeriod(period)), JSON.stringify(answer.evidenceContract?.periods));
   const executedPlans = observations.executions.filter((plan) => plan.acceptanceId === item.id);
@@ -453,10 +456,30 @@ ok("paired follow-up turns benar-benar membawa contract sebelumnya",
 ok("fake library dipakai untuk seluruh corpus", observations.library.length === 27, String(observations.library.length));
 ok("production planner model boundary dipakai untuk seluruh corpus", observations.plannerCalls?.length === 27,
   String(observations.plannerCalls?.length || 0));
+ok("production scope resolver memakai centralized loader untuk seluruh corpus",
+  observations.scopeCalls.length === 27 && observations.scopeCalls.every((call) => call.loader === "centralized"),
+  JSON.stringify(observations.scopeCalls));
+ok("production scope membuang preferred dashboard di luar allowed sebelum routing",
+  observations.library.every((call) => !call.preferredDashboardIds.includes("not-allowed")),
+  JSON.stringify(observations.library.map((call) => call.preferredDashboardIds)));
 ok("production DAX builder menghasilkan query read-only dari blueprint", observations.executions.length > 0
   && observations.executions.every((plan) => plan.datasetId === "fake-dataset"
     && typeof plan.dax === "string" && /^EVALUATE\b/.test(plan.dax)
     && plan.allowedDaxIdentifiers?.some((identifier) => identifier.includes("Calendar[Date]"))));
+
+const restrictedScope = await runInjectedQuery({
+  id: "production-scope-filter",
+  question: "jelaskan downtime evergreen",
+  preferredDashboardIds: [DASHBOARDS.technical.id, DASHBOARDS.maintenance.id],
+  allowedDashboardIds: [DASHBOARDS.maintenance.id],
+});
+const restrictedPlans = observations.executions.filter((plan) => plan.acceptanceId === "production-scope-filter");
+ok("production scope membatasi preferred dan eksekusi ke dashboard allowed",
+  restrictedScope.sources?.length > 0
+    && restrictedScope.sources.every((source) => String(source.dashboardId) === DASHBOARDS.maintenance.id)
+    && restrictedPlans.length > 0
+    && restrictedPlans.every((plan) => String(plan.dashboardId) === DASHBOARDS.maintenance.id),
+JSON.stringify({ sources: restrictedScope.sources, plans: restrictedPlans.map((plan) => plan.dashboardId) }));
 
 section("Deterministic injected smoke rehearsal (Power BI is not exercised)");
 const evergreenQuestion = "jelaskan downtime evergreen bulan juni";

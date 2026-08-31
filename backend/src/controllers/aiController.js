@@ -259,6 +259,12 @@ async function tryDashboardEvidence(req, user, dashboard, snapshot) {
   });
 }
 
+export async function routeDashboardEvidence({ req, user, dashboard, snapshot, localAnswer } = {}, deps = {}) {
+  const enabled = ciaHybridWebEnabled();
+  if (!enabled && localAnswer?.answered && localAnswer.confidence >= AMBANG_KEYAKINAN) return null;
+  return (deps.tryDashboardEvidence || tryDashboardEvidence)(req, user, dashboard, snapshot);
+}
+
 export function withCiaTelemetry(surface, handler, deps = {}) {
   const starter = deps.startCiaTelemetry || startCiaTelemetry;
   return async (req, res) => {
@@ -970,9 +976,9 @@ export const AiController = {
       // Jalur live evidence tidak bergantung pada filter/snapshot browser.
       // Dashboard yang sedang dibuka hanya hint; router tetap boleh memilih
       // dashboard ACL lain yang lebih relevan dengan pertanyaan/periode.
-      const evidenceResponse = lokal.answered && lokal.confidence >= AMBANG_KEYAKINAN
-        ? null
-        : await tryDashboardEvidence(req, user, dashboard, snapshot);
+      const evidenceResponse = await routeDashboardEvidence({
+        req, user, dashboard, snapshot, localAnswer: lokal,
+      });
       if (evidenceResponse) {
         req.ciaTelemetrySettled = true;
         return res.json(evidenceResponse);

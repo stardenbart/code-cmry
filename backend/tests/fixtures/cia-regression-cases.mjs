@@ -58,3 +58,35 @@ export const CIA_HYBRID_REGRESSION_CASES = Object.freeze([
   { id: "evergreen-routine-downtime-day-issue", question: "jelaskan routine downtime tertinggi untuk evergreen di rentang tanggal 10-16 agustus kemarin di hari apa dan issuenya apa", expectsConcepts: ["downtime", "routine downtime"], expectsEntities: ["evergreen", "10-16 agustus"], expectsOperations: ["breakdown", "explanation", "ranking"], expectsPeriodKind: "explicit_range" },
 ]);
 
+// Literal oracle for the fixed acceptance instant (2026-08-31 Asia/Jakarta).
+// These values must not be computed with the production period resolver.
+export const CIA_HYBRID_EXECUTED_PERIODS = Object.freeze({
+  "downtime-tetra-running-hours": { comparisonKey: "current", from: "2026-08-01", to: "2026-08-31" },
+  "production-po-achievement": { comparisonKey: "current_week", from: "2026-08-31", to: "2026-08-31" },
+  "downtime-pasuruan-highest": { comparisonKey: "current", from: "2026-08-01", to: "2026-08-31" },
+  "output-uht-week": { comparisonKey: "current_week", from: "2026-08-31", to: "2026-08-31" },
+  "snapshot-today": { comparisonKey: "today", from: "2026-08-31", to: "2026-08-31" },
+  "cmd3-deviation-detail": { comparisonKey: "current", from: "2026-08-01", to: "2026-08-31" },
+  "operational-downtime-trigger": { comparisonKey: "current", from: "2026-08-01", to: "2026-08-31" },
+  "serac-issue-downtime": { comparisonKey: "current", from: "2026-08-01", to: "2026-08-31" },
+  "serac-sbl18-action": { comparisonKey: "current", from: "2026-08-01", to: "2026-08-31" },
+  "overtime-weekend-cutoff": { comparisonKey: "named_month", from: "2026-07-01", to: "2026-07-31" },
+  "overtime-holiday-cutoff-1": { comparisonKey: "named_month", from: "2026-07-01", to: "2026-07-31" },
+  "overtime-holiday-cutoff-2": { comparisonKey: "named_month", from: "2026-07-01", to: "2026-07-31" },
+  "overtime-cost-department": { comparisonKey: "explicit_date", from: "2026-08-02", to: "2026-08-02" },
+  "production-issue-today": { comparisonKey: "today", from: "2026-08-31", to: "2026-08-31" },
+  "production-issue-today-detail": { comparisonKey: "today", from: "2026-08-31", to: "2026-08-31" },
+  "technical-downtime-only": { comparisonKey: "current", from: "2026-08-01", to: "2026-08-31" },
+  "serac-cyd65-issue": { comparisonKey: "current", from: "2026-08-01", to: "2026-08-31" },
+  "evergreen-repair-status": { comparisonKey: "current", from: "2026-08-01", to: "2026-08-31" },
+  "cmd3-deviation-cause": { comparisonKey: "current", from: "2026-08-01", to: "2026-08-31" },
+  "nc-deviation-source": { comparisonKey: "current", from: "2026-08-01", to: "2026-08-31" },
+  "cmd3-highest-deviation": { comparisonKey: "current", from: "2026-08-01", to: "2026-08-31" },
+  "output-uht-yesterday": { comparisonKey: "yesterday", from: "2026-08-30", to: "2026-08-30" },
+  "cmd1-downtime-cause": { comparisonKey: "current", from: "2026-08-01", to: "2026-08-31" },
+  "production-output-po-yesterday": { comparisonKey: "yesterday", from: "2026-08-30", to: "2026-08-30" },
+  "planning-output-august": { comparisonKey: "explicit_date", from: "2026-08-10", to: "2026-08-10" },
+  "evergreen-routine-downtime": { comparisonKey: "explicit_range", from: "2026-08-10", to: "2026-08-16" },
+  "evergreen-routine-downtime-day-issue": { comparisonKey: "explicit_range", from: "2026-08-10", to: "2026-08-16" },
+});
+
