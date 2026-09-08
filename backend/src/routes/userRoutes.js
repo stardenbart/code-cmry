@@ -12,6 +12,7 @@ import express from "express";
 import bcrypt from "bcrypt";
 import db from "../config/db.js";
 import { requireAdmin, requireSelfOrAdmin } from "../middleware/authorize.js";
+import { setUserPlants } from "../models/plantModel.js";
 
 const router = express.Router();
 
@@ -39,13 +40,21 @@ async function menurunkanAdminTerakhir(targetId) {
 }
 
 // GET ALL USERS
-router.get("/users", requireAdmin, (req, res) => {
-  const q =
-    "SELECT id, nama, departemen, tipe_akses, nik, email, username, approved, role, cia_access FROM users";
-  db.query(q, (err, results) => {
-    if (err) return res.status(500).json({ message: "Database error", error: err });
-    res.json(results);
-  });
+router.get("/users", requireAdmin, async (req, res) => {
+  try {
+    const [results] = await db.promise().query(
+      `SELECT u.id, u.nama, u.departemen, u.tipe_akses, u.nik, u.email, u.username,
+              u.approved, u.role, u.cia_access, u.cross_plant_access,
+              (SELECT GROUP_CONCAT(up.plant_id) FROM user_plants up WHERE up.user_id = u.id) AS plant_ids
+         FROM users u`);
+    const users = results.map((u) => ({
+      ...u,
+      plantIds: u.plant_ids ? String(u.plant_ids).split(",").map(Number) : [],
+    }));
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ message: "Database error", error: err });
+  }
 });
 
 // CHANGE PASSWORD
@@ -110,22 +119,29 @@ router.post("/add-user", requireAdmin, async (req, res) => {
   // fitur AI memakai kuota bersama dan menampilkan analisa operasional, jadi
   // membukanya harus keputusan sadar admin, bukan bawaan.
   const bolehCia = req.body?.ciaAccess ? 1 : 0;
+  const lintasPlant = req.body?.crossPlantAccess ? 1 : 0;
+  const plantIds = Array.isArray(req.body?.plantIds) ? req.body.plantIds : [];
 
   const hashedPassword = await bcrypt.hash(password, 10);
   const q = `
-    INSERT INTO users (nama, departemen, tipe_akses, nik, email, username, password, approved, role, cia_access)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    INSERT INTO users (nama, departemen, tipe_akses, nik, email, username, password, approved, role, cia_access, cross_plant_access)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
   `;
-  db.query(q, [nama, departemen, tipe_akses, nik, email, username, hashedPassword, peran, bolehCia], (err) => {
-    if (err) return res.status(500).json({ message: "Database error", error: err });
-    res.status(200).json({ message: "User successfully added" });
-  });
+  try {
+    const [result] = await db.promise().query(q,
+      [nama, departemen, tipe_akses, nik, email, username, hashedPassword, peran, bolehCia, lintasPlant]);
+    await setUserPlants(result.insertId, plantIds);
+    res.status(200).json({ message: "User successfully added", id: result.insertId });
+  } catch (err) {
+    res.status(500).json({ message: "Database error", error: err });
+  }
 });
 
 // UPDATE USER
 router.put("/update-user/:id", requireAdmin, async (req, res) => {
   const { id } = req.params;
-  const { nama, departemen, tipe_akses, nik, email, username, password, role, ciaAccess } = req.body;
+  const { nama, departemen, tipe_akses, nik, email, username, password, role, ciaAccess,
+    crossPlantAccess, plantIds } = req.body;
 
   try {
     if (role !== undefined && !ROLE_SAH.has(role)) {
@@ -160,17 +176,20 @@ router.put("/update-user/:id", requireAdmin, async (req, res) => {
       kolom.push("cia_access=?");
       params.push(ciaAccess ? 1 : 0);
     }
+    if (crossPlantAccess !== undefined) {
+      kolom.push("cross_plant_access=?");
+      params.push(crossPlantAccess ? 1 : 0);
+    }
     params.push(id);
 
     // Nama kolom berasal dari literal di atas, tidak pernah dari req.body,
     // jadi penggabungan string ini tidak membuka celah injeksi.
     const q = `UPDATE users SET ${kolom.join(", ")} WHERE id=?`;
 
-    db.query(q, params, (err, result) => {
-      if (err) return res.status(500).json({ message: "Database error", error: err });
-      if (result.affectedRows === 0) return res.status(404).json({ message: "User is not found" });
-      res.status(200).json({ message: "User successfully updated" });
-    });
+    const [result] = await db.promise().query(q, params);
+    if (result.affectedRows === 0) return res.status(404).json({ message: "User is not found" });
+    if (Array.isArray(plantIds)) await setUserPlants(Number(id), plantIds);
+    res.status(200).json({ message: "User successfully updated" });
   } catch (error) {
     res.status(500).json({ message: "Server error", error });
   }

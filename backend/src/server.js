@@ -16,6 +16,7 @@ import summaryRoutes from "./routes/summaryRoutes.js";
 import { daftarkanScheduler } from "./config/scheduler.js";
 import perfRoutes from "./routes/perfRoutes.js";
 import adminCiaRoutes from "./routes/adminCiaRoutes.js";
+import plantRoutes from "./routes/plantRoutes.js";
 import { SERVER_CONFIG } from "./config/config.js";
 import { getEmbedConfig, getEmbedConfigByReportId } from "./config/powerbi.js";
 import { verifyJWT } from "./middleware/auth.js";
@@ -80,6 +81,7 @@ app.use("/api/perf", perfRoutes);
 app.use("/api/summary", summaryRoutes);
 // Control-plane Admin CIA. requireAdmin dipasang di dalam router-nya sendiri.
 app.use("/api/admin/cia", adminCiaRoutes);
+app.use("/api/plants", plantRoutes);
 
 // REGISTER
 app.post("/api/register", async (req, res) => {
@@ -170,6 +172,15 @@ app.post("/api/login", (req, res) => {
     // The browser stores this in localStorage; the bcrypt hash has no business
     // being there. `role` stays — the UI needs it to decide what to render.
     const { password: _omit, ...safeUser } = user;
+    // Sertakan plant yang di-assign supaya sidebar bisa membangun & memfilter
+    // pohon Plant ▸ Dept ▸ Dashboard tanpa panggilan tambahan.
+    try {
+      const [plants] = await db.promise().query(
+        `SELECT p.id, p.name, p.code FROM user_plants up
+           JOIN plants p ON p.id = up.plant_id
+          WHERE up.user_id = ? ORDER BY p.name`, [user.id]);
+      safeUser.plants = plants;
+    } catch { safeUser.plants = []; }
     res.status(200).json({ token, user: safeUser });
   });
 });

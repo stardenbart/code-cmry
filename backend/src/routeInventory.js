@@ -156,4 +156,14 @@ export const ROUTE_CLASSIFICATION = new Map([
   ["POST /api/admin/cia/kpis/:id/confirm", "adminOnly"],
   ["GET /api/admin/cia/kpis/:id/revisions", "adminOnly"],
   ["POST /api/admin/cia/kpis/:id/revisions/:revisionId/restore", "adminOnly"],
+
+  // Plant/Department hierarchy. GET dipakai dropdown & sidebar (authenticated);
+  // mutasi plant/department hanya admin.
+  ["GET /api/plants/", "authenticated"],
+  ["POST /api/plants/", "adminOnly"],
+  ["PUT /api/plants/:id", "adminOnly"],
+  ["DELETE /api/plants/:id", "adminOnly"],
+  ["POST /api/plants/:plantId/departments", "adminOnly"],
+  ["PUT /api/plants/departments/:id", "adminOnly"],
+  ["DELETE /api/plants/departments/:id", "adminOnly"],
 ]);
