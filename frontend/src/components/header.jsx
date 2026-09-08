@@ -81,7 +81,7 @@ export default function Header({
             <h1 className="text-sm lg:text-lg font-semibold tracking-wide leading-tight">
               Cimory Operational Digital Enhancement
             </h1>
-            <p className="text-xs text-white/70">CMD Plant Sentul</p>
+            <p className="text-xs text-white/70">CMD Plant</p>
           </div>
         </div>
 
@@ -89,9 +89,10 @@ export default function Header({
         <div className="flex items-center gap-2 lg:gap-4">
 
           {/* Desktop action icons (hidden on mobile) */}
-          <div className="hidden lg:flex items-center gap-3 text-sm italic">
-            <span>Logged: <span className="font-semibold">{user.nama}</span></span>
+          <div className="hidden lg:flex items-center gap-4 text-sm">
+            <span className="italic whitespace-nowrap">Logged: <span className="font-semibold not-italic">{user.nama}</span></span>
 
+            <div className="flex items-center gap-3 xl:gap-3.5 pl-4 border-l border-white/25">
             <IconButton onClick={() => navigate("/cop")} icon={Home}
               color="bg-cimoryBlue/80 hover:bg-cimoryBlue" tooltip="Cimory Operation Portal" />
 
@@ -128,6 +129,7 @@ export default function Header({
               color="bg-yellow-500 hover:bg-yellow-600" tooltip="Change Password" />
             <IconButton onClick={onLogout} icon={LogOut}
               color="bg-red-500 hover:bg-red-600" tooltip="Logout" />
+            </div>
           </div>
 
           {/* Mobile: show name + ⋮ menu button */}

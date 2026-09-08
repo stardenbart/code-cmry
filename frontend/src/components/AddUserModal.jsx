@@ -7,7 +7,9 @@ export default function AddUserModal({ onClose }) {
   const toast = useToast();
   const [form, setForm] = useState({
     name: "",
+    plantId: "",
     department: "",
+    departmentId: "",
     access: "Department Access Only",
     role: "user",
     ciaAccess: false,
@@ -16,32 +18,21 @@ export default function AddUserModal({ onClose }) {
     username: "",
     password: "",
   });
+  const [plants, setPlants] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
-
-    return () => {
-      document.body.style.overflow = "auto";
-    };
+    API.get("/api/plants")
+      .then((res) => setPlants(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setPlants([]));
+    return () => { document.body.style.overflow = "auto"; };
   }, []);
 
-  const departments = [
-    "Plant",
-    "Dairy Service",
-    "Engineering",
-    "PPIC",
-    "Production",
-    "Warehouse",
-    "Quality Control",
-    "HRDGA",
-    "Quality Assurance",
-    "Performance Excellence",
-    "Finance & Accounting",
-    "Research & Innovation",
-    "Project"
-  ];
+  // Department menyesuaikan plant yang dipilih.
+  const selectedPlant = plants.find((p) => Number(p.id) === Number(form.plantId));
+  const plantDepartments = selectedPlant?.departments || [];
 
   const handleSubmit = async () => {
     setLoading(true);
@@ -52,6 +43,7 @@ export default function AddUserModal({ onClose }) {
         tipe_akses: form.access,
         role: form.role,
         ciaAccess: form.ciaAccess,
+        plantIds: form.plantId ? [Number(form.plantId)] : [],
         nik: form.nik,
         email: form.email,
         username: form.username,
@@ -74,21 +66,35 @@ export default function AddUserModal({ onClose }) {
     <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 z-50">
       <div className="bg-white p-6 w-[400px] shadow-xl">
         <h2 className="text-lg font-semibold mb-4 text-cimoryBlue">Add New User</h2>
-        {["name", "department", "access", "role", "nik", "email", "username", "password"].map((key) => (
+        {["name", "plant", "department", "access", "role", "nik", "email", "username", "password"].map((key) => (
           <div key={key} className="mb-3">
             <label className="block text-sm font-medium capitalize mb-1">{key}</label>
 
-            {key === "department" ? (
+            {key === "plant" ? (
               <select
                 className="border w-full p-2 rounded-lg"
-                value={form.department}
-                onChange={(e) => setForm({ ...form, department: e.target.value })}
+                value={form.plantId}
+                onChange={(e) => setForm({ ...form, plantId: e.target.value, department: "", departmentId: "" })}
               >
-                <option value="">Select Department</option>
-                {departments.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
+                <option value="">Select Plant</option>
+                {plants.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
+                ))}
+              </select>
+            ) : key === "department" ? (
+              <select
+                className="border w-full p-2 rounded-lg"
+                value={form.departmentId}
+                disabled={!form.plantId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const d = plantDepartments.find((x) => String(x.id) === String(id));
+                  setForm({ ...form, departmentId: id, department: d?.name || "" });
+                }}
+              >
+                <option value="">{form.plantId ? "Select Department" : "Pilih plant dulu"}</option>
+                {plantDepartments.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
                 ))}
               </select>
             ) : key === "access" ? (

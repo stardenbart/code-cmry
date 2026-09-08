@@ -3,6 +3,7 @@ import API from "../api/api";
 import {
   Bell, Factory, Monitor,
   ChevronDown, ChevronRight, LayoutGrid, X, Building2,
+  PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -23,6 +24,8 @@ export default function Sidebar({
   onDashboardSelect,
   isOpen,
   onClose,
+  collapsed = false,
+  onToggleCollapse,
 }) {
   const navigate = useNavigate();
   const [expandedPlant, setExpandedPlant] = useState(null);
@@ -70,8 +73,14 @@ export default function Sidebar({
 
   const buatIsi = (varian) => (
     <div className="flex flex-col h-full p-4 overflow-y-auto">
-      <div className="flex justify-end mb-1 lg:hidden">
-        <button onClick={onClose} className="p-1.5 rounded-full hover:bg-white/20 transition">
+      <div className="flex justify-between items-center mb-1">
+        {/* Sembunyikan sidebar (desktop) */}
+        <button onClick={onToggleCollapse}
+          className="hidden lg:inline-flex p-1.5 rounded-full hover:bg-white/20 transition"
+          title="Sembunyikan menu" aria-label="Sembunyikan menu">
+          <PanelLeftClose size={18} className="text-white" />
+        </button>
+        <button onClick={onClose} className="lg:hidden p-1.5 rounded-full hover:bg-white/20 transition ml-auto">
           <X size={18} className="text-white" />
         </button>
       </div>
@@ -200,9 +209,22 @@ export default function Sidebar({
 
   return (
     <>
-      <aside className="hidden lg:flex flex-col w-64 shrink-0 bg-cimoryBlue text-white rounded-2xl shadow-lg">
+      <aside className={`${collapsed ? "hidden" : "hidden lg:flex"} flex-col w-64 shrink-0 bg-cimoryBlue text-white rounded-2xl shadow-lg`}>
         {buatIsi("desktop")}
       </aside>
+
+      {/* Tombol munculkan lagi sidebar (desktop) saat disembunyikan */}
+      {collapsed && (
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          title="Tampilkan menu"
+          aria-label="Tampilkan menu"
+          className="hidden lg:inline-flex items-center justify-center self-start shrink-0 h-10 w-10 rounded-xl bg-cimoryBlue text-white shadow-lg hover:bg-cimoryBlue/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cimoryBlue/50"
+        >
+          <PanelLeftOpen size={20} />
+        </button>
+      )}
 
       <div
         className={`lg:hidden fixed inset-0 bg-black/50 z-40 transition-opacity duration-200 motion-reduce:transition-none ${

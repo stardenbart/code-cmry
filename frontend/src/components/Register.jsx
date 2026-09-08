@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { UserPlus, Eye, EyeOff, ChevronDown, ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/api"
@@ -10,6 +10,7 @@ export default function RegisterPage() {
 
   const [form, setForm] = useState({
     nama: "",
+    plantId: "",
     departemen: "",
     tipe_akses: "Department Access Only",
     nik: "",
@@ -17,25 +18,20 @@ export default function RegisterPage() {
     username: "",
     password: "",
   });
+  const [plants, setPlants] = useState([]);
   const [errors, setErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const departments = [
-    "Plant",
-    "Dairy Service",
-    "Engineering",
-    "PPIC",
-    "Production",
-    "Warehouse",
-    "Quality Control",
-    "HRDGA",
-    "Quality Assurance",
-    "Performance Excellence",
-    "Finance & Accounting",
-    "Research & Innovation",
-    "Project"
-  ];
+  useEffect(() => {
+    API.get("/api/plants")
+      .then((res) => setPlants(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setPlants([]));
+  }, []);
+
+  // Department menyesuaikan plant yang dipilih.
+  const selectedPlant = plants.find((p) => String(p.id) === String(form.plantId));
+  const departments = (selectedPlant?.departments || []).map((d) => d.name);
 
   const accessTypes = ["Department Access Only"];
 
@@ -123,14 +119,33 @@ export default function RegisterPage() {
 
           <div className="relative">
             <select
+              name="plantId"
+              value={form.plantId}
+              onChange={(e) => { setForm({ ...form, plantId: e.target.value, departemen: "" }); setErrors({ ...errors, plantId: "" }); }}
+              className={`w-full appearance-none p-3 border ${
+                errors.plantId ? "border-red-400" : "border-white/30"
+              } bg-white/60 text-gray-800 rounded-xl outline-none pr-10 focus:ring-2 focus:ring-cimoryBlue hover:border-cimoryBlue`}
+            >
+              <option value="">Choose Plant</option>
+              {plants.map((p) => (
+                <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
+              ))}
+            </select>
+            <ChevronDown size={20} className="absolute right-3 top-3 text-gray-500 pointer-events-none" />
+            {errors.plantId && (<p className="text-red-500 text-xs mt-1">{errors.plantId}</p>)}
+          </div>
+
+          <div className="relative">
+            <select
               name="departemen"
               value={form.departemen}
               onChange={handleChange}
+              disabled={!form.plantId}
               className={`w-full appearance-none p-3 border ${
                 errors.departemen ? "border-red-400" : "border-white/30"
-              } bg-white/60 text-gray-800 rounded-xl outline-none pr-10 focus:ring-2 focus:ring-cimoryBlue hover:border-cimoryBlue`}
+              } bg-white/60 text-gray-800 rounded-xl outline-none pr-10 focus:ring-2 focus:ring-cimoryBlue hover:border-cimoryBlue disabled:opacity-50`}
             >
-              <option value="">Choose Department</option>
+              <option value="">{form.plantId ? "Choose Department" : "Pilih plant dulu"}</option>
               {departments.map((dept) => (
                 <option key={dept} value={dept}>
                   {dept}

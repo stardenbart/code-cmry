@@ -361,6 +361,14 @@ function Dashboard({ user, onLogout }) {
   const toast = useToast();
   const [activeMenu, setActiveMenu]       = useState("Plant");
   const [sidebarOpen, setSidebarOpen]     = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem("sidebarCollapsed") === "1"; } catch { return false; }
+  });
+  const toggleSidebarCollapsed = () => setSidebarCollapsed((v) => {
+    const next = !v;
+    try { localStorage.setItem("sidebarCollapsed", next ? "1" : "0"); } catch { /* abaikan */ }
+    return next;
+  });
   const [focusedDash, setFocusedDash]     = useState(null);
   const [showAddUser, setShowAddUser]     = useState(false);
   const [showManageUser, setShowManageUser] = useState(false);
@@ -547,6 +555,8 @@ function Dashboard({ user, onLogout }) {
             onDashboardSelect={handleDashboardSelect}
             isOpen={sidebarOpen}
             onClose={() => setSidebarOpen(false)}
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={toggleSidebarCollapsed}
           />
         </LazyBoundary>
 

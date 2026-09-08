@@ -85,7 +85,7 @@ app.use("/api/plants", plantRoutes);
 
 // REGISTER
 app.post("/api/register", async (req, res) => {
-  const { nama, departemen, nik, email, username, password } = req.body;
+  const { nama, departemen, nik, email, username, password, plantId } = req.body;
   // Self-registration cannot grant itself All Access. Upgrades go through an
   // admin, who can see what they are approving — the approve-by-email button
   // does not show the requested access level.
@@ -124,6 +124,13 @@ app.post("/api/register", async (req, res) => {
               message: "Database error",
               error: err
             });
+          }
+
+          // Assign plant pilihan user (bila ada). INSERT IGNORE + best-effort:
+          // gagal di sini tidak boleh membatalkan registrasi yang sudah sukses.
+          if (plantId && Number(plantId) > 0) {
+            db.query("INSERT IGNORE INTO user_plants (user_id, plant_id) VALUES (?, ?)",
+              [result.insertId, Number(plantId)], (e) => { if (e) console.error("register user_plants:", e.message); });
           }
 
           // 📧 Notify superuser — pass insertId so the email token links back to this user
