@@ -60,8 +60,8 @@ check("header memisah ikon dengan divider", /border-l border-white\/25/.test(hea
 
 console.log("\n=== Sidebar hide/unhide (desktop) ===");
 check("Sidebar terima collapsed + onToggleCollapse", /collapsed = false/.test(sidebar) && /onToggleCollapse/.test(sidebar));
-check("aside desktop tersembunyi saat collapsed", /collapsed \? "hidden" : "hidden lg:flex"/.test(sidebar));
-check("ada tombol collapse & expand", /PanelLeftClose/.test(sidebar) && /PanelLeftOpen/.test(sidebar));
+check("aside desktop menyusut mulus saat collapsed", /transition-\[width,opacity,transform\]/.test(sidebar) && /w-0 opacity-0/.test(sidebar));
+check("ada tombol collapse & expand (ikon modern)", /ChevronsLeft/.test(sidebar) && /ChevronsRight/.test(sidebar));
 check("App menyimpan state collapse", /sidebarCollapsed/.test(app) && /localStorage/.test(app));
 
 console.log(failed === 0 ? "\nSemua lulus" : `\n${failed} gagal`);

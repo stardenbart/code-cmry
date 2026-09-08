@@ -3,7 +3,7 @@ import API from "../api/api";
 import {
   Bell, Factory, Monitor,
   ChevronDown, ChevronRight, LayoutGrid, X, Building2,
-  PanelLeftClose, PanelLeftOpen,
+  ChevronsLeft, ChevronsRight,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -72,13 +72,13 @@ export default function Sidebar({
   };
 
   const buatIsi = (varian) => (
-    <div className="flex flex-col h-full p-4 overflow-y-auto">
+    <div className="flex flex-col h-full w-full min-w-[16rem] p-4 overflow-y-auto">
       <div className="flex justify-between items-center mb-1">
         {/* Sembunyikan sidebar (desktop) */}
         <button onClick={onToggleCollapse}
-          className="hidden lg:inline-flex p-1.5 rounded-full hover:bg-white/20 transition"
+          className="hidden lg:inline-flex items-center justify-center p-2 rounded-xl text-white/90 hover:text-white hover:bg-white/15 transition-all duration-200 hover:-translate-x-0.5 active:scale-90 motion-reduce:transform-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
           title="Sembunyikan menu" aria-label="Sembunyikan menu">
-          <PanelLeftClose size={18} className="text-white" />
+          <ChevronsLeft size={18} />
         </button>
         <button onClick={onClose} className="lg:hidden p-1.5 rounded-full hover:bg-white/20 transition ml-auto">
           <X size={18} className="text-white" />
@@ -209,22 +209,33 @@ export default function Sidebar({
 
   return (
     <>
-      <aside className={`${collapsed ? "hidden" : "hidden lg:flex"} flex-col w-64 shrink-0 bg-cimoryBlue text-white rounded-2xl shadow-lg`}>
+      <aside
+        className={`hidden lg:flex flex-col shrink-0 bg-cimoryBlue text-white rounded-2xl shadow-lg overflow-hidden
+          transition-[width,opacity,transform] duration-300 ease-in-out motion-reduce:transition-none ${
+            collapsed ? "w-0 opacity-0 -translate-x-1 pointer-events-none" : "w-64 opacity-100 translate-x-0"
+          }`}
+        aria-hidden={collapsed}
+        inert={collapsed ? "" : undefined}
+      >
         {buatIsi("desktop")}
       </aside>
 
-      {/* Tombol munculkan lagi sidebar (desktop) saat disembunyikan */}
-      {collapsed && (
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          title="Tampilkan menu"
-          aria-label="Tampilkan menu"
-          className="hidden lg:inline-flex items-center justify-center self-start shrink-0 h-10 w-10 rounded-xl bg-cimoryBlue text-white shadow-lg hover:bg-cimoryBlue/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cimoryBlue/50"
-        >
-          <PanelLeftOpen size={20} />
-        </button>
-      )}
+      {/* Rail untuk memunculkan lagi sidebar (desktop) — selalu ter-mount agar transisinya mulus */}
+      <button
+        type="button"
+        onClick={onToggleCollapse}
+        title="Tampilkan menu"
+        aria-label="Tampilkan menu"
+        aria-hidden={!collapsed}
+        className={`hidden lg:flex items-center justify-center self-start shrink-0 h-10 overflow-hidden
+          rounded-xl bg-cimoryBlue text-white shadow-lg hover:bg-cimoryBlue/90 hover:translate-x-0.5
+          transition-[width,opacity,transform] duration-300 ease-in-out motion-reduce:transition-none
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cimoryBlue/50 ${
+            collapsed ? "w-10 opacity-100" : "w-0 opacity-0 pointer-events-none"
+          }`}
+      >
+        <ChevronsRight size={20} className="shrink-0" />
+      </button>
 
       <div
         className={`lg:hidden fixed inset-0 bg-black/50 z-40 transition-opacity duration-200 motion-reduce:transition-none ${
