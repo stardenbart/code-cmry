@@ -25,6 +25,7 @@ const AddUserModal        = lazy(() => import("./components/AddUserModal"));
 const ManageUsers         = lazy(() => import("./components/ManageUsers"));
 const ChangePasswordModal = lazy(() => import("./components/ChangePasswordModal"));
 const DashboardManager    = lazy(() => import("./components/DashboardManager"));
+const PlantManager        = lazy(() => import("./components/PlantManager"));
 const LandingPageManager  = lazy(() => import("./components/LandingPageManager"));
 const NotificationPage    = lazy(() => import("./components/NotificationPage"));
 const DataRoomDashboard   = lazy(() => import("./components/DataRoomDashboard.jsx"));
@@ -364,6 +365,7 @@ function Dashboard({ user, onLogout }) {
   const [showAddUser, setShowAddUser]     = useState(false);
   const [showManageUser, setShowManageUser] = useState(false);
   const [showReportSetting, setShowReportSetting] = useState(false);
+  const [showPlantManager, setShowPlantManager] = useState(false);
 
   // Hak akses CIA, dibaca dari server & localStorage untuk initial render.
   //
@@ -400,6 +402,8 @@ function Dashboard({ user, onLogout }) {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [selectedDashboard, setSelectedDashboard] = useState("");
   const [dashboards, setDashboards]       = useState({});
+  const [dashboardsFlat, setDashboardsFlat] = useState([]);
+  const [plants, setPlants]               = useState([]);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -411,6 +415,7 @@ function Dashboard({ user, onLogout }) {
   const fetchDashboards = async () => {
     try {
       const res = await API.get("/api/dashboards");
+      setDashboardsFlat(res.data || []);
       const grouped = res.data.reduce((acc, dash) => {
         const dept = dash.department || "Others";
         if (!acc[dept]) acc[dept] = [];
@@ -421,6 +426,17 @@ function Dashboard({ user, onLogout }) {
     } catch (err) {
       console.error("❌ Gagal ambil dashboard:", err);
       setDashboards({});
+      setDashboardsFlat([]);
+    }
+  };
+
+  const fetchPlants = async () => {
+    try {
+      const res = await API.get("/api/plants");
+      setPlants(res.data || []);
+    } catch (err) {
+      console.error("❌ Gagal ambil plant:", err);
+      setPlants([]);
     }
   };
 
@@ -437,6 +453,7 @@ function Dashboard({ user, onLogout }) {
   useEffect(() => {
     fetchDashboards();
     fetchAccessStatus();
+    fetchPlants();
   }, []);
 
   useEffect(() => {
@@ -500,7 +517,7 @@ function Dashboard({ user, onLogout }) {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const modalOpen = showAddUser || showManageUser || showChangePassword || showAISettings || showReportSetting;
+  const modalOpen = showAddUser || showManageUser || showChangePassword || showAISettings || showReportSetting || showPlantManager;
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-cimoryBlue/50 via-white to-cimoryRed/50">
@@ -510,6 +527,7 @@ function Dashboard({ user, onLogout }) {
         onAddUserClick={() => setShowAddUser(true)}
         onManageUserClick={() => setShowManageUser(true)}
         onReportSettingClick={() => setShowReportSetting(true)}
+        onPlantManagerClick={() => setShowPlantManager(true)}
         onChangePasswordClick={() => setShowChangePassword(true)}
         onAISettingsClick={ciaAccess || user?.role === "admin" ? () => setShowAISettings(true) : null}
         onUnifiedChatClick={ciaAccess ? () => navigate("/cia-chat") : null}
@@ -524,6 +542,8 @@ function Dashboard({ user, onLogout }) {
             user={user}
             canView={() => true}
             dashboards={dashboards}
+            plants={plants}
+            dashboardsFlat={dashboardsFlat}
             onDashboardSelect={handleDashboardSelect}
             isOpen={sidebarOpen}
             onClose={() => setSidebarOpen(false)}
@@ -655,6 +675,7 @@ function Dashboard({ user, onLogout }) {
         {showAddUser    && <AddUserModal onClose={() => setShowAddUser(false)} />}
         {showManageUser && <ManageUsers onClose={() => setShowManageUser(false)} />}
         {showReportSetting && <ReportSettingModal onClose={() => setShowReportSetting(false)} />}
+        {showPlantManager && <PlantManager onClose={() => setShowPlantManager(false)} />}
         {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
         {showAISettings && <AISettingsModal onClose={() => setShowAISettings(false)} />}
       </LazyBoundary>

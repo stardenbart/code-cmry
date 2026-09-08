@@ -31,10 +31,16 @@ import { useConfirm } from "./ConfirmProvider";
       username: "",
       password: "",
       role: "user",
+      plantIds: [],
+      crossPlantAccess: false,
     });
+    const [plants, setPlants] = useState([]);
 
     useEffect(() => {
       document.body.style.overflow = "hidden";
+      API.get("/api/plants")
+        .then((res) => setPlants(Array.isArray(res.data) ? res.data : []))
+        .catch(() => setPlants([]));
 
       return () => {
         document.body.style.overflow = "auto";
@@ -101,6 +107,8 @@ import { useConfirm } from "./ConfirmProvider";
         // tampil kosong lalu mengirim "" dan server menolaknya sebagai tidak
         // valid, padahal admin tidak mengubah apa pun di kolom itu.
         role: user.role === "admin" ? "admin" : "user",
+        plantIds: Array.isArray(user.plantIds) ? user.plantIds : [],
+        crossPlantAccess: Boolean(user.cross_plant_access),
       });
 
       setLoadingAccess(true);
@@ -352,6 +360,49 @@ import { useConfirm } from "./ConfirmProvider";
                     size={18}
                     className="absolute right-3 top-9 text-gray-500 pointer-events-none"
                   />
+                </div>
+
+                {/* Plant assignment (maks 2) */}
+                <div className="relative sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Plant (maks. 2)
+                  </label>
+                  <div className="mt-1 flex flex-wrap gap-3 border rounded-lg px-3 py-2">
+                    {plants.length === 0 && (
+                      <span className="text-xs text-gray-400">Belum ada plant.</span>
+                    )}
+                    {plants.map((p) => {
+                      const checked = form.plantIds.map(Number).includes(Number(p.id));
+                      const atLimit = form.plantIds.length >= 2 && !checked;
+                      return (
+                        <label key={p.id} className={`flex items-center gap-1.5 text-sm ${atLimit ? "opacity-40" : ""}`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={atLimit}
+                            onChange={(e) => {
+                              const ids = form.plantIds.map(Number).filter((id) => id !== Number(p.id));
+                              if (e.target.checked) ids.push(Number(p.id));
+                              setForm({ ...form, plantIds: ids.slice(0, 2) });
+                            }}
+                          />
+                          {p.name} <span className="text-gray-400">({p.code})</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Lintas-plant */}
+                <div className="relative sm:col-span-2">
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(form.crossPlantAccess)}
+                      onChange={(e) => setForm({ ...form, crossPlantAccess: e.target.checked })}
+                    />
+                    Akses lintas plant (lihat dashboard semua plant)
+                  </label>
                 </div>
 
                 {/* Role */}

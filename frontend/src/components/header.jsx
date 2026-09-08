@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   UserPlus, Users, KeyRound, LogOut, LayoutDashboard, Home,
-  Menu, MoreVertical, Globe, Sparkles, CalendarClock, MessageSquare, Activity
+  Menu, MoreVertical, Globe, Sparkles, CalendarClock, MessageSquare, Activity, Factory
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -11,6 +11,7 @@ export default function Header({
   onAddUserClick,
   onManageUserClick,
   onReportSettingClick,
+  onPlantManagerClick,
   onChangePasswordClick,
   onAISettingsClick,
   onUnifiedChatClick,
@@ -108,6 +109,8 @@ export default function Header({
                   color="bg-blue-500 hover:bg-blue-600" tooltip="Manage Users" />
                 <IconButton onClick={onReportSettingClick} icon={CalendarClock}
                   color="bg-teal-600 hover:bg-teal-700" tooltip="Setelan Laporan Harian" />
+                <IconButton onClick={onPlantManagerClick} icon={Factory}
+                  color="bg-amber-500 hover:bg-amber-600" tooltip="Kelola Plant & Dept" />
               </>
             )}
 
@@ -164,6 +167,8 @@ export default function Header({
                       label="Manage Users" color="hover:bg-blue-600/60" />
                     <MobileAction onClick={onReportSettingClick} icon={CalendarClock}
                       label="Setelan Laporan Harian" color="hover:bg-teal-600/60" />
+                    <MobileAction onClick={onPlantManagerClick} icon={Factory}
+                      label="Kelola Plant & Dept" color="hover:bg-amber-600/60" />
                   </>
                 )}
 

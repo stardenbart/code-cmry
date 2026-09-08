@@ -110,6 +110,7 @@ const DashboardManager = () => {
   const [newEmails, setNewEmails]                 = useState([]);
   const [editingDashboard, setEditingDashboard]   = useState(null);
   const [editEmails, setEditEmails]               = useState([]);
+  const [plants, setPlants]                       = useState([]);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -120,7 +121,46 @@ const DashboardManager = () => {
         else setDashboards([]);
       })
       .catch((err) => console.error("Error fetching dashboards:", err));
+    API.get("/api/plants")
+      .then((res) => setPlants(Array.isArray(res.data) ? res.data : []))
+      .catch((err) => console.error("Error fetching plants:", err));
   }, []);
+
+  // Dropdown Plant + Department dependen. Menyetel plant_id/department_id dan
+  // menyinkronkan `department` (nama) untuk kompatibilitas kolom lama.
+  const plantDeptFields = (obj, setObj) => {
+    const selectedPlant = plants.find((p) => Number(p.id) === Number(obj.plant_id));
+    const depts = selectedPlant?.departments || [];
+    return (
+      <>
+        <Field label="Plant">
+          <select
+            value={obj.plant_id || ""}
+            onChange={(e) => setObj({ ...obj, plant_id: e.target.value ? Number(e.target.value) : "", department_id: "", department: "" })}
+            className={inputCls}
+          >
+            <option value="">Pilih Plant</option>
+            {plants.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Department">
+          <select
+            value={obj.department_id || ""}
+            disabled={!obj.plant_id}
+            onChange={(e) => {
+              const id = e.target.value ? Number(e.target.value) : "";
+              const d = depts.find((x) => Number(x.id) === id);
+              setObj({ ...obj, department_id: id, department: d?.name || "" });
+            }}
+            className={inputCls}
+          >
+            <option value="">Pilih Department</option>
+            {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+        </Field>
+      </>
+    );
+  };
 
   const handleDelete = async (id, judul) => {
     const setuju = await confirm({
@@ -217,11 +257,7 @@ const DashboardManager = () => {
 	        <ReportIdHint value={newDashboard.report_id} />
 	      </Field>
 
-              <Field label="Department">
-                <input type="text" placeholder="Department" value={newDashboard.department}
-                  onChange={(e) => setNewDashboard({ ...newDashboard, department: e.target.value })}
-                  className={inputCls} />
-              </Field>
+              {plantDeptFields(newDashboard, setNewDashboard)}
 
               <Field label="Description">
                 <input type="text" placeholder="Description" value={newDashboard.description}
@@ -276,11 +312,7 @@ const DashboardManager = () => {
 	        <ReportIdHint value={editingDashboard.report_id} />
 	      </Field>
 
-              <Field label="Department">
-                <input type="text" placeholder="Department" value={editingDashboard.department}
-                  onChange={(e) => setEditingDashboard({ ...editingDashboard, department: e.target.value })}
-                  className={inputCls} />
-              </Field>
+              {plantDeptFields(editingDashboard, setEditingDashboard)}
 
               <Field label="Description">
                 <input type="text" placeholder="Description" value={editingDashboard.description}

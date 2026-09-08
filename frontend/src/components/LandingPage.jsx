@@ -183,7 +183,7 @@ export default function LandingPage() {
               </div>
             )}
 
-            {/* Dashboard CMD Sentul */}
+            {/* Dashboard CMD */}
             <button
               type="button"
               onClick={() => window.open("/login", "_blank")}
@@ -197,7 +197,7 @@ export default function LandingPage() {
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
             >
               <Cpu className="w-7 h-7 sm:w-9 sm:h-9" />
-              Dashboard CMD Sentul
+              Dashboard CMD
             </button>
           </div>
 
