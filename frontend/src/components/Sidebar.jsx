@@ -73,7 +73,7 @@ export default function Sidebar({
 
   const buatIsi = (varian) => (
     <div className="flex flex-col h-full w-full min-w-[16rem] p-4 overflow-y-auto">
-      <div className="flex justify-between items-center mb-1">
+      <div className="flex justify-between items-center mb-4">
         {/* Sembunyikan sidebar (desktop) */}
         <button onClick={onToggleCollapse}
           className="hidden lg:inline-flex items-center justify-center p-2 rounded-xl text-white/90 hover:text-white hover:bg-white/15 transition-all duration-200 hover:-translate-x-0.5 active:scale-90 motion-reduce:transform-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
