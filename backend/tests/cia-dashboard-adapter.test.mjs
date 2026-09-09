@@ -307,6 +307,65 @@ section("Multi-Chat membatasi kartu sumber duplikat");
     JSON.stringify({ dashboards: result.dashboards_used, sources: result.sources }));
 }
 
+section("Jawaban lokal yang yakin gratis walau key/rate/quota menolak (I-1)");
+{
+  const base = {
+    req: { body: {} }, user: { id: 7 }, dashboard: { id: 10, title: "Lembur" },
+    snapshot: { visuals: [{ title: "Lembur", rows: [{ Jam: 120 }] }] },
+    localAnswer: { answered: true, confidence: 1, text: "120 jam lembur bulan ini" },
+    question: "berapa jam lembur bulan ini?", model: null,
+  };
+
+  // Skenario A: rate limit sedang menolak.
+  {
+    let keyCalls = 0;
+    let rateCalls = 0;
+    const result = await aiController.runControlledDashboardEvidence(base, {
+      hybridEnabled: () => true,
+      resolveKey: async () => { keyCalls += 1; return { source: "server", apiKey: "secret" }; },
+      rateLimitHit: () => { rateCalls += 1; return { allowed: false, retryAfterSeconds: 9 }; },
+      quotaSummary: async () => ({ resetAt: null }),
+      breakerState: () => ({ level: "ok" }),
+      routeDashboardEvidence: async () => { throw new Error("orchestrator tidak boleh dipanggil"); },
+      logChat: async () => { throw new Error("logChat hybrid tidak boleh dipanggil untuk jawaban lokal"); },
+    });
+    ok("rate limit tidak pernah dipanggil untuk jawaban lokal yang yakin", rateCalls === 0, String(rateCalls));
+    ok("resolveKey tidak pernah dipanggil untuk jawaban lokal yang yakin", keyCalls === 0, String(keyCalls));
+    ok("tidak ada terminal 429 — caller lanjut ke jawaban lokal gratis",
+      !result.terminal, JSON.stringify(result));
+    ok("tidak ada kontrol yang dibebankan", result.response === null && result.controls === null,
+      JSON.stringify(result));
+  }
+
+  // Skenario B: tidak ada API key yang bisa di-resolve sama sekali.
+  {
+    let keyCalls = 0;
+    const result = await aiController.runControlledDashboardEvidence(base, {
+      hybridEnabled: () => true,
+      resolveKey: async () => { keyCalls += 1; return null; },
+      rateLimitHit: () => { throw new Error("rate limit tidak boleh dicek — resolveKey seharusnya tidak jalan"); },
+      routeDashboardEvidence: async () => { throw new Error("orchestrator tidak boleh dipanggil"); },
+    });
+    ok("resolveKey tidak pernah dipanggil untuk jawaban lokal yang yakin", keyCalls === 0, String(keyCalls));
+    ok("tidak ada terminal 503 — caller lanjut ke jawaban lokal gratis",
+      !result.terminal, JSON.stringify(result));
+    ok("tidak ada kontrol yang dibebankan", result.response === null && result.controls === null,
+      JSON.stringify(result));
+  }
+
+  // Kontrol negatif: jawaban lokal TIDAK yakin tetap melewati key/rate seperti biasa.
+  {
+    let keyCalls = 0;
+    const notConfident = { ...base, localAnswer: { answered: false, intent: "ANALYTICAL" } };
+    const result = await aiController.runControlledDashboardEvidence(notConfident, {
+      hybridEnabled: () => true,
+      resolveKey: async () => { keyCalls += 1; return null; },
+    });
+    ok("tanpa jawaban lokal yang yakin, resolveKey tetap dipanggil (kontrol tidak dilewati)",
+      keyCalls === 1 && result.terminal?.status === 503, JSON.stringify({ keyCalls, result }));
+  }
+}
+
 section("Controller memasang adapter sebelum syarat snapshot legacy");
 {
   const source = fs.readFileSync("src/controllers/aiController.js", "utf8");

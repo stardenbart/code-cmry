@@ -270,10 +270,22 @@ export async function routeDashboardEvidence({ req, user, dashboard, snapshot, l
  * dashboard model path before the hybrid planner or synthesizer can run.
  * Returning controls on a transparent fallback lets the endpoint continue the
  * legacy path without charging the rate limiter twice.
+ *
+ * INVARIANT: a confident local-snapshot answer is free — it calls no Gemini,
+ * needs no API key, and must never be blocked by key/rate-limit/quota
+ * controls. So this check runs FIRST, before resolveKey/rateLimit/quota, and
+ * returns { response: null, controls: null } (charging nothing) so the caller
+ * falls through to its own local-answer branch instead of hitting a 503/429
+ * for a question that was already answerable for free.
  */
 export async function runControlledDashboardEvidence(input = {}, deps = {}) {
   const enabled = (deps.hybridEnabled || ciaHybridWebEnabled)();
   if (!enabled) return { response: null, controls: null };
+
+  const localAnswer = input.localAnswer;
+  if (localAnswer?.answered && localAnswer.confidence >= AMBANG_KEYAKINAN) {
+    return { response: null, controls: null };
+  }
 
   const keyResolver = deps.resolveKey || resolveKey;
   const resolved = await keyResolver(input.user?.id, input.model);
@@ -1095,6 +1107,13 @@ export const AiController = {
       // Jalur live evidence tidak bergantung pada filter/snapshot browser.
       // Dashboard yang sedang dibuka hanya hint; router tetap boleh memilih
       // dashboard ACL lain yang lebih relevan dengan pertanyaan/periode.
+      //
+      // runControlledDashboardEvidence sendiri memeriksa localAnswer LEBIH
+      // DULU dan langsung pulang tanpa menyentuh key/rate limit/quota bila
+      // jawaban lokal sudah cukup yakin — lihat komentarnya. Itulah kenapa
+      // panggilan ini aman ditaruh sebelum Fase A di bawah: kontrol
+      // key/rate/quota TIDAK PERNAH tersentuh untuk pertanyaan yang bisa
+      // dijawab gratis dari snapshot.
       const controlledEvidence = await runControlledDashboardEvidence({
         req, user, dashboard, snapshot, localAnswer: lokal, question: q, model,
       });
@@ -1145,6 +1164,11 @@ export const AiController = {
       // mengisi API key mendapat 503 untuk pertanyaan yang sebenarnya bisa
       // dijawab tanpa key sama sekali. Rate limit pun memang dimaksudkan
       // menjaga kuota Gemini, seperti tertulis di komentarnya sendiri di bawah.
+      //
+      // Sudah aman kalau CIA hybrid ENABLED juga: runControlledDashboardEvidence
+      // di atas mengecek confidence jawaban lokal ini SEBELUM resolveKey/rate
+      // limit/quota, dan pulang lebih dulu dengan { response: null, controls:
+      // null } tanpa membebani kontrol apa pun ketika lokal sudah yakin.
       if (lokal.answered && lokal.confidence >= AMBANG_KEYAKINAN) {
         const visualsUsed = (snapshot?.visuals || []).length;
         const rowsUsed = (snapshot?.visuals || [])
