@@ -1,5 +1,7 @@
 const clean = (value) => typeof value === "string" ? value.trim() : "";
 const normalized = (value) => clean(value).toLowerCase().replace(/[_-]+/g, " ");
+const MAX_GOALS = 6;
+const METRIC_ROLES = new Set(["primary", "numerator", "denominator", "target", "detail", "correlation"]);
 
 const DIMENSION_TERMS = [
   { match: /tanggal|date|hari/, concept: "tanggal" },
@@ -42,6 +44,11 @@ function evidenceBindingId(item) {
   return clean(item?.goal?.kpiBindingId ?? item?.bindingId);
 }
 
+function matchesIntent(item) {
+  const match = item?.intentMatch;
+  return !match || ["concepts", "entities", "period", "source"].every((key) => match[key] !== false);
+}
+
 function columns(item) {
   return new Set((Array.isArray(item?.columns) ? item.columns : []).map((column) =>
     normalized(typeof column === "string" ? column : column?.label ?? column?.humanName)));
@@ -56,12 +63,46 @@ function compatiblePeriod(left, right) {
   return left?.from === right?.from && left?.to === right?.to;
 }
 
+function evidencePeriodIndex(item, plan) {
+  const explicitIndex = Number((item?.goal || item)?.periodIndex);
+  return Number.isInteger(explicitIndex) && explicitIndex >= 0
+    ? explicitIndex
+    : Math.max(0, (plan?.periods || []).findIndex((period) => compatiblePeriod(item?.period, period)));
+}
+
+function matchesPlannedPeriod(item, plan) {
+  const expected = plan?.periods?.[evidencePeriodIndex(item, plan)];
+  return !expected || compatiblePeriod(item?.period, expected);
+}
+
 function goalKey(goal) {
   return [
     clean(goal?.kpiBindingId),
     Number.isInteger(Number(goal?.periodIndex)) ? Number(goal.periodIndex) : 0,
+    metricRole(goal),
     [...new Set((goal?.dimensions || []).map(dimensionConcept))].sort().join("|"),
   ].join("::");
+}
+
+function metricRole(value) {
+  const explicit = clean(value?.metricRole).toLowerCase();
+  if (METRIC_ROLES.has(explicit)) return explicit;
+  if (value?.purpose === "correlation") return "correlation";
+  const blueprintRole = clean(value?.blueprint?.role).toLowerCase();
+  if (METRIC_ROLES.has(blueprintRole)) return blueprintRole;
+  return "primary";
+}
+
+function requiredMetricRoles(plan) {
+  const roles = new Set((Array.isArray(plan?.goals) ? plan.goals : []).map(metricRole));
+  const operations = new Set(Array.isArray(plan?.operations) ? plan.operations : []);
+  const required = [];
+  if (operations.has("calculation") && (roles.has("numerator") || roles.has("denominator"))) {
+    required.push("numerator", "denominator");
+  }
+  if (roles.has("target") && operations.has("calculation")) required.push("primary", "target");
+  if (roles.has("detail") && operations.has("breakdown")) required.push("primary", "detail");
+  return [...new Set(required)];
 }
 
 async function candidatePool(plan, library, question) {
@@ -78,8 +119,11 @@ async function candidatePool(plan, library, question) {
 export async function analyzeEvidenceGap({ question = "", plan = {}, evidence = [], round = 1, library = {} } = {}) {
   const candidates = await candidatePool(plan, library, question);
   const candidateById = new Map(candidates.map((item) => [clean(item.bindingId), item]));
-  const successful = evidence.filter((item) => item?.status === "success" && Array.isArray(item.rows) && item.rows.length);
-  const attempted = new Set(evidence.map((item) => goalKey(item?.goal || item)).filter(Boolean));
+  const relevantEvidence = evidence.filter(matchesIntent);
+  const successful = relevantEvidence.filter((item) => item?.status === "success"
+    && Array.isArray(item.rows) && item.rows.length);
+  const attempted = new Set(relevantEvidence.filter((item) => matchesPlannedPeriod(item, plan))
+    .map((item) => goalKey(item?.goal || item)).filter(Boolean));
   const missing = [];
   const warnings = [];
   const desired = [];
@@ -95,10 +139,21 @@ export async function analyzeEvidenceGap({ question = "", plan = {}, evidence = 
   }
 
   const primaryIds = new Set(primaryGoals.map((goal) => clean(goal.kpiBindingId)));
+  const primaryCandidates = (plan.candidates || [])
+    .filter((candidate) => primaryIds.has(clean(candidate.bindingId)));
+  const sourceKey = (candidate) => normalized(candidate?.dashboardId ?? candidate?.reportId
+    ?? candidate?.semanticModel ?? candidate?.bindingId);
+  const isCompetingSourceForSameConcept = (candidate) => primaryCandidates.some((primary) => {
+    if (sourceKey(primary) === sourceKey(candidate)) return false;
+    const anchors = new Set((primary.anchorMatches || []).map(normalized));
+    return (candidate.anchorMatches || []).some((anchor) => anchors.has(normalized(anchor)));
+  });
   const asksCorrelation = /\b(karena|penyebab|menyebabkan|memicu|akibat|korelasi|berkorelasi|hubungan|kait\w*|terkait)\b/i
     .test(question);
   const correlationCandidates = asksCorrelation ? candidates.filter((candidate) =>
-    !primaryIds.has(clean(candidate.bindingId)) && candidateRelevant(question, candidate)) : [];
+    !primaryIds.has(clean(candidate.bindingId))
+      && !isCompetingSourceForSameConcept(candidate)
+      && candidateRelevant(question, candidate)) : [];
 
   for (const candidate of correlationCandidates) {
     const dimensions = requestedDimensions(question, candidate);
@@ -124,9 +179,37 @@ export async function analyzeEvidenceGap({ question = "", plan = {}, evidence = 
     }
   }
 
+  const successfulRolePeriods = new Set(successful.filter((item) => matchesPlannedPeriod(item, plan)).map((item) => {
+    const evidenceGoal = item?.goal || item;
+    const planned = (plan.goals || []).find((goal) => clean(goal.kpiBindingId) === evidenceBindingId(item));
+    const periodIndex = evidencePeriodIndex(item, plan);
+    return `${metricRole({ ...planned, ...evidenceGoal })}:${periodIndex}`;
+  }));
+  const requestedPeriodIndexes = [...new Set(primaryGoals.map((goal) => Number(goal.periodIndex) || 0))];
+  for (const periodIndex of requestedPeriodIndexes.length ? requestedPeriodIndexes : [0]) {
+    for (const role of requiredMetricRoles(plan)) {
+      if (successfulRolePeriods.has(`${role}:${periodIndex}`)) continue;
+      missing.push(`metric:${role}:period:${periodIndex}`);
+      const candidate = candidates.find((item) => Array.isArray(item?.anchorMatches)
+        && item.anchorMatches.length > 0 && metricRole(item) === role);
+      if (candidate) {
+        desired.push({
+          kpiBindingId: clean(candidate.bindingId),
+          periodIndex,
+          dimensions: requestedDimensions(question, candidate),
+          purpose: role === "correlation" ? "correlation" : "primary",
+          metricRole: role,
+        });
+      }
+    }
+  }
+
   const uniqueMissing = [...new Set(missing)];
   let additionalGoals = [...new Map(desired.map((goal) => [goalKey(goal), goal])).values()]
     .filter((goal) => !attempted.has(goalKey(goal)));
+  const goalCount = new Set([...(plan.goals || []), ...evidence.map((item) => item?.goal || item)]
+    .map(goalKey).filter(Boolean)).size;
+  additionalGoals = additionalGoals.slice(0, Math.max(0, MAX_GOALS - goalCount));
 
   if (round >= 4 && uniqueMissing.length) {
     additionalGoals = [];

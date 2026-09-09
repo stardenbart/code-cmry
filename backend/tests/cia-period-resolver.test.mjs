@@ -23,6 +23,14 @@ ok("rentang tanggal Indonesia dibaca inklusif",
   JSON.stringify(dates("lembur 24-30 Agustus 2026"))
     === JSON.stringify([{ from: "2026-08-24", to: "2026-08-30", comparisonKey: "explicit_range" }]),
   JSON.stringify(dates("lembur 24-30 Agustus 2026")));
+ok("rentang tanggal tanpa tahun tidak melebar menjadi satu bulan",
+  JSON.stringify(dates("downtime 10-16 Agustus kemarin"))
+    === JSON.stringify([{ from: "2026-08-10", to: "2026-08-16", comparisonKey: "explicit_range" }]),
+  JSON.stringify(dates("downtime 10-16 Agustus kemarin")));
+ok("tanggal tunggal tanpa tahun tidak melebar menjadi satu bulan",
+  JSON.stringify(dates("output 10 Agustus kemarin"))
+    === JSON.stringify([{ from: "2026-08-10", to: "2026-08-10", comparisonKey: "explicit_date" }]),
+  JSON.stringify(dates("output 10 Agustus kemarin")));
 ok("bulan lalu adalah bulan kalender penuh",
   JSON.stringify(dates("lembur bulan lalu"))
     === JSON.stringify([{ from: "2026-07-01", to: "2026-07-31", comparisonKey: "previous_month" }]),

@@ -24,6 +24,8 @@ import { jendelaLaporan } from "../utils/dateWindow.util.js";
 import { getCiaIdentityText, isCiaIdentityQuestion } from "./ciaIdentity.js";
 import { sudahDisapa, tandaiSudahDisapa } from "../models/waGroupIntroModel.js";
 import { startCiaTelemetry } from "./ciaTelemetry.service.js";
+import { ciaHybridQueryEnabled } from "../config/featureFlags.js";
+import { getSanitizer } from "./aiSanitizer.js";
 
 // ── Topik terakhir per grup ───────────────────────────────────────────────────
 //
@@ -36,6 +38,7 @@ import { startCiaTelemetry } from "./ciaTelemetry.service.js";
 // reconnect. Masa berlakunya pendek karena "detailkan" tiga jam kemudian hampir
 // pasti bukan lanjutan dari topik tadi.
 const topikGrup = new Map(); // jid -> { topik, waktu }
+const percakapanEvidence = new Map(); // jid -> { turns, waktu }
 const TOPIK_BERLAKU_MS = Number(process.env.WA_TOPIK_TTL_MS) || 30 * 60 * 1000;
 
 /** Menyimpan topik yang baru dijawab di sebuah grup. */
@@ -58,8 +61,33 @@ export function topikTerakhirGrup(jid, sekarang = Date.now()) {
 
 /** Membuang ingatan topik. Dipakai uji supaya tidak saling mempengaruhi. */
 export function lupakanTopikGrup(jid) {
-  if (jid === undefined) topikGrup.clear();
-  else topikGrup.delete(String(jid));
+  if (jid === undefined) {
+    topikGrup.clear();
+    percakapanEvidence.clear();
+  } else {
+    topikGrup.delete(String(jid));
+    percakapanEvidence.delete(String(jid));
+  }
+}
+
+function riwayatEvidence(jid, sekarang = Date.now()) {
+  const key = String(jid || "");
+  const entry = percakapanEvidence.get(key);
+  if (!entry) return [];
+  if (sekarang - entry.waktu > TOPIK_BERLAKU_MS) {
+    percakapanEvidence.delete(key);
+    return [];
+  }
+  return entry.turns;
+}
+
+function catatEvidence(jid, question, answer) {
+  const turns = [...riwayatEvidence(jid),
+    { role: "user", text: String(question || "").trim().slice(0, 1_000) },
+    { role: "assistant", text: String(answer?.answer || "").trim().slice(0, 1_000),
+      ...(answer?.evidenceContract ? { evidenceContract: answer.evidenceContract } : {}) },
+  ].filter((turn) => turn.text).slice(-12);
+  percakapanEvidence.set(String(jid), { turns, waktu: Date.now() });
 }
 
 /** Jeda minimum antar permintaan per grup. */
@@ -601,8 +629,12 @@ async function jawabPertanyaanMesin(sock, jid, msg, mesin) {
 export async function jawabPertanyaanUmum(sock, jid, msg, teks, overrides = {}) {
   const { jawabDariSnapshot: defaultSnapshot } = await import("./whatsappQA.service.js");
   const { jawabDenganDax: defaultDax } = await import("./daxAgent.service.js");
+  const { answerWithEvidence: defaultEvidence } = await import("./cia/evidenceOrchestrator.js");
   const jawabDariSnapshot = overrides.jawabDariSnapshot || defaultSnapshot;
   const jawabDenganDax = overrides.jawabDenganDax || defaultDax;
+  const answerWithEvidence = overrides.answerWithEvidence || defaultEvidence;
+  const hybridEnabled = overrides.hybridEnabled ?? ciaHybridQueryEnabled();
+  const sanitizer = overrides.sanitizer || getSanitizer();
   const starter = overrides.startCiaTelemetry || startCiaTelemetry;
   const mulai = Date.now();
   let telemetry = null;
@@ -626,61 +658,141 @@ export async function jawabPertanyaanUmum(sock, jid, msg, teks, overrides = {}) 
     return;
   }
 
-  // AGEN DAX DICOBA LEBIH DULU. Ia memilih dashboard, menyusun query sendiri,
-  // menjalankannya, lalu menganalisis hasilnya, jadi bisa menjawab pertanyaan
-  // yang datanya tidak ada di snapshot: durasi satu mesin, persentase terhadap
-  // running hours, capaian per hari tertentu.
-  //
-  // Snapshot tetap jadi cadangan. Agen memakai tiga panggilan model per
-  // pertanyaan, jadi kuota habis atau query gagal harus tetap menghasilkan
-  // jawaban, bukan diam.
-  let agen;
-  try {
-    agen = await jawabDenganDax({ pertanyaan: teks });
-  } catch (err) {
-    await telemetry?.fail(err, { retrievalMethod: "none", latencyMs: Date.now() - mulai });
-    await balas(sock, jid, msg, "Maaf, CIA sedang gagal mengambil data. Silakan coba lagi.");
-    return;
-  }
-  for (const call of agen?.jejak?.ai || []) {
-    await telemetry?.event("ai_synthesis", {
-      provider: call.provider || null,
-      aiModel: call.model || null,
-      ...tokenTelemetry(call.usage),
-    });
-  }
-  for (const query of agen?.jejak?.query || []) {
-    await telemetry?.event("execute_dax", {
-      semanticModel: query.model || null,
-      rowsReturned: agen?.jejak?.baris || null,
-      status: query.berhasil ? "success" : "error",
-      errorCode: query.berhasil ? null : "DAX_EXECUTION_FAILED",
-      errorMessage: query.berhasil ? null : "Kueri DAX WhatsApp gagal dijalankan",
-    });
-  }
-  if (agen.berhasil) {
-    const sent = await balas(sock, jid, msg, agen.teks);
-    if (!sent) {
-      await telemetry?.fail({ code: "WA_DELIVERY_FAILED" }, {
-        retrievalMethod: "live_dax", latencyMs: Date.now() - mulai,
+  // Flag off preserves the pre-hybrid behavior: the original DAX agent gets
+  // first chance, and the stored snapshot remains its fallback.
+  if (!hybridEnabled) {
+    let agen;
+    try {
+      agen = await jawabDenganDax({ pertanyaan: teks });
+    } catch (err) {
+      await telemetry?.fail(err, { retrievalMethod: "none", latencyMs: Date.now() - mulai });
+      await balas(sock, jid, msg, "Maaf, CIA sedang gagal mengambil data. Silakan coba lagi.");
+      return;
+    }
+    for (const call of agen?.jejak?.ai || []) {
+      await telemetry?.event("ai_synthesis", {
+        provider: call.provider || null,
+        aiModel: call.model || null,
+        ...tokenTelemetry(call.usage),
+      });
+    }
+    for (const query of agen?.jejak?.query || []) {
+      await telemetry?.event("execute_dax", {
+        semanticModel: query.model || null,
+        rowsReturned: agen?.jejak?.baris || null,
+        status: query.berhasil ? "success" : "error",
+        errorCode: query.berhasil ? null : "DAX_EXECUTION_FAILED",
+        errorMessage: query.berhasil ? null : "Kueri DAX WhatsApp gagal dijalankan",
+      });
+    }
+    if (agen?.berhasil) {
+      const sent = await balas(sock, jid, msg, agen.teks);
+      if (!sent) {
+        await telemetry?.fail({ code: "WA_DELIVERY_FAILED" }, {
+          retrievalMethod: "live_dax", latencyMs: Date.now() - mulai,
+        });
+        return;
+      }
+      await telemetry?.event("response_sent");
+      await telemetry?.finish({
+        status: "success",
+        retrievalMethod: "live_dax",
+        latencyMs: Date.now() - mulai,
+        retrievalRounds: Math.max(1, agen?.jejak?.model?.length || 0),
       });
       return;
     }
-    await telemetry?.event("response_sent");
+    console.warn("[WA] agen DAX gagal, memakai snapshot:", agen?.alasan);
+    await telemetry?.event("fallback", {
+      status: "error",
+      errorCode: /tidak ada dashboard/i.test(String(agen?.alasan)) ? "ROUTER_NO_MATCH" : "DAX_AGENT_FAILED",
+      errorMessage: "Agen DAX WhatsApp gagal; memakai snapshot",
+    });
+  }
+
+  // Orchestrator yang sama dengan dashboard dan Multi-Chat menjadi jalur utama.
+  // Finish/fail ditahan sampai sendMessage berhasil supaya telemetry tidak
+  // menyatakan sukses saat jawaban sebenarnya gagal terkirim.
+  let deferredFinish = null;
+  let deferredFailure = null;
+  let deferredResponse = null;
+  const daxAttempts = [];
+  const evidenceTracker = telemetry ? {
+    requestId: telemetry.requestId,
+    async event(stage, data = {}) {
+      if (stage === "response_sent") deferredResponse = data;
+      else {
+        if (stage === "dax_attempt" && (data.status === "success" || data.status === "error")) {
+          daxAttempts.push(data);
+        }
+        await telemetry.event(stage, data);
+      }
+    },
+    async finish(data = {}) { deferredFinish = data; },
+    async fail(error, data = {}) { deferredFailure = { error, data }; },
+  } : null;
+
+  let evidenceAnswer = null;
+  if (hybridEnabled) {
+    try {
+      evidenceAnswer = await answerWithEvidence({
+        surface: "whatsapp",
+        actor: { name: "WhatsApp" },
+        question: teks,
+        conversationId: String(jid),
+        conversation: riwayatEvidence(jid),
+        preferredDashboardIds: Array.isArray(overrides.preferredDashboardIds)
+          ? overrides.preferredDashboardIds : [],
+        reportContext: overrides.reportContext ?? null,
+        accessMode: "centralized",
+      }, { ...(evidenceTracker ? { tracker: evidenceTracker } : {}), sanitizer });
+    } catch (err) {
+      deferredFailure = { error: err, data: { retrievalMethod: "none" } };
+    }
+  }
+
+  const emitLegacyDax = async () => {
+    for (const attempt of daxAttempts) {
+      await telemetry?.event("execute_dax", {
+        semanticModel: attempt.semanticModel || null,
+        rowsReturned: Number.isFinite(attempt.rowsReturned) ? attempt.rowsReturned : 0,
+        status: attempt.status,
+        errorCode: attempt.status === "success" ? null : (attempt.errorCode || "DAX_AGENT_FAILED"),
+        errorMessage: attempt.status === "success" ? null
+          : (attempt.errorMessage || "Kueri evidence WhatsApp belum menghasilkan jawaban"),
+      });
+    }
+  };
+
+  if (evidenceAnswer?.answer?.trim() && evidenceAnswer.retrievalMethod !== "none") {
+    await emitLegacyDax();
+    const sent = await balas(sock, jid, msg, evidenceAnswer.answer);
+    if (!sent) {
+      await telemetry?.fail({ code: "WA_DELIVERY_FAILED" }, {
+        retrievalMethod: evidenceAnswer.retrievalMethod, latencyMs: Date.now() - mulai,
+      });
+      return;
+    }
+    catatEvidence(jid, teks, evidenceAnswer);
+    await telemetry?.event("response_sent", deferredResponse || {});
     await telemetry?.finish({
-      status: "success",
-      retrievalMethod: "live_dax",
+      ...(deferredFinish || {}),
+      status: deferredFinish?.status || (evidenceAnswer.retrievalMethod === "live_dax" ? "success" : "partial"),
+      retrievalMethod: evidenceAnswer.retrievalMethod,
       latencyMs: Date.now() - mulai,
-      retrievalRounds: Math.max(1, agen?.jejak?.model?.length || 0),
+      retrievalRounds: evidenceAnswer.rounds || deferredFinish?.retrievalRounds || 0,
     });
     return;
   }
-  console.warn("[WA] agen DAX gagal, memakai snapshot:", agen.alasan);
-  await telemetry?.event("fallback", {
-    status: "error",
-    errorCode: /tidak ada dashboard/i.test(String(agen.alasan)) ? "ROUTER_NO_MATCH" : "DAX_AGENT_FAILED",
-    errorMessage: "Agen DAX WhatsApp gagal; memakai snapshot",
-  });
+
+  await emitLegacyDax();
+  if (hybridEnabled) {
+    await telemetry?.event("fallback", {
+      status: "error",
+      errorCode: evidenceAnswer?.warnings?.[0] || deferredFailure?.error?.code || "EMPTY_RESULT",
+      errorMessage: "Evidence live WhatsApp belum tersedia; memakai snapshot",
+    });
+  }
 
   let r;
   try {
@@ -691,9 +803,9 @@ export async function jawabPertanyaanUmum(sock, jid, msg, teks, overrides = {}) 
     return;
   }
 
-  if (!r.berhasil) {
+  if (!r?.berhasil) {
     const sent = await balas(sock, jid, msg,
-      `Maaf, belum bisa saya jawab: ${r.alasan}. ` +
+      `Maaf, belum bisa saya jawab: ${r?.alasan || "data belum tersedia"}. ` +
       "Untuk laporan lengkap, tag saya dengan kata update atau ringkasan.");
     await telemetry?.fail({ code: sent ? "EMPTY_RESULT" : "WA_DELIVERY_FAILED" }, {
       retrievalMethod: "none",
@@ -709,15 +821,17 @@ export async function jawabPertanyaanUmum(sock, jid, msg, teks, overrides = {}) 
     aiModel: r.modelVersion || null,
     ...tokenTelemetry(r.usage),
   });
-  const sent = await balas(sock, jid, msg, `${r.teks}
+  const snapshotAnswer = `${r.teks}
 
-_Berdasarkan data periode ${r.periode}._`);
+_Berdasarkan data periode ${r.periode}._`;
+  const sent = await balas(sock, jid, msg, snapshotAnswer);
   if (!sent) {
     await telemetry?.fail({ code: "WA_DELIVERY_FAILED" }, {
       retrievalMethod: "snapshot", latencyMs: Date.now() - mulai,
     });
     return;
   }
+  catatEvidence(jid, teks, { answer: snapshotAnswer });
   await telemetry?.event("snapshot_read");
   await telemetry?.event("response_sent");
   await telemetry?.finish({

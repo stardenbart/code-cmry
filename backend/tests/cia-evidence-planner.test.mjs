@@ -1,7 +1,9 @@
 import { pathToFileURL } from "url";
 import { ok, section, summary } from "./harness.mjs";
 import { planEvidence } from "../src/services/cia/evidencePlanner.js";
+import { buildDaxPlan } from "../src/services/cia/daxPlanBuilder.js";
 import { tanyaModelTerstruktur } from "../src/services/modelRouter.js";
+import { createSanitizer } from "../src/services/aiSanitizer.js";
 
 const bindings = [
   { bindingId: "b-ot", humanName: "Jam lembur", dashboardId: "dash-ot",
@@ -70,6 +72,167 @@ const objectDimension = await planEvidence({ question: "lembur per departemen", 
 ok("planner menerima dimension object", objectDimension.goals[0]?.dimensions[0] === "Departemen",
   JSON.stringify(objectDimension));
 
+section("Planner memakai blueprint dan filter policy");
+const blueprintBinding = {
+  bindingId: "b-blueprint", humanName: "Technical downtime", dashboardId: "dash-dt",
+  dimensions: ["Rahasia"],
+  blueprint: {
+    measures: [{ tableName: "Measures", measureName: "TECHNICAL_DT" }],
+    dimensions: [
+      { table: "Machine", column: "Machine Name", humanName: "Mesin" },
+      { table: "Calendar", column: "Month", humanName: "Bulan" },
+    ],
+    role: "ranking",
+    periodPolicy: { dateTable: "Calendar", dateColumn: "Date", dateLogic: "calendar_day" },
+    labels: { visualTitle: "Top Mesin", displayCaption: "Technical Downtime" },
+  },
+};
+const blueprintPlanned = await planEvidence({
+  question: "jelaskan evergreen bulan juni",
+  periods,
+  candidateBindings: [blueprintBinding],
+  reportFilters: [{ dimension: "Bulan", value: "August" }],
+}, { callModel: callReturning(JSON.stringify({
+  goals: [{
+    kpiBindingId: "b-blueprint", dimensions: ["Mesin", "Rahasia"], periodIndex: 0,
+    purpose: "primary", filters: [{ dimension: "Mesin", value: "Evergreen" }],
+  }],
+  followUpSignals: [],
+})) });
+ok("dimensi planner hanya berasal dari blueprint",
+  JSON.stringify(blueprintPlanned.goals[0]?.dimensions) === JSON.stringify(["Mesin"]),
+  JSON.stringify(blueprintPlanned.goals));
+ok("planner mempertahankan filter pertanyaan dan membuang report slicer",
+  JSON.stringify(blueprintPlanned.goals[0]?.filters) === JSON.stringify([
+    { dimension: "Mesin", value: "Evergreen" },
+  ]), JSON.stringify(blueprintPlanned.goals[0]));
+
+let normalizedPrompt;
+await planEvidence({
+  question: "technical downtime per mesin",
+  periods,
+  candidateBindings: [{
+    bindingId: "b-raw", humanName: "Technical downtime", tableName: "Measures",
+    measureName: "TECHNICAL_DT", displayCaption: "Technical Downtime",
+    dimensions: [{ table: "Machine", column: "Machine Name", humanName: "Mesin" }],
+    dateTable: "Calendar", dateColumn: "Date", dateLogic: "calendar_day",
+  }],
+}, { callModel: async (args) => {
+  normalizedPrompt = JSON.parse(args.question);
+  return callReturning(JSON.stringify({ goals: [], followUpSignals: [] }))();
+} });
+ok("prompt model menerima blueprint yang dibangun planner",
+  normalizedPrompt?.candidates?.[0]?.blueprint?.measures?.[0]?.measureName === "TECHNICAL_DT"
+    && normalizedPrompt?.candidates?.[0]?.blueprint?.dimensions?.[0]?.humanName === "Mesin",
+  JSON.stringify(normalizedPrompt?.candidates?.[0]));
+
+const currentViewPlanned = await planEvidence({
+  question: "jelaskan data yang sedang tampil",
+  periods,
+  candidateBindings: [blueprintBinding],
+  reportFilters: [{ dimension: "Month", value: "August" }],
+}, { callModel: callReturning(JSON.stringify({
+  goals: [{ kpiBindingId: "b-blueprint", dimensions: ["Mesin"], periodIndex: 0, purpose: "primary" }],
+  followUpSignals: [],
+})) });
+ok("nama kolom report dinormalisasi ke label blueprint",
+  JSON.stringify(currentViewPlanned.goals[0]?.filters) === JSON.stringify([
+    { dimension: "Bulan", value: "August" },
+  ]), JSON.stringify(currentViewPlanned.goals[0]));
+
+const associatedViewPlanned = await planEvidence({
+  question: "jelaskan data yang sedang tampil",
+  periods,
+  candidateBindings: [blueprintBinding],
+  reportFilters: [
+    { dashboardId: "dash-other", dimension: "Month", value: "July" },
+    { dashboardId: "dash-dt", dimension: "Month", value: "August" },
+  ],
+}, { callModel: callReturning(JSON.stringify({
+  goals: [{ kpiBindingId: "b-blueprint", dimensions: ["Mesin"], periodIndex: 0, purpose: "primary" }],
+  followUpSignals: [],
+})) });
+ok("planner mengisolasi report filter berdasarkan dashboard binding",
+  JSON.stringify(associatedViewPlanned.goals[0]?.filters) === JSON.stringify([
+    { dimension: "Bulan", value: "August" },
+  ]), JSON.stringify(associatedViewPlanned.goals[0]));
+
+const multiViewPlanned = await planEvidence({
+  question: "jelaskan data yang sedang tampil",
+  periods,
+  candidateBindings: [blueprintBinding],
+  reportFilters: [
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "Evergreen" },
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "Tetra Pak" },
+  ],
+}, { callModel: callReturning(JSON.stringify({
+  goals: [{ kpiBindingId: "b-blueprint", dimensions: ["Mesin"], periodIndex: 0, purpose: "primary" }],
+  followUpSignals: [],
+})) });
+ok("planner mempertahankan multi-select pada channel report",
+  JSON.stringify(multiViewPlanned.goals[0]?.filters) === JSON.stringify([
+    { dimension: "Mesin", value: "Evergreen" },
+    { dimension: "Mesin", value: "Tetra Pak" },
+  ]), JSON.stringify(multiViewPlanned.goals[0]));
+
+const sevenValueViewPlanned = await planEvidence({
+  question: "jelaskan data yang sedang tampil",
+  periods,
+  candidateBindings: [{ ...blueprintBinding, semanticModel: "Cost Model" }],
+  reportFilters: [
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "Evergreen" },
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "Tetra Pak" },
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "Sidel" },
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "Krones" },
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "Serac" },
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "Elopak" },
+    { dashboardId: "dash-dt", dimension: "Machine Name", value: "SIG" },
+  ],
+}, { callModel: callReturning(JSON.stringify({
+  goals: [{ kpiBindingId: "b-blueprint", dimensions: ["Mesin"], periodIndex: 0, purpose: "primary" }],
+  followUpSignals: [],
+})) });
+const sevenValueDaxPlan = buildDaxPlan({
+  question: "jelaskan data yang sedang tampil",
+  goal: sevenValueViewPlanned.goals[0],
+  binding: { ...blueprintBinding, semanticModel: "Cost Model" },
+  period: periods[0],
+  schema: {
+    berhasil: true,
+    model: "Cost Model",
+    tabel: [
+      { tabel: "Calendar", kolom: ["Date:datetime", "Month:string"] },
+      { tabel: "Machine", kolom: ["Machine Name:string"] },
+      { tabel: "Measures", kolom: [] },
+    ],
+    measure: ["TECHNICAL_DT"],
+  },
+});
+ok("planner ke builder mempertahankan lebih dari enam nilai untuk satu dimensi",
+  sevenValueViewPlanned.goals[0]?.filterPolicy?.reportFilters?.length === 7
+    && /IN\s*\{\s*"evergreen",\s*"tetrapak",\s*"sidel",\s*"krones",\s*"serac",\s*"elopak",\s*"sig"\s*\}/i
+      .test(sevenValueDaxPlan.dax),
+  JSON.stringify({ goal: sevenValueViewPlanned.goals[0], dax: sevenValueDaxPlan.dax }));
+
+const contextPlanned = await planEvidence({
+  question: "bagaimana masalahnya",
+  periods,
+  candidateBindings: [blueprintBinding],
+  conversation: [{ role: "assistant", text: "Evergreen tertinggi", evidenceContract: {
+    concepts: ["technical downtime"],
+    goals: [{
+      kpiBindingId: "b-blueprint", dimensions: ["Mesin"], periodIndex: 0,
+      filters: [{ dimension: "Mesin", value: "Evergreen" }],
+    }],
+  } }],
+}, { callModel: callReturning(JSON.stringify({
+  goals: [{ kpiBindingId: "b-blueprint", dimensions: ["Mesin"], periodIndex: 0, purpose: "primary" }],
+  followUpSignals: [],
+})) });
+ok("planner memakai filter context dari evidence contract tanpa parse taxonomy baru",
+  contextPlanned.goals[0]?.filters?.[0]?.value === "Evergreen",
+  JSON.stringify(contextPlanned.goals[0]));
+
 section("Goal dan dimensi dibatasi");
 const capped = await planEvidence({ question: "q", periods, candidateBindings: bindings }, {
   callModel: callReturning(JSON.stringify({
@@ -85,6 +248,60 @@ const capped = await planEvidence({ question: "q", periods, candidateBindings: b
 ok("maksimum enam goals", capped.goals.length <= 6, String(capped.goals.length));
 ok("maksimum enam dimensi", capped.goals.every((goal) => goal.dimensions.length <= 6),
   JSON.stringify(capped.goals));
+
+const filterCappedBinding = {
+  bindingId: "b-filter-cap",
+  blueprint: {
+    dimensions: ["A", "B", "C", "D", "E", "F", "G"].map((column) => ({
+      table: "Fact", column, humanName: column,
+    })),
+  },
+};
+const filterCapped = await planEvidence({
+  question: "q",
+  periods,
+  candidateBindings: [filterCappedBinding],
+}, { callModel: callReturning(JSON.stringify({
+  goals: [{
+    kpiBindingId: "b-filter-cap", dimensions: [], periodIndex: 0, purpose: "primary",
+    filters: ["A", "B", "C", "D", "E", "F", "G"].map((dimension) => ({ dimension, value: "x" })),
+  }],
+  followUpSignals: [],
+})) });
+ok("maksimum enam dimensi filter tetap dipertahankan",
+  filterCapped.goals[0]?.filterPolicy?.explicitFilters?.length === 6,
+  JSON.stringify(filterCapped.goals[0]));
+
+section("Planner menyanitasi question dan history dengan sanitizer request yang sama");
+const plannerSanitizer = createSanitizer({ secret: "planner-boundary-test" });
+plannerSanitizer.sanitizeSnapshot({
+  visuals: [{ columns: ["Supplier.Name"], rows: [["AJI"]] }],
+});
+let sanitizedPlannerPacket;
+await planEvidence({
+  question: "bandingkan Supplier AJI dengan PO 120",
+  periods,
+  candidateBindings: bindings,
+  conversation: [
+    { role: "user", text: "Supplier AJI kemarin 100" },
+    { role: "assistant", text: "Supplier AJI naik menjadi 120" },
+  ],
+}, {
+  sanitizer: plannerSanitizer,
+  callModel: async (args) => {
+    sanitizedPlannerPacket = JSON.parse(args.question);
+    return callReturning(JSON.stringify({ goals: [], followUpSignals: [] }))();
+  },
+});
+const serializedPlannerPacket = JSON.stringify(sanitizedPlannerPacket);
+ok("raw entity tidak melewati planner boundary",
+  !/AJI/.test(serializedPlannerPacket) && /MITRA_/.test(serializedPlannerPacket),
+  serializedPlannerPacket);
+ok("angka dan role history tetap utuh",
+  sanitizedPlannerPacket?.question?.includes("120")
+    && sanitizedPlannerPacket?.conversation?.[0]?.role === "user"
+    && sanitizedPlannerPacket?.conversation?.[1]?.role === "assistant",
+  serializedPlannerPacket);
 
 section("Malformed, empty, timeout tidak membatalkan deterministic route");
 for (const [label, callModel, warning] of [

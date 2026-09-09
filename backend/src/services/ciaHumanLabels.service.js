@@ -34,6 +34,16 @@ export function humanizeIdentifier(raw) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+/** Humanize technical identifiers embedded in otherwise user-facing text. */
+export function humanizeTechnicalText(raw) {
+  return String(raw ?? "")
+    .replace(/(?:'[^']+'|[^\s\[\]']+)\[[^\]]+\]/g, (value) => humanizeIdentifier(value))
+    .replace(/\b[A-Za-z][A-Za-z0-9]*(?:[_.][A-Za-z0-9]+)+\b/g,
+      (value) => /^(?:ORANG|MITRA|DOK|DATA)_[0-9a-f]+$/i.test(value) ? value : humanizeIdentifier(value))
+    .replace(/\b[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+\b/g,
+      (value) => /^(?:ORANG|MITRA|DOK|DATA)_[0-9a-f]+$/i.test(value) ? value : humanizeIdentifier(value));
+}
+
 function labelOf(binding) {
   const human = (binding.humanName || "").trim();
   if (human) return human;

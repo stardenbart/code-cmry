@@ -1,6 +1,7 @@
 import { pathToFileURL } from "url";
 import { ok, section, summary } from "./harness.mjs";
 import { synthesizeEvidence } from "../src/services/cia/evidenceSynthesizer.js";
+import { createSanitizer } from "../src/services/aiSanitizer.js";
 
 const overtime = {
   status: "success",
@@ -183,6 +184,105 @@ ok("snapshot-only method/low", snapshotOnly.retrievalMethod === "snapshot"
   && snapshotOnly.confidence === "low", JSON.stringify(snapshotOnly));
 ok("snapshot-only tidak menyamar sebagai live", snapshotOnly.answer.includes("data snapshot"), snapshotOnly.answer);
 
+section("Snapshot model packet dan jawaban menyaring raw entity/contact dan qualified identifier");
+let safeSnapshotPacket;
+const snapshotSanitizer = createSanitizer({ secret: "snapshot-boundary-test" });
+snapshotSanitizer.sanitizeSnapshot({
+  visuals: [{ columns: ["Supplier.Name"], rows: [["AJI"]] }],
+});
+const safeSnapshot = await synthesizeEvidence({
+  question: "berapa performa Supplier AJI?",
+  evidence: [],
+  snapshotFallback: {
+    text: "'Measure Table'[OT_HOURS]: 7; Supplier.Name = AJI; kontak aji@example.com",
+    period: "Agustus 2026",
+    dashboards: [{ id: "d-safe", name: "Supplier OT",
+      text: "'Measure Table'[OT_HOURS]: 7; Supplier.Name = AJI; kontak aji@example.com" }],
+  },
+}, {
+  sanitizer: snapshotSanitizer,
+  callModel: async (args) => {
+    safeSnapshotPacket = JSON.parse(args.question);
+    return modelReply({
+      answer: "AJI punya 'Measure Table'[OT_HOURS] 7; hubungi aji@example.com.",
+      citedSourceIndexes: [0],
+    })();
+  },
+});
+ok("packet snapshot menyamarkan raw entity/contact di question dan source tanpa merusak angka",
+  !/AJI|aji@example\.com/i.test(JSON.stringify(safeSnapshotPacket))
+    && /MITRA_/.test(JSON.stringify(safeSnapshotPacket))
+    && JSON.stringify(safeSnapshotPacket).includes("7"),
+  JSON.stringify(safeSnapshotPacket));
+ok("packet snapshot membuang qualified identifier quoted table berspasi",
+  !/Measure Table|OT_HOURS/.test(JSON.stringify(safeSnapshotPacket))
+    && /Ot hours/.test(JSON.stringify(safeSnapshotPacket)),
+  JSON.stringify(safeSnapshotPacket));
+ok("jawaban snapshot tidak mengekspos entity/contact/qualified identifier mentah",
+  !/AJI|aji@example\.com|Measure Table|OT_HOURS/i.test(safeSnapshot.answer)
+    && /MITRA_/.test(safeSnapshot.answer) && /Ot hours/.test(safeSnapshot.answer)
+    && safeSnapshot.answer.includes("7"),
+  safeSnapshot.answer);
+
+section("Live packet mempertahankan wording biasa, configured label, dan angka bisnis");
+let ordinaryLivePacket;
+const ordinaryLive = await synthesizeEvidence({
+  question: "berapa total jam lembur produksi?",
+  evidence: [{
+    ...overtime,
+    rows: [{ "'Measure Table'[OT_HOURS]": 120 }],
+    columns: [{ key: "'Measure Table'[OT_HOURS]", label: "Jam lembur" }],
+  }],
+}, { callModel: async (args) => {
+  ordinaryLivePacket = JSON.parse(args.question);
+  return modelReply({ answer: "Jam lembur produksi 120.", citedSourceIndexes: [0] })();
+} });
+ok("question biasa tidak berubah dan packet live mempertahankan configured label/numeric result",
+  ordinaryLivePacket?.question === "berapa total jam lembur produksi?"
+    && ordinaryLivePacket?.sources?.[0]?.rows?.[0]?.["Jam lembur"] === 120,
+  JSON.stringify(ordinaryLivePacket));
+ok("jawaban live biasa tidak over-sanitized", ordinaryLive.answer.includes("Jam lembur produksi 120"),
+  ordinaryLive.answer);
+
+section("Live DAX rows dan jawaban memakai satu sanitizer request");
+const liveSanitizer = createSanitizer({ secret: "live-boundary-test" });
+let sanitizedLivePacket;
+let livePseudonym;
+const sanitizedLive = await synthesizeEvidence({
+  question: "berapa score Supplier AJI?",
+  evidence: [{
+    ...overtime,
+    rows: [{ "Supplier Name": "AJI", Score: 97.5 }],
+    columns: [
+      { key: "Supplier Name", label: "Supplier" },
+      { key: "Score", label: "Score" },
+    ],
+  }],
+}, {
+  sanitizer: liveSanitizer,
+  callModel: async (args) => {
+    sanitizedLivePacket = JSON.parse(args.question);
+    livePseudonym = sanitizedLivePacket.sources[0].rows[0].Supplier;
+    return modelReply({
+      answer: `${livePseudonym} memiliki Score 97.5; kontak supplier@example.com`,
+      citedSourceIndexes: [0],
+    })();
+  },
+});
+ok("raw live entity tidak melewati synthesis boundary dan pseudonym stabil",
+  !/AJI/.test(JSON.stringify(sanitizedLivePacket))
+    && /^MITRA_/.test(livePseudonym)
+    && sanitizedLivePacket.question.includes(livePseudonym),
+  JSON.stringify(sanitizedLivePacket));
+ok("angka live tetap number dan human label tetap utuh",
+  sanitizedLivePacket.sources[0].rows[0].Score === 97.5
+    && Object.hasOwn(sanitizedLivePacket.sources[0].rows[0], "Supplier"),
+  JSON.stringify(sanitizedLivePacket.sources[0].rows[0]));
+ok("jawaban model disanitasi dengan pseudonym yang sama",
+  sanitizedLive.answer.includes(livePseudonym)
+    && !/AJI|supplier@example\.com/i.test(sanitizedLive.answer),
+  sanitizedLive.answer);
+
 section("Tanpa bukti menghasilkan keterbatasan jujur tanpa memanggil AI");
 let calls = 0;
 const none = await synthesizeEvidence({ question: "jelaskan deviasi", evidence: [] }, {
@@ -193,6 +293,47 @@ ok("jawaban menyatakan bukti tidak tersedia",
   /belum tersedia|tidak tersedia|tidak cukup/i.test(none.answer), none.answer);
 ok("method none dan low", none.retrievalMethod === "none" && none.confidence === "low",
   JSON.stringify(none));
+
+section("Evidence yang tidak cocok intent dibuang sebelum synthesis");
+let relevanceCalls = 0;
+const mismatched = await synthesizeEvidence({
+  question: "berapa downtime Evergreen dari Maintenance Downtime bulan Juni",
+  evidence: [{
+    status: "success", rows: [{ Mesin: "ORS", "Durasi downtime": 91 }],
+    period: { from: "2026-07-01", to: "2026-07-31" },
+    source: { dashboardId: "d-ors", dashboardName: "Dashboard DT ORS", kpis: ["Durasi downtime"] },
+    intentMatch: { concepts: true, entities: false, period: false, source: false },
+  }],
+  snapshotFallback: {
+    text: "ORS 91 menit", period: "Juli 2026", dashboards: [{ id: "d-ors", name: "Dashboard DT ORS" }],
+  },
+}, { callModel: async () => { relevanceCalls += 1; throw new Error("tidak boleh dipanggil"); } });
+ok("mismatch tidak dikirim ke model", relevanceCalls === 0, String(relevanceCalls));
+ok("row dan dashboard lain tidak masuk jawaban",
+  !/ORS|91|Dashboard DT ORS/i.test(mismatched.answer), mismatched.answer);
+ok("keterbatasan menyebut kategori mismatch",
+  /entitas|periode|sumber/i.test(mismatched.answer)
+    && mismatched.warnings.includes("EVIDENCE_RELEVANCE_MISMATCH"),
+  JSON.stringify(mismatched));
+ok("mismatch tidak diganti snapshot", mismatched.retrievalMethod === "none", JSON.stringify(mismatched));
+
+let filteredPacket;
+const relevantOnly = await synthesizeEvidence({
+  question: "berapa downtime Evergreen",
+  evidence: [
+    { ...overtime, intentMatch: { concepts: true, entities: true, period: true, source: true } },
+    { ...po, rows: [{ Mesin: "ORS", "Jam downtime": 91 }],
+      intentMatch: { concepts: false, entities: false, period: true, source: false } },
+  ],
+}, { callModel: async (args) => {
+  filteredPacket = JSON.parse(args.question);
+  return modelReply({ answer: "Downtime Evergreen tersedia.", citedSourceIndexes: [0] })();
+} });
+ok("packet hanya memuat evidence relevan",
+  filteredPacket?.sources?.length === 1 && !JSON.stringify(filteredPacket).includes("ORS"),
+  JSON.stringify(filteredPacket));
+ok("partial mismatch diberi warning", relevantOnly.warnings.includes("EVIDENCE_RELEVANCE_MISMATCH"),
+  JSON.stringify(relevantOnly));
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exit(summary() ? 0 : 1);

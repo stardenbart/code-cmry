@@ -59,28 +59,50 @@ function validIsoDate(value) {
   return formatDate(date) === value ? date : null;
 }
 
-function explicitRange(question) {
-  const match = /\b(\d{1,2})\s*(?:-|sampai|hingga)\s*(\d{1,2})\s+(januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)\s+(\d{4})\b/i.exec(question);
+function inferredYear(month, explicitYear, today) {
+  if (explicitYear) return explicitYear;
+  return month > today.getUTCMonth() + 1 ? today.getUTCFullYear() - 1 : today.getUTCFullYear();
+}
+
+function explicitRange(question, today) {
+  const match = /\b(\d{1,2})\s*(?:-|sampai|hingga)\s*(\d{1,2})\s+(januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)(?:\s+(\d{4}))?(?:\s+(lalu|ini|kemarin))?\b/i.exec(question);
   if (!match) return null;
   const month = MONTHS.get(match[3].toLowerCase());
-  const from = dateAt(Number(match[4]), month, Number(match[1]));
-  const to = dateAt(Number(match[4]), month, Number(match[2]));
+  const year = inferredYear(month, match[4] ? Number(match[4]) : null, today);
+  const from = dateAt(year, month, Number(match[1]));
+  const to = dateAt(year, month, Number(match[2]));
   if (from > to || from.getUTCMonth() + 1 !== month || to.getUTCMonth() + 1 !== month) return null;
   return {
     index: match.index,
     end: match.index + match[0].length,
-    value: period(`${match[1]}-${match[2]} ${match[3]} ${match[4]}`, from, to,
+    value: period(match[0], from, to,
       "day", "explicit_range"),
   };
 }
 
-function namedMonthCandidates(question, today, occupiedRange = null) {
+function explicitDateCandidates(question, today, occupiedRanges = []) {
+  const names = [...MONTHS.keys()].join("|");
+  const regex = new RegExp(`\\b(?:tanggal\\s+)?(\\d{1,2})\\s+(${names})(?:\\s+(\\d{4}))?(?:\\s+(lalu|ini|kemarin))?\\b`, "gi");
+  const out = [];
+  for (const match of question.matchAll(regex)) {
+    const end = match.index + match[0].length;
+    if (occupiedRanges.some((range) => match.index < range.end && end > range.index)) continue;
+    const month = MONTHS.get(match[2].toLowerCase());
+    const year = inferredYear(month, match[3] ? Number(match[3]) : null, today);
+    const date = dateAt(year, month, Number(match[1]));
+    if (date.getUTCMonth() + 1 !== month) continue;
+    out.push({ index: match.index, end, value: period(match[0], date, date, "day", "explicit_date") });
+  }
+  return out;
+}
+
+function namedMonthCandidates(question, today, occupiedRanges = []) {
   const names = [...MONTHS.keys()].join("|");
   const regex = new RegExp(`\\b(?:bulan\\s+)?(${names})(?:\\s+(lalu|ini|kemarin))?(?:\\s+(\\d{4}))?\\b`, "gi");
   const out = [];
   for (const match of question.matchAll(regex)) {
     const end = match.index + match[0].length;
-    if (occupiedRange && match.index < occupiedRange.end && end > occupiedRange.index) continue;
+    if (occupiedRanges.some((range) => match.index < range.end && end > range.index)) continue;
     const month = MONTHS.get(match[1].toLowerCase());
     const explicitYear = match[3] ? Number(match[3]) : null;
     let year = explicitYear || today.getUTCFullYear();
@@ -106,6 +128,7 @@ function relativeCandidates(question, today, occupiedRanges = []) {
     ["kemarin", () => period("Kemarin", addDays(today, -1), addDays(today, -1), "day", "yesterday")],
     ["minggu lalu", () => period("Minggu lalu", addDays(thisMonday, -7), addDays(thisMonday, -1), "day", "previous_week")],
     ["minggu ini", () => period("Minggu ini", thisMonday, today, "day", "current_week")],
+    ["week ini", () => period("Minggu ini", thisMonday, today, "day", "current_week")],
     ["bulan lalu", () => {
       const previousEnd = addDays(dateAt(year, month, 1), -1);
       return period("Bulan lalu", dateAt(previousEnd.getUTCFullYear(), previousEnd.getUTCMonth() + 1, 1),
@@ -146,11 +169,13 @@ function configuredDefault(defaults) {
 export function resolvePeriods(question, now = new Date(), timezone = "Asia/Jakarta", defaults = {}) {
   const text = typeof question === "string" ? question.toLocaleLowerCase("id-ID") : "";
   const today = zonedToday(now, timezone);
-  const range = explicitRange(text);
-  const namedMonths = namedMonthCandidates(text, today, range);
-  const occupied = [range, ...namedMonths].filter(Boolean);
+  const range = explicitRange(text, today);
+  const explicitDates = explicitDateCandidates(text, today, [range].filter(Boolean));
+  const namedMonths = namedMonthCandidates(text, today, [range, ...explicitDates].filter(Boolean));
+  const occupied = [range, ...explicitDates, ...namedMonths].filter(Boolean);
   const candidates = relativeCandidates(text, today, occupied);
   if (range) candidates.push(range);
+  candidates.push(...explicitDates);
   candidates.push(...namedMonths);
 
   const resolved = candidates.sort((a, b) => a.index - b.index).map((item) => item.value);

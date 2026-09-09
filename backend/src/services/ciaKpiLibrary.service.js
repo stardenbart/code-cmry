@@ -14,7 +14,10 @@
 // ACL dibuang; binding model-level (dashboard_id NULL) tidak membocorkan
 // dashboard sehingga tetap boleh. Bila null, tidak ada filter (mode centralized).
 import db from "../config/db.js";
+import { ciaKpiLibraryReadEnabled } from "../config/featureFlags.js";
 import { KATALOG_KPI } from "./kpiCatalog.js";
+import { buildIntentFrame } from "./cia/intentFrame.js";
+import { buildVisualBlueprint } from "./cia/visualBlueprint.js";
 
 const pool = db.promise();
 
@@ -25,13 +28,19 @@ const WEIGHTS = {
   answerableQuestionTerm: 6,
   dashboardOrDomain: 4,
   dimension: 3,
-  genericTerm: 0.5,
+  genericTerm: 0,
 };
 
 // Kata generik/analitik + stopword: hadir di hampir semua pertanyaan sehingga
 // tidak boleh menentukan sumber.
 const GENERIC = new Set([
   "breakdown", "issue", "issues", "detail", "rincian", "analisa", "analisis",
+  "top", "tertinggi", "terendah", "tinggi", "rendah", "paling", "banyak",
+  "ranking", "bandingkan", "dibandingkan", "dibanding", "perbandingan", "versus", "vs",
+  "berapa", "persen", "persentase", "achievement", "achivement", "totalnya",
+  "rekap", "snapshot", "pecahan", "kategorinya", "kategori", "pemicu", "penyebab", "kendala",
+  "januari", "februari", "maret", "april", "mei", "juni", "juli", "agustus",
+  "september", "oktober", "november", "desember", "bulan", "minggu", "week", "hari", "tanggal",
   "jelaskan", "penjelasan", "mengenai", "perihal", "berikan", "tolong", "kenapa",
   "mengapa", "apa", "apakah", "bagaimana", "harian", "bulanan", "mingguan",
   "per", "dan", "yang", "di", "ke", "dari", "untuk", "pada", "atau", "itu",
@@ -40,6 +49,8 @@ const GENERIC = new Set([
 ]);
 
 let warnedFallback = false;
+const candidatePoolCache = new Map();
+const CANDIDATE_CACHE_MS = 60_000;
 function warnFallbackOnce(reason) {
   if (warnedFallback) return;
   warnedFallback = true;
@@ -47,7 +58,7 @@ function warnFallbackOnce(reason) {
 }
 
 function libraryEnabled() {
-  return process.env.CIA_KPI_LIBRARY_ENABLED === "true";
+  return ciaKpiLibraryReadEnabled();
 }
 
 // ── Tokenisasi ──────────────────────────────────────────────────────────────
@@ -65,6 +76,9 @@ function withBigrams(text) {
   return out;
 }
 function termSet(text) { return withBigrams(text); }
+function isGenericTerm(term) {
+  return String(term).split(" ").some((part) => GENERIC.has(part));
+}
 
 // dimensions_json bisa berupa string ("Departemen"), qualified string
 // ("Tbl[Kol]"), atau object {table,column,humanName}. Ambil teks untuk scoring.
@@ -92,7 +106,7 @@ function scoreCandidate(candidate, questionTerms) {
   const b = buildBuckets(candidate);
   let score = 0;
   for (const t of questionTerms) {
-    if (GENERIC.has(t)) {
+    if (isGenericTerm(t)) {
       const anywhere = b.humanNameTerms.has(t) || b.synonymTerms.has(t) ||
         b.aqTerms.has(t) || b.domainDashTerms.has(t) || b.dimTerms.has(t);
       if (anywhere) score += WEIGHTS.genericTerm;
@@ -110,6 +124,72 @@ function scoreCandidate(candidate, questionTerms) {
   return score;
 }
 
+function candidateBusinessText(candidate) {
+  return [
+    candidate.humanName,
+    ...(candidate.synonyms || []),
+    ...(candidate.answerableQuestions || []),
+    candidate.domain,
+    ...(candidate.bindings || []).flatMap((binding) => [
+      binding.measureName, binding.displayCaption,
+    ]),
+  ].filter(Boolean).join(" ");
+}
+
+function anchorMatches(candidate, intentFrame) {
+  const wanted = new Set((intentFrame?.concepts || []).map((value) => String(value).trim().toLowerCase()).filter(Boolean));
+  if (!wanted.size) return [];
+  const candidateText = candidateBusinessText(candidate);
+  const parsed = buildIntentFrame({ question: candidateText }).concepts;
+  const matches = parsed.filter((concept) => wanted.has(concept));
+  const candidateTerms = termSet(candidateText);
+  for (const concept of wanted) {
+    const conceptTerms = unigrams(concept).filter((term) => !isGenericTerm(term));
+    if (!matches.includes(concept) && conceptTerms.some((term) => candidateTerms.has(term))) matches.push(concept);
+  }
+  return matches;
+}
+
+function normalized(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function sourceLabelMatches(needle, values) {
+  const wanted = normalized(needle);
+  return wanted && values.some((value) => {
+    const actual = normalized(value);
+    if (!actual) return false;
+    if (/^\d+$/.test(actual) && /^\d+$/.test(wanted)) return actual === wanted;
+    return actual === wanted || actual.includes(wanted) || wanted.includes(actual);
+  });
+}
+
+function matchesExplicitSource(binding, intentFrame) {
+  return (intentFrame?.sourceConstraints || []).some((constraint) => {
+    const values = constraint?.type === "dashboard"
+      ? [binding.dashboardId, binding.dashboardName]
+      : [binding.reportId, binding.dashboardName, binding.semanticModel];
+    return sourceLabelMatches(constraint?.value, values);
+  });
+}
+
+function sourcePriority(binding, intentFrame, preferredDashboardIds) {
+  const explicitSource = matchesExplicitSource(binding, intentFrame);
+  const preferred = new Set((preferredDashboardIds || []).map((id) => String(id)));
+  const contextSources = intentFrame?.contextSources || intentFrame?.context?.sources || [];
+  const contextSource = contextSources.some((source) => {
+    if (!source || typeof source !== "object") {
+      return sourceLabelMatches(source, [binding.bindingId, binding.dashboardId, binding.reportId]);
+    }
+    return sourceLabelMatches(source.bindingId, [binding.bindingId])
+      || sourceLabelMatches(source.dashboardId, [binding.dashboardId])
+      || sourceLabelMatches(source.reportId, [binding.reportId])
+      || sourceLabelMatches(source.semanticModel, [binding.semanticModel]);
+  });
+  const preferredDashboard = binding.dashboardId != null && preferred.has(String(binding.dashboardId));
+  return explicitSource ? 300 : contextSource ? 200 : preferredDashboard ? 100 : 0;
+}
+
 // ── Loader library ──────────────────────────────────────────────────────────
 function aclAllows(binding, allowedSet) {
   if (!allowedSet) return true;                          // centralized
@@ -122,12 +202,14 @@ function aclAllows(binding, allowedSet) {
 // id DB (identitas stabil); bindingKey = binding_key. dateTable/dateColumn/
 // dateLogic wajib ada agar builder bisa membangun filter periode.
 function mapBindingRow(b) {
-  return {
+  const binding = {
     bindingId: b.id,
     bindingKey: b.binding_key,
     dashboardId: b.dashboard_id,
     dashboardName: b.dashboard_name,
     reportId: b.report_id,
+    pageName: b.page_name,
+    visualTitle: b.visual_title,
     semanticModel: b.semantic_model,
     tableName: b.table_name,
     measureName: b.measure_name,
@@ -138,6 +220,7 @@ function mapBindingRow(b) {
     dateLogic: b.date_logic,
     verificationStatus: b.verification_status,
   };
+  return { ...binding, blueprint: buildVisualBlueprint(binding) };
 }
 
 async function loadLibraryCandidates(allowedDashboardIds) {
@@ -149,6 +232,7 @@ async function loadLibraryCandidates(allowedDashboardIds) {
 
   const [bindings] = await pool.query(
     `SELECT b.id, b.binding_key, b.kpi_id, b.dashboard_id, b.report_id,
+            b.page_name, b.visual_title,
             b.semantic_model, b.table_name, b.measure_name, b.display_caption,
             b.dimensions_json, b.date_table, b.date_column, b.date_logic,
             b.verification_status, d.title AS dashboard_name
@@ -210,35 +294,94 @@ function catalogCandidates() {
 }
 
 async function resolveCandidatePool(allowedDashboardIds) {
+  const enabled = libraryEnabled();
+  const scopeKey = Array.isArray(allowedDashboardIds)
+    ? [...new Set(allowedDashboardIds.map(Number).filter(Number.isInteger))].sort((a, b) => a - b).join(",")
+    : "centralized";
+  const cacheKey = `${enabled ? "enabled" : "disabled"}:${scopeKey}`;
+  const cached = candidatePoolCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const remember = (value) => {
+    candidatePoolCache.set(cacheKey, { value, expiresAt: Date.now() + CANDIDATE_CACHE_MS });
+    return value;
+  };
   // Catalog lama tidak punya dashboardId, jadi tidak bisa dibuktikan masuk ACL
   // user web. Hanya surface centralized yang boleh menggunakannya.
   const safeCatalog = () => Array.isArray(allowedDashboardIds) ? [] : catalogCandidates();
-  if (!libraryEnabled()) {
-    warnFallbackOnce("flag CIA_KPI_LIBRARY_ENABLED != true");
-    return { pool: safeCatalog(), source: "catalog" };
+  if (!enabled) {
+    warnFallbackOnce("CIA_KPI_LIBRARY_ENABLED dan CIA_HYBRID_QUERY_ENABLED sama-sama mati");
+    return remember({ pool: safeCatalog(), source: "catalog" });
   }
   try {
     const lib = await loadLibraryCandidates(allowedDashboardIds);
     if (!lib || lib.length === 0) {
       warnFallbackOnce("library kosong");
-      return { pool: safeCatalog(), source: "catalog" };
+      return remember({ pool: safeCatalog(), source: "catalog" });
     }
-    return { pool: lib, source: "library" };
+    return remember({ pool: lib, source: "library" });
   } catch (err) {
     warnFallbackOnce(`tabel library tidak tersedia (${err?.code || err?.message})`);
-    return { pool: safeCatalog(), source: "catalog" };
+    return remember({ pool: safeCatalog(), source: "catalog" });
   }
 }
 
+export function clearKpiLibraryCache() {
+  candidatePoolCache.clear();
+}
+
+export async function getIntentVocabulary(allowedDashboardIds = null) {
+  const { pool: candidates } = await resolveCandidatePool(allowedDashboardIds);
+  const concepts = new Map();
+  for (const candidate of candidates) {
+    const value = normalized(candidate.slug || candidate.humanName).replace(/[_-]+/g, " ");
+    if (!value) continue;
+    const phrases = [
+      candidate.humanName,
+      ...(candidate.synonyms || []),
+      ...(candidate.answerableQuestions || []),
+      value,
+      ...(candidate.bindings || []).flatMap((binding) => [
+        binding.displayCaption, binding.visualTitle, binding.measureName,
+      ]),
+    ].map(normalized).filter(Boolean);
+    const current = concepts.get(value) || new Set();
+    for (const phrase of phrases) current.add(phrase);
+    concepts.set(value, current);
+  }
+  return {
+    concepts: [...concepts.entries()].map(([value, phrases]) => ({ value, phrases: [...phrases] })),
+  };
+}
+
 // ── API publik ──────────────────────────────────────────────────────────────
-export async function searchKpiCandidates({ question, allowedDashboardIds = null, limit = 10 } = {}) {
+export async function searchKpiCandidates({
+  question, intentFrame = {}, allowedDashboardIds = null, preferredDashboardIds = [], limit = 10,
+} = {}) {
   const questionTerms = [...termSet(question)];
   const { pool: candidatePool } = await resolveCandidatePool(allowedDashboardIds);
+  const concepts = Array.isArray(intentFrame.concepts) ? intentFrame.concepts.map(normalized).filter(Boolean) : [];
+  const hasExplicitSource = (intentFrame.sourceConstraints || [])
+    .some((constraint) => normalized(constraint?.value));
 
   const scored = candidatePool
-    .map((c) => ({ ...c, score: scoreCandidate(c, questionTerms) }))
-    .filter((c) => c.score > 0)
-    .sort((a, b) => b.score - a.score);
+    .map((candidate) => {
+      const matches = anchorMatches(candidate, intentFrame);
+      const bindings = candidate.bindings.map((binding) => ({
+        ...binding,
+        sourcePriority: sourcePriority(binding, intentFrame, preferredDashboardIds),
+      })).filter((binding) => !hasExplicitSource || binding.sourcePriority === 300)
+        .sort((left, right) => right.sourcePriority - left.sourcePriority);
+      return {
+        ...candidate,
+        bindings,
+        anchorMatches: matches,
+        sourcePriority: Math.max(0, ...bindings.map((binding) => binding.sourcePriority)),
+        score: scoreCandidate(candidate, questionTerms),
+      };
+    })
+    .filter((candidate) => candidate.bindings.length && candidate.score > 0
+      && (!concepts.length || candidate.anchorMatches.some((value) => concepts.includes(value))))
+    .sort((left, right) => right.sourcePriority - left.sourcePriority || right.score - left.score);
 
   return scored.slice(0, Math.max(1, Math.min(Number(limit) || 10, 100)));
 }
@@ -249,6 +392,7 @@ export async function getBindingsForKpis(kpiIds, allowedDashboardIds = null) {
   if (!ids.length) return [];
   const [rows] = await pool.query(
     `SELECT b.id, b.binding_key, b.kpi_id, b.dashboard_id, b.report_id,
+            b.page_name, b.visual_title,
             b.semantic_model, b.table_name, b.measure_name, b.display_caption,
             b.dimensions_json, b.date_table, b.date_column, b.date_logic,
             b.verification_status, d.title AS dashboard_name,

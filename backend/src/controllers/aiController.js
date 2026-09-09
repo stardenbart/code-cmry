@@ -48,8 +48,9 @@ import { hasGlmKey } from "../config/glm.js";
 import { tryAnswerLocally, AMBANG_KEYAKINAN } from "../services/aiLocalAnswer.js";
 import * as rateLimit from "../services/rateLimiter.js";
 import { getSanitizer, SANITIZER_CONFIG } from "../services/aiSanitizer.js";
-import { ciaOrchestratorWebEnabled } from "../config/featureFlags.js";
+import { ciaHybridWebEnabled } from "../config/featureFlags.js";
 import { runWebEvidence } from "../services/cia/webEvidenceAdapter.js";
+import { extractReportFilters } from "../services/cia/visualBlueprint.js";
 
 const sql = db.promise();
 
@@ -203,15 +204,41 @@ async function resolveKey(userId, requestedModel) {
 // supaya penanganan error lama tidak berubah. Deklarasi function (bukan const)
 // dipakai sengaja: ia ter-hoist sehingga bisa membungkus method di object
 // literal AiController di bawahnya.
+export function buildEvidenceSnapshotFallback(snapshotResults = [], sanitizer = getSanitizer(),
+  charBudget = TIER_CHAR_BUDGET.cepat) {
+  const entries = (Array.isArray(snapshotResults) ? snapshotResults : []).filter((entry) =>
+    entry?.snapshot && entry?.dashboard);
+  if (!entries.length) return null;
+  const prepared = entries.map((entry) => {
+    const dashboardId = String(entry.dashboard_id ?? entry.dashboard.id);
+    const sanitized = sanitizer.sanitizeSnapshot(entry.snapshot);
+    const context = buildDataContext(sanitized, entry.dashboard, charBudget);
+    return {
+      dashboard: {
+        id: dashboardId,
+        name: entry.dashboard.title,
+        text: typeof context === "string" ? context : context?.text || "",
+      },
+      period: sanitized?.period || null,
+      reportFilters: extractReportFilters(entry.snapshot, { dashboardId }),
+    };
+  });
+  return {
+    ...(prepared.length === 1 ? {
+      text: prepared[0].dashboard.text,
+      period: prepared[0].period,
+    } : {}),
+    dashboards: prepared.map((entry) => entry.dashboard),
+    reportFilters: prepared.flatMap((entry) => entry.reportFilters),
+  };
+}
+
 async function tryDashboardEvidence(req, user, dashboard, snapshot) {
-  const sanitizedSnapshot = getSanitizer().sanitizeSnapshot(snapshot);
+  const sanitizer = getSanitizer();
+  const sanitizedSnapshot = sanitizer.sanitizeSnapshot(snapshot);
   const snapshotFallback = Array.isArray(sanitizedSnapshot?.visuals)
     && sanitizedSnapshot.visuals.some((v) => Array.isArray(v?.rows) && v.rows.length)
-    ? {
-        text: buildDataContext(sanitizedSnapshot, dashboard, TIER_CHAR_BUDGET.cepat),
-        period: sanitizedSnapshot.period || null,
-        dashboards: [{ id: dashboard.id, name: dashboard.title }],
-      }
+    ? buildEvidenceSnapshotFallback([{ dashboard, dashboard_id: dashboard.id, snapshot }], sanitizer)
     : null;
   return runWebEvidence({
     surface: "dashboard",
@@ -220,8 +247,9 @@ async function tryDashboardEvidence(req, user, dashboard, snapshot) {
     user,
     body: req.body,
     snapshotFallback,
+    sanitizer,
   }, {
-    enabled: ciaOrchestratorWebEnabled(),
+    enabled: ciaHybridWebEnabled(),
     onFallback: (warning) => {
       console.warn("[CIA] orchestrator dashboard fallback ke legacy:", warning.message);
       req.ciaTelemetry?.event("snapshot_fallback", {
@@ -229,6 +257,140 @@ async function tryDashboardEvidence(req, user, dashboard, snapshot) {
       }).catch?.(() => {});
     },
   });
+}
+
+export async function routeDashboardEvidence({ req, user, dashboard, snapshot, localAnswer } = {}, deps = {}) {
+  const enabled = ciaHybridWebEnabled();
+  if (!enabled && localAnswer?.answered && localAnswer.confidence >= AMBANG_KEYAKINAN) return null;
+  return (deps.tryDashboardEvidence || tryDashboardEvidence)(req, user, dashboard, snapshot);
+}
+
+/**
+ * Apply the same key/rate/quota controls and accounting used by the legacy
+ * dashboard model path before the hybrid planner or synthesizer can run.
+ * Returning controls on a transparent fallback lets the endpoint continue the
+ * legacy path without charging the rate limiter twice.
+ *
+ * INVARIANT: a confident local-snapshot answer is free — it calls no Gemini,
+ * needs no API key, and must never be blocked by key/rate-limit/quota
+ * controls. So this check runs FIRST, before resolveKey/rateLimit/quota, and
+ * returns { response: null, controls: null } (charging nothing) so the caller
+ * falls through to its own local-answer branch instead of hitting a 503/429
+ * for a question that was already answerable for free.
+ */
+export async function runControlledDashboardEvidence(input = {}, deps = {}) {
+  const enabled = (deps.hybridEnabled || ciaHybridWebEnabled)();
+  if (!enabled) return { response: null, controls: null };
+
+  const localAnswer = input.localAnswer;
+  if (localAnswer?.answered && localAnswer.confidence >= AMBANG_KEYAKINAN) {
+    return { response: null, controls: null };
+  }
+
+  const keyResolver = deps.resolveKey || resolveKey;
+  const resolved = await keyResolver(input.user?.id, input.model);
+  if (!resolved) {
+    return {
+      response: null,
+      controls: null,
+      terminal: {
+        status: 503,
+        payload: {
+          message:
+            "Fitur AI belum aktif: belum ada Gemini API key. Simpan API key pribadi di menu AI Assistant Settings, atau minta admin mengisi GEMINI_API_KEY di server.",
+        },
+      },
+    };
+  }
+
+  const limiter = (deps.rateLimitHit || rateLimit.hit)(
+    input.user.id,
+    RATE_MAX_REQUESTS,
+    RATE_WINDOW_SECONDS
+  );
+  if (!limiter.allowed) {
+    return {
+      response: null,
+      controls: { resolved, rateLimited: true },
+      terminal: {
+        status: 429,
+        retryAfterSeconds: limiter.retryAfterSeconds,
+        payload: {
+          message: `Terlalu banyak pertanyaan. Maksimal ${RATE_MAX_REQUESTS} per ${RATE_WINDOW_SECONDS} detik — coba lagi dalam ${limiter.retryAfterSeconds} detik.`,
+        },
+      },
+    };
+  }
+
+  const quotaReader = deps.quotaSummary || aiQuota.summary;
+  let quota = null;
+  try {
+    quota = await quotaReader(input.user.id, resolved.source);
+  } catch {
+    quota = null;
+  }
+  const breaker = (deps.breakerState || aiQuota.breakerState)(quota);
+  const controls = { resolved, quota, breaker, rateLimited: true };
+  if (breaker.level === "open") {
+    const reset = quota?.resetAt
+      ? ` Kuota reset ${new Date(quota.resetAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB.`
+      : "";
+    return {
+      response: null,
+      controls,
+      terminal: {
+        status: 429,
+        payload: { message: `${breaker.message || "Kuota AI habis."}${reset}`, quota },
+      },
+    };
+  }
+
+  const evidenceResponse = await (deps.routeDashboardEvidence || routeDashboardEvidence)(input);
+  if (!evidenceResponse) return { response: null, controls };
+
+  const usage = evidenceResponse.meta?.usage || evidenceResponse.usage || {};
+  const inputTokens = usage.inputTokens ?? usage.promptTokenCount ?? null;
+  const outputTokens = usage.outputTokens ?? usage.candidatesTokenCount ?? null;
+  const totalTokens = usage.totalTokens ?? usage.totalTokenCount
+    ?? (Number.isFinite(inputTokens) && Number.isFinite(outputTokens)
+      ? inputTokens + outputTokens
+      : null);
+  const rowsUsed = (evidenceResponse.sources || [])
+    .reduce((total, source) => total + (Number(source?.rowCount) || 0), 0);
+
+  await (deps.logChat || AiModel.logChat)({
+    user_id: input.user.id,
+    dashboard_id: input.dashboard?.id ?? null,
+    dashboard_title: input.dashboard?.title ?? null,
+    question: input.question || input.req?.body?.question || "",
+    answer: evidenceResponse.answer,
+    intent: input.localAnswer?.intent || null,
+    answered_locally: 0,
+    model: evidenceResponse.meta?.model || "hybrid",
+    key_source: resolved.source,
+    visuals_used: evidenceResponse.sources?.length || 0,
+    rows_used: rowsUsed,
+    prompt_chars: String(input.question || input.req?.body?.question || "").length,
+    tier: "evidence",
+    from_cache: 0,
+    prompt_tokens: inputTokens,
+    output_tokens: outputTokens,
+    total_tokens: totalTokens,
+  });
+
+  let quotaAfter = quota;
+  try {
+    quotaAfter = await quotaReader(input.user.id, resolved.source);
+  } catch {
+    quotaAfter = quota;
+  }
+  evidenceResponse.meta = {
+    ...(evidenceResponse.meta || {}),
+    keySource: resolved.source,
+    quota: quotaAfter,
+    breaker: breaker.level === "ok" ? undefined : breaker,
+  };
+  return { response: evidenceResponse, controls: { ...controls, quota: quotaAfter } };
 }
 
 export function withCiaTelemetry(surface, handler, deps = {}) {
@@ -909,6 +1071,9 @@ export const AiController = {
 
     let dashboard = null;
     let resolved = null;
+    let quota = null;
+    let breaker = null;
+    let hybridControlsApplied = false;
     // Dideklarasikan DI LUAR try, dan ini perbaikan bug, bukan soal gaya.
     // Blok catch di bawah mencatat `lokal?.intent`, dan `const lokal` di dalam
     // try TIDAK ada di scope catch. Setiap error Gemini, termasuk kuota habis,
@@ -942,12 +1107,33 @@ export const AiController = {
       // Jalur live evidence tidak bergantung pada filter/snapshot browser.
       // Dashboard yang sedang dibuka hanya hint; router tetap boleh memilih
       // dashboard ACL lain yang lebih relevan dengan pertanyaan/periode.
-      const evidenceResponse = lokal.answered && lokal.confidence >= AMBANG_KEYAKINAN
-        ? null
-        : await tryDashboardEvidence(req, user, dashboard, snapshot);
-      if (evidenceResponse) {
+      //
+      // runControlledDashboardEvidence sendiri memeriksa localAnswer LEBIH
+      // DULU dan langsung pulang tanpa menyentuh key/rate limit/quota bila
+      // jawaban lokal sudah cukup yakin — lihat komentarnya. Itulah kenapa
+      // panggilan ini aman ditaruh sebelum Fase A di bawah: kontrol
+      // key/rate/quota TIDAK PERNAH tersentuh untuk pertanyaan yang bisa
+      // dijawab gratis dari snapshot.
+      const controlledEvidence = await runControlledDashboardEvidence({
+        req, user, dashboard, snapshot, localAnswer: lokal, question: q, model,
+      });
+      if (controlledEvidence.terminal) {
+        if (controlledEvidence.terminal.retryAfterSeconds) {
+          res.set("Retry-After", String(controlledEvidence.terminal.retryAfterSeconds));
+        }
+        return res
+          .status(controlledEvidence.terminal.status)
+          .json(controlledEvidence.terminal.payload);
+      }
+      if (controlledEvidence.controls) {
+        resolved = controlledEvidence.controls.resolved;
+        quota = controlledEvidence.controls.quota;
+        breaker = controlledEvidence.controls.breaker;
+        hybridControlsApplied = Boolean(controlledEvidence.controls.rateLimited);
+      }
+      if (controlledEvidence.response) {
         req.ciaTelemetrySettled = true;
-        return res.json(evidenceResponse);
+        return res.json(controlledEvidence.response);
       }
 
       // Request validity is checked before service availability, so a malformed
@@ -978,6 +1164,11 @@ export const AiController = {
       // mengisi API key mendapat 503 untuk pertanyaan yang sebenarnya bisa
       // dijawab tanpa key sama sekali. Rate limit pun memang dimaksudkan
       // menjaga kuota Gemini, seperti tertulis di komentarnya sendiri di bawah.
+      //
+      // Sudah aman kalau CIA hybrid ENABLED juga: runControlledDashboardEvidence
+      // di atas mengecek confidence jawaban lokal ini SEBELUM resolveKey/rate
+      // limit/quota, dan pulang lebih dulu dengan { response: null, controls:
+      // null } tanpa membebani kontrol apa pun ketika lokal sudah yakin.
       if (lokal.answered && lokal.confidence >= AMBANG_KEYAKINAN) {
         const visualsUsed = (snapshot?.visuals || []).length;
         const rowsUsed = (snapshot?.visuals || [])
@@ -1024,7 +1215,7 @@ export const AiController = {
         return res.json(payload);
       }
 
-      resolved = await resolveKey(user.id, model);
+      resolved ||= await resolveKey(user.id, model);
       if (!resolved) {
         return res.status(503).json({
           message:
@@ -1034,19 +1225,21 @@ export const AiController = {
 
       // Rate limit — protects the shared free-tier quota. Counted only once a
       // request is actually about to consume Gemini quota.
-      const limit = rateLimit.hit(user.id, RATE_MAX_REQUESTS, RATE_WINDOW_SECONDS);
-      if (!limit.allowed) {
-        res.set("Retry-After", String(limit.retryAfterSeconds));
-        return res.status(429).json({
-          message: `Terlalu banyak pertanyaan. Maksimal ${RATE_MAX_REQUESTS} per ${RATE_WINDOW_SECONDS} detik — coba lagi dalam ${limit.retryAfterSeconds} detik.`,
-        });
+      if (!hybridControlsApplied) {
+        const limit = rateLimit.hit(user.id, RATE_MAX_REQUESTS, RATE_WINDOW_SECONDS);
+        if (!limit.allowed) {
+          res.set("Retry-After", String(limit.retryAfterSeconds));
+          return res.status(429).json({
+            message: `Terlalu banyak pertanyaan. Maksimal ${RATE_MAX_REQUESTS} per ${RATE_WINDOW_SECONDS} detik — coba lagi dalam ${limit.retryAfterSeconds} detik.`,
+          });
+        }
       }
 
       // ── Tier routing (Fase 2) ───────────────────────────────────────────────
       // Quota is scoped to the key that will actually be charged: a personal key
       // has a private allowance, the universal key is one shared pool.
-      const quota = await aiQuota.summary(user.id, resolved.source).catch(() => null);
-      const breaker = aiQuota.breakerState(quota);
+      quota ??= await aiQuota.summary(user.id, resolved.source).catch(() => null);
+      breaker ||= aiQuota.breakerState(quota);
 
       const pastTurns = useHistory
         ? await AiModel.getHistory(user.id, dashboard.id, HISTORY_TURNS)
@@ -1494,17 +1687,9 @@ export const AiController = {
         }
       }
 
-      const multiSanitizer = getSanitizer();
+      const evidenceSanitizer = getSanitizer();
       const multiSnapshotFallback = snapshotResults.length
-        ? {
-            dashboards: snapshotResults.map((r) => ({
-              id: r.dashboard_id,
-              name: r.dashboard.title,
-              text: buildDataContext(
-                multiSanitizer.sanitizeSnapshot(r.snapshot), r.dashboard, TIER_CHAR_BUDGET.cepat,
-              ),
-            })),
-          }
+        ? buildEvidenceSnapshotFallback(snapshotResults, evidenceSanitizer)
         : null;
       const evidenceResponse = await runWebEvidence({
         surface: "multi_chat",
@@ -1516,7 +1701,7 @@ export const AiController = {
           conversationId,
           conversation: priorTurns.flatMap((turn) => [
             { role: "user", text: turn.question },
-            { role: "assistant", text: turn.answer },
+            { role: "assistant", text: turn.answer, evidenceContract: turn.evidence_contract },
           ]),
           preferredDashboardIds: [
             ...(Array.isArray(req.body.preferredDashboardIds) ? req.body.preferredDashboardIds : []),
@@ -1524,8 +1709,9 @@ export const AiController = {
           ],
         },
         snapshotFallback: multiSnapshotFallback,
+        sanitizer: evidenceSanitizer,
       }, {
-        enabled: ciaOrchestratorWebEnabled(),
+        enabled: ciaHybridWebEnabled(),
         onFallback: (warning) => {
           console.warn("[CIA] orchestrator Multi-Chat fallback ke legacy:", warning.message);
           req.ciaTelemetry?.event("snapshot_fallback", {
@@ -1545,6 +1731,7 @@ export const AiController = {
           usage: evidenceResponse.tokens,
           requestId: evidenceResponse.requestId,
           rounds: evidenceResponse.rounds,
+          evidenceContract: evidenceResponse.evidenceContract,
         });
         await pangkasSampaiMuat(userId);
         req.ciaTelemetrySettled = true;

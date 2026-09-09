@@ -13,6 +13,7 @@ process.env.CIA_KPI_LIBRARY_ENABLED = "true";
 import { pathToFileURL } from "url";
 import { ok, section, summary } from "./harness.mjs";
 import db from "../src/config/db.js";
+import { buildIntentFrame } from "../src/services/cia/intentFrame.js";
 import { createKpi, upsertBinding } from "../src/models/ciaKpiModel.js";
 import {
   searchKpiCandidates, getBindingsForKpis, readKpiLibraryStatus,
@@ -24,7 +25,7 @@ const TAG = "RDRTEST";
 
 const [users] = await sql.query("SELECT id FROM users ORDER BY id LIMIT 1");
 const ACTOR = users[0]?.id ?? null;
-const [dashRows] = await sql.query("SELECT id FROM dashboards ORDER BY id LIMIT 5");
+const [dashRows] = await sql.query("SELECT id, title FROM dashboards ORDER BY id LIMIT 5");
 const D = dashRows.map((r) => r.id);
 
 async function seed(humanName, domain, synonyms, dashboardId, measureName, extra = {}) {
@@ -97,6 +98,97 @@ try {
     rank(nullDenied, globalOnly.id) === -1, JSON.stringify(nullDenied));
   const nullCentralized = await searchKpiCandidates({ question: `rahasia-model ${TAG}`, limit: 10 });
   ok("binding model-level tetap tersedia untuk centralized", rank(nullCentralized, globalOnly.id) >= 0);
+
+  section("Business anchor menolak KPI lintas domain dan memberi prioritas sumber aktif");
+  const misleading = await seed(`Top mesin downtime tertinggi ${TAG}`, "maintenance",
+    ["top", "tertinggi", "downtime"], D[1], "DT_TOP", { dimensions: ["Departemen"] });
+  const anchored = await searchKpiCandidates({
+    question: "top departemen dengan lembur tertinggi",
+    intentFrame: { concepts: ["overtime"], sourceConstraints: [] },
+    allowedDashboardIds: ALL,
+    preferredDashboardIds: [D[0]],
+    limit: 10,
+  });
+  ok("downtime tidak lolos hanya karena top/tertinggi/departemen",
+    rank(anchored, misleading.id) === -1, JSON.stringify(anchored.map((c) => c.humanName)));
+  ok("anchor canonical overtime tercatat pada KPI lembur",
+    anchored.find((candidate) => candidate.kpiId === lembur.id)?.anchorMatches?.includes("overtime"),
+    JSON.stringify(anchored));
+  ok("dashboard aktif mendapat source priority 100",
+    anchored.find((candidate) => candidate.kpiId === lembur.id)?.sourcePriority === 100,
+    JSON.stringify(anchored));
+
+  const orsDowntime = await seed(`Downtime ORS ${TAG}`, "maintenance", ["downtime"], D[2], "DT_ORS");
+  const explicit = await searchKpiCandidates({
+    question: "downtime",
+    intentFrame: { concepts: ["downtime"],
+      sourceConstraints: [{ type: "dashboard", value: dashRows[1].title }] },
+    allowedDashboardIds: ALL,
+    preferredDashboardIds: [D[2]],
+    limit: 20,
+  });
+  ok("source eksplisit bernilai 300 dan mengalahkan preferred dashboard",
+    explicit[0]?.kpiId === maint.id && explicit[0]?.sourcePriority === 300,
+    JSON.stringify(explicit.map((candidate) => ({ id: candidate.kpiId, priority: candidate.sourcePriority }))));
+
+  const unavailableExplicit = await searchKpiCandidates({
+    question: "downtime",
+    intentFrame: { concepts: ["downtime"],
+      sourceConstraints: [{ type: "dashboard", value: `dashboard-tidak-ada-${TAG}` }] },
+    allowedDashboardIds: ALL,
+    preferredDashboardIds: [D[2]],
+    limit: 20,
+  });
+  ok("source eksplisit yang tidak tersedia tidak diganti dashboard lain",
+    unavailableExplicit.length === 0, JSON.stringify(unavailableExplicit));
+
+  const continuityOnly = await searchKpiCandidates({
+    question: "rincian downtime nya saja",
+    intentFrame: buildIntentFrame({
+      question: "rincian downtime nya saja",
+      conversation: [{ role: "user", text: "downtime kemarin bagaimana?" }],
+      preferredDashboardIds: [D[2]],
+    }),
+    allowedDashboardIds: ALL,
+    preferredDashboardIds: [D[2]],
+    limit: 20,
+  });
+  ok("continuity tanpa metadata sumber tetap preferred priority 100",
+    continuityOnly[0]?.kpiId === orsDowntime.id && continuityOnly[0]?.sourcePriority === 100,
+    JSON.stringify(continuityOnly.map((candidate) => ({ id: candidate.kpiId, priority: candidate.sourcePriority }))));
+
+  const contextual = await searchKpiCandidates({
+    question: "downtime",
+    intentFrame: { concepts: ["downtime"], sourceConstraints: [], continuity: "refinement",
+      contextSources: [{ dashboardId: String(D[2]) }] },
+    allowedDashboardIds: ALL,
+    preferredDashboardIds: [D[1]],
+    limit: 20,
+  });
+  ok("metadata binding follow-up bernilai 200 dan mengalahkan preferred dashboard",
+    contextual[0]?.kpiId === orsDowntime.id && contextual[0]?.sourcePriority === 200,
+    JSON.stringify(contextual.map((candidate) => ({ id: candidate.kpiId, priority: candidate.sourcePriority }))));
+
+  const analyticOnly = await seed(`Berapa persen achievement rekap penyebab kendala ${TAG}`,
+    "generic", ["dibandingkan", "snapshot", "paling tinggi"], D[3], "ANALYTIC_ONLY");
+  const genericOnly = await searchKpiCandidates({
+    question: "berapa persen achievement dibandingkan rekap penyebab kendala snapshot paling tinggi",
+    allowedDashboardIds: ALL,
+    limit: 20,
+  });
+  ok("operasi analitik saja tidak menjadi business anchor",
+    rank(genericOnly, analyticOnly.id) === -1, JSON.stringify(genericOnly.map((candidate) => candidate.humanName)));
+
+  const aseptic = await seed(`Yield Aseptik ${TAG}`, "quality", ["yield aseptik"], D[3], "YIELD_A");
+  const injectedConcept = await searchKpiCandidates({
+    question: "yield aseptik line 4",
+    intentFrame: { question: "yield aseptik line 4", concepts: ["aseptic yield"], sourceConstraints: [] },
+    allowedDashboardIds: ALL,
+    limit: 20,
+  });
+  ok("candidate vocabulary injeksi tetap mendapat canonical anchor",
+    injectedConcept.find((candidate) => candidate.kpiId === aseptic.id)?.anchorMatches?.includes("aseptic yield"),
+    JSON.stringify(injectedConcept));
 
   section("Binding missing tidak dipilih");
   await sql.query("UPDATE cia_kpi_bindings SET verification_status='missing' WHERE kpi_id=?", [ppic.id]);

@@ -14,6 +14,8 @@ const meta = fs.readFileSync("src/components/chat/CiaEvidenceMeta.jsx", "utf8");
 
 console.log("\n=== Multi-Chat memakai live evidence sebagai jalur utama ===");
 check("API mengirim preferredDashboardIds", /preferredDashboardIds/.test(api));
+check("API mengirim conversation contract", /conversation:\s*input\.conversation/.test(api));
+check("API meneruskan optional reportContext", /reportContext:\s*input\.reportContext/.test(api));
 check("snapshot legacy bersifat opsional", /legacySnapshots/.test(api));
 check("panel tidak memblokir kirim karena capture", !/pendingCaptureIds\.length > 0/.test(panel));
 check("pilihan dashboard dikirim sebagai hint", /preferredDashboardIds:\s*idsTerpilih/.test(panel));
@@ -31,6 +33,9 @@ check("menampilkan request trace", /requestId/.test(meta));
 check("ChatMessage merender metadata", /CiaEvidenceMeta/.test(message));
 check("riwayat memulihkan metadata evidence", /retrievalMethod:\s*t\.retrieval_method/.test(panel));
 check("Tanya CIA dashboard merender metadata yang sama", /CiaEvidenceMeta/.test(dashboardPanel));
+check("Tanya CIA dashboard mengirim envelope report aktif", /preferredDashboardIds:\s*\[dashboard\.id\]/.test(dashboardPanel)
+  && /conversation:/.test(dashboardPanel) && /reportContext:/.test(dashboardPanel)
+  && /activePage:/.test(dashboardPanel));
 
 console.log(failed ? `\n${failed} gagal` : "\nSemua lulus");
 process.exit(failed ? 1 : 0);

@@ -73,9 +73,13 @@ function flattenCandidates(kpis) {
         unit: kpi.unit ?? binding.unit ?? null,
         numberFormat: kpi.numberFormat ?? binding.numberFormat ?? null,
         score: Number(kpi.score) || 0,
+        anchorMatches: cleanStrings(kpi.anchorMatches, 20).map((value) => value.toLowerCase()),
+        sourcePriority: Number(binding.sourcePriority ?? kpi.sourcePriority) || 0,
         dashboardId: binding.dashboardId == null ? null : String(binding.dashboardId),
         dashboardName: binding.dashboardName || null,
         reportId: binding.reportId || null,
+        pageName: binding.pageName || null,
+        visualTitle: binding.visualTitle || null,
         semanticModel: binding.semanticModel || null,
         tableName: binding.tableName || null,
         measureName: binding.measureName || null,
@@ -86,15 +90,23 @@ function flattenCandidates(kpis) {
         dateColumn: binding.dateColumn || null,
         dateLogic: binding.dateLogic || null,
         dimensions: preserveDimensions(binding.dimensions, 50),
+        blueprint: binding.blueprint || null,
+        metricRole: binding.metricRole || binding.blueprint?.metricRole || null,
+        verificationStatus: binding.verificationStatus || null,
         periodDefaults: binding.periodDefaults || null,
         origin: "deterministic",
         purpose: "primary",
       };
       const routeKey = routeIdentity(kpi, binding);
-      if (!flattened.has(routeKey)) flattened.set(routeKey, candidate);
+      const current = flattened.get(routeKey);
+      if (!current || candidate.sourcePriority > current.sourcePriority
+        || (candidate.sourcePriority === current.sourcePriority && candidate.score > current.score)) {
+        flattened.set(routeKey, candidate);
+      }
     }
   }
-  return [...flattened.values()];
+  return [...flattened.values()].sort((left, right) => right.sourcePriority - left.sourcePriority
+    || right.score - left.score);
 }
 
 function safePlannerCandidate(value, allowed) {
@@ -145,10 +157,17 @@ export async function routeEvidence(input = {}, injected = {}) {
   }
   const deterministicKpis = await deps.searchKpiCandidates({
     question: input.question,
+    intentFrame: input.intentFrame,
     allowedDashboardIds: scope.allowedDashboardIds,
+    preferredDashboardIds: scope.preferredDashboardIds,
     limit: 20,
   });
-  const deterministic = flattenCandidates(deterministicKpis);
+  const concepts = cleanStrings(input.intentFrame?.concepts, 20).map((value) => value.toLowerCase());
+  const hasExplicitSource = Array.isArray(input.intentFrame?.sourceConstraints)
+    && input.intentFrame.sourceConstraints.some((constraint) => String(constraint?.value ?? "").trim());
+  const deterministic = flattenCandidates(deterministicKpis).filter((candidate) => !concepts.length
+    || candidate.anchorMatches.some((value) => concepts.includes(value)))
+    .filter((candidate) => !hasExplicitSource || candidate.sourcePriority === 300);
   const allowed = new Map(deterministic.map((item) => [item.bindingId, item]));
   const warnings = [];
 
@@ -156,7 +175,7 @@ export async function routeEvidence(input = {}, injected = {}) {
   if (typeof input.aiPlanner === "function") {
     try {
       const result = await input.aiPlanner({
-        question: input.question,
+        question: input.modelQuestion ?? input.question,
         periods: input.periods || [],
         candidateBindings: deterministic,
       });
@@ -180,7 +199,8 @@ export async function routeEvidence(input = {}, injected = {}) {
 
   await deps.tracker?.event?.("route_candidates", {
     candidateCount: candidates.length,
-    metadata: { candidates: candidates.map((item) => item.bindingId) },
+    conceptCount: concepts.length,
+    metadata: { candidates: candidates.map((item) => item.bindingId), concepts },
   });
 
   if (!candidates.length) {

@@ -20,6 +20,7 @@ import crypto from "crypto";
 import db from "../config/db.js";
 import { computeBindingKey, upsertBinding } from "../models/ciaKpiModel.js";
 import { safeError } from "./ciaTelemetry.service.js";
+import { clearKpiLibraryCache } from "./ciaKpiLibrary.service.js";
 
 const pool = db.promise();
 
@@ -323,6 +324,9 @@ export async function runSync(runDbId, runUuid, { dashboardIds = null, inventory
      result.bindingsCreated, result.bindingsRefreshed, result.bindingsMissing,
      result.errors.length ? JSON.stringify(result.errors) : null, runDbId]
   );
+  // Binding baru/refresh/missing dari sync bisa mengubah candidate pool router;
+  // jangan biarkan pertanyaan berikutnya menunggu sampai TTL 60s kadaluarsa.
+  clearKpiLibraryCache();
   return result;
 }
 

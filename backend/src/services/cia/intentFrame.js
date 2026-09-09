@@ -1,0 +1,148 @@
+import { resolveFollowUpContext } from "./evidenceContract.js";
+import { DEFAULT_VOCABULARY, matchConcepts } from "./intentVocabulary.js";
+
+const OPERATIONS = Object.freeze([
+  ["comparison", ["bandingkan", "dibandingkan", "dibanding", "planning dan output", " versus ", " vs "]],
+  ["ranking", ["tertinggi", "paling tinggi", "paling banyak", " top "]],
+  ["breakdown", ["breakdown", "rincian", "detail", "pecahan", "rekap", "snapshot", "kategorinya", "kategori", "hari apa", "per hari", "per dept", " in detail"]],
+  ["explanation", ["kenapa", "penyebab", "pemicu", "jelaskan", "jelasin", "masalahnya", "kendala", "analisa"]],
+  ["calculation", ["berapa", "persen", "persentase", "achievement", "achivement", "totalnya"]],
+]);
+
+const MONTH_NAMES = "januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember";
+
+function normalize(value) {
+  return typeof value === "string"
+    ? value.normalize("NFKD").toLocaleLowerCase("id-ID").replace(/\s+/g, " ").trim()
+    : "";
+}
+
+function unique(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function phraseMatches(text, phrase) {
+  const escaped = phrase.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return escaped && new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?=$|[^\\p{L}\\p{N}])`, "u").test(text);
+}
+
+function addEntities(out, type, regex, question, transform = (value) => value) {
+  for (const match of question.matchAll(regex)) {
+    const value = normalize(transform(match[1] || match[0], match));
+    if (value) out.push({ type, value });
+  }
+}
+
+function extractEntities(question) {
+  const entities = [];
+  addEntities(entities, "machine", /\b(tetra pak line\s+(\d+))\b/g, question);
+  for (const match of question.matchAll(/\btetra pak line\s+\d+\s+dan\s+(\d+)\b/g)) {
+    entities.push({ type: "machine", value: `tetra pak line ${match[1]}` });
+  }
+  addEntities(entities, "machine", /\b(serac blow moulding line\s+\d+(?:_sbl\d+)?)\b/g, question);
+  addEntities(entities, "machine", /\b(serac line\s+\d+\s+cyd\s+\d+ml)\b/g, question);
+  addEntities(entities, "machine", /\b(evergreen(?:\s+esl\s+\d+ml)?)\b/g, question);
+  addEntities(entities, "machine", /\b(serac blow moulding)\b/g, question);
+  addEntities(entities, "product", /\b(uht milk\s+\d+ml)\b/g, question);
+  addEntities(entities, "plant", /\b(plant\s+[\p{L}]+)\b/gu, question);
+  addEntities(entities, "cmd", /\b(cmd)\s?(\d+)\b/g, question, (_, match) => `cmd ${match?.[2] ?? ""}`);
+  addEntities(entities, "date_range", new RegExp(`\\b(\\d{1,2}\\s*-\\s*\\d{1,2}\\s+(?:${MONTH_NAMES}))\\b`, "g"), question);
+  addEntities(entities, "date", new RegExp(`\\b(?:(?:tanggal)\\s+)?(\\d{1,2}\\s+(?:${MONTH_NAMES}))\\b`, "g"), question);
+
+  const seen = new Set();
+  return entities.filter((entity) => {
+    const key = `${entity.type}:${entity.value}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function matchOperations(question) {
+  return OPERATIONS.filter(([, phrases]) => phrases.some((phrase) => phraseMatches(question, phrase)))
+    .map(([operation]) => operation);
+}
+
+function extractSourceConstraints(question) {
+  const match = /\b(dashboard|report)\s+([^,?.]+?)(?=\s+(?:saja|hanya|untuk|yang|produk)\b|[,?.]|$)/.exec(question);
+  if (!match) return [];
+  const type = normalize(match[1]);
+  return unique(match[2].split(/\s+(?:dan|atau)\s+|\s*,\s*/).map(normalize))
+    .map((value) => ({ type, value }));
+}
+
+function periodKinds(question) {
+  const kinds = [];
+  if (new RegExp(`\\b\\d{1,2}\\s*-\\s*\\d{1,2}\\s+(?:${MONTH_NAMES})\\b`).test(question)) kinds.push("explicit_range");
+  if (new RegExp(`\\b(?:(?:tanggal)\\s+)?\\d{1,2}\\s+(?:${MONTH_NAMES})\\b`).test(question)) kinds.push("explicit_date");
+  if (/\bhari ini\b/.test(question)) kinds.push("today");
+  if (/\bkemarin\b/.test(question)) kinds.push("yesterday");
+  if (/\b(?:minggu|week) ini\b/.test(question)) kinds.push("current_week");
+  if (new RegExp(`\\b(?:bulan\\s+)?(?:${MONTH_NAMES})\\b`).test(question)) kinds.push("named_month");
+  if (/\bini\b/.test(question) && !kinds.length) kinds.push("current");
+  if (/\bnya saja\b/.test(question)) kinds.push("follow_up");
+  return unique(kinds);
+}
+
+function classifyContinuity(question, conversation) {
+  const hasConversation = Array.isArray(conversation) && conversation.some((turn) => normalize(turn?.text));
+  if (!hasConversation) return "new_topic";
+  if (matchOperations(question).includes("comparison")) return "comparison";
+  if (matchOperations(question).includes("calculation")) return "calculation";
+  if (/\b(?:detail|rincian|drill|in detail)\b/.test(question)) return "drill_down";
+  return "refinement";
+}
+
+function uniqueIds(value) {
+  return unique((Array.isArray(value) ? value : []).map((item) => String(item ?? "").trim()));
+}
+
+function uniqueEntities(values) {
+  const seen = new Set();
+  return values.filter((item) => {
+    const key = `${item?.type}:${item?.value}`;
+    if (!item?.type || !item?.value || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function combinedVocabulary(injected) {
+  if (!injected) return DEFAULT_VOCABULARY;
+  const dynamic = Array.isArray(injected?.concepts)
+    ? injected.concepts
+    : Array.isArray(injected)
+      ? injected
+      : Object.entries(injected?.concepts || injected || {}).map(([value, phrases]) => ({
+          value, phrases: Array.isArray(phrases) ? phrases : [phrases],
+        }));
+  return { concepts: [...DEFAULT_VOCABULARY.concepts, ...dynamic] };
+}
+
+export function buildIntentFrame(input = {}, injected = {}) {
+  const question = normalize(input.question);
+  const vocabulary = combinedVocabulary(injected.vocabulary);
+  const currentConcepts = matchConcepts(question, vocabulary);
+  const currentEntities = extractEntities(question);
+  const context = resolveFollowUpContext({
+    question, conversation: input.conversation, currentConcepts,
+  });
+  return {
+    question,
+    concepts: unique([...currentConcepts, ...context.requiredConcepts]),
+    entities: uniqueEntities([...currentEntities, ...context.entities]),
+    operations: matchOperations(question),
+    sourceConstraints: extractSourceConstraints(question),
+    continuity: classifyContinuity(question, input.conversation),
+    preferredDashboardIds: uniqueIds(input.preferredDashboardIds),
+    periodKinds: periodKinds(question),
+    contextSources: context.sources,
+    contextPeriods: context.periods,
+    context: {
+      sources: context.sources,
+      entities: context.entities,
+      periods: context.periods,
+      goals: context.goals,
+    },
+  };
+}

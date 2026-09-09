@@ -5,6 +5,7 @@
 // melempar `"[object Object]" is not valid JSON` begitu ada satu baris
 // tersimpan. Jadi tidak ada JSON.parse di berkas ini, dan tidak boleh ada.
 import db from "../config/db.js";
+import { normalizeEvidenceContract } from "./cia/evidenceContract.js";
 
 const sql = db.promise();
 
@@ -70,11 +71,16 @@ export async function createConversation(userId, pertanyaanPertama = "") {
 }
 
 export async function addTurn(conversationId, turnNumber, question, dashboards, answer, tokenCounts) {
+  const metadata = tokenCounts && typeof tokenCounts === "object" && !Array.isArray(tokenCounts)
+    ? { ...tokenCounts } : {};
+  const evidenceContract = normalizeEvidenceContract(metadata.evidenceContract);
+  if (evidenceContract) metadata.evidenceContract = evidenceContract;
+  else delete metadata.evidenceContract;
   const [hasil] = await sql.query(
     `INSERT INTO ai_unified_turns
        (conversation_id, turn_number, question, dashboards_queried, answer, tokens_used)
      VALUES (?, ?, ?, ?, ?, ?)`,
-    [conversationId, turnNumber, question, JSON.stringify(dashboards), answer, JSON.stringify(tokenCounts)]
+    [conversationId, turnNumber, question, JSON.stringify(dashboards), answer, JSON.stringify(metadata)]
   );
   // updated_at percakapan ikut naik supaya urutan daftar riwayat dan sasaran
   // pemangkasan mengikuti pemakaian, bukan tanggal pembuatan.
@@ -116,6 +122,7 @@ export async function getTurns(conversationId, limit = 6) {
       usage: metadata.usage || null,
       request_id: metadata.requestId || null,
       rounds: Number(metadata.rounds) || 0,
+      evidence_contract: normalizeEvidenceContract(metadata.evidenceContract),
       created_at: row.created_at,
     };
   });

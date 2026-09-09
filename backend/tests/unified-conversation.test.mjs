@@ -12,6 +12,7 @@
 //
 // Uji ini menyentuh database sungguhan lalu membersihkan barisnya sendiri.
 import { ok, section, summary } from "./harness.mjs";
+import { pathToFileURL } from "url";
 import db from "../src/config/db.js";
 import {
   createConversation, addTurn, getTurns, getConversation, hitungTurn,
@@ -55,6 +56,10 @@ try {
   await addTurn(conv.id, 1, "tanya satu", [{ id: 7, title: "OEE" }], "jawab satu", {
     gemini: 10, retrievalMethod: "live_dax", confidence: "high",
     sources: [{ dashboardId: "7", dashboardName: "OEE" }], warnings: ["UJI"],
+    evidenceContract: {
+      concepts: ["downtime"], entities: [], periods: [],
+      sources: [{ dashboardId: "7", dashboardName: "OEE" }], goals: [],
+    },
   });
   const [satu] = await getTurns(conv.id, 6);
   ok("dashboards_queried berupa array", Array.isArray(satu.dashboards_queried), typeof satu.dashboards_queried);
@@ -62,6 +67,8 @@ try {
   ok("metadata evidence tersimpan", satu.retrieval_method === "live_dax"
     && satu.confidence === "high" && satu.sources?.length === 1 && satu.warnings?.[0] === "UJI",
   JSON.stringify(satu));
+  ok("evidence contract dibaca dari tokens_used tanpa migration",
+    satu.evidence_contract?.sources?.[0]?.dashboardId === "7", JSON.stringify(satu));
 
   section("getTurns memberi yang TERAKHIR, urut maju");
 
@@ -141,4 +148,8 @@ try {
   for (const id of dibuat) {
     await sql.query("DELETE FROM ai_unified_conversations WHERE id = ?", [id]);
   }
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  process.exit(summary() ? 0 : 1);
 }

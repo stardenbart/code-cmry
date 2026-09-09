@@ -34,6 +34,7 @@ function baseDeps(overrides = {}) {
       calls.scope += 1;
       return { allowedDashboardIds: ["10", "20", "30"], preferredDashboardIds: [], deniedPreferredDashboardIds: [], mode: "user_acl", denied: false, errorCode: null };
     },
+    async getIntentVocabulary() { return {}; },
     resolvePeriods() {
       return [{ label: "Aktual", from: "2026-08-01", to: "2026-08-31", grain: "day", comparisonKey: "current" }];
     },
@@ -87,6 +88,330 @@ try {
     ok("requestId diteruskan", a.requestId === "REQ-1");
     ok("execute dipanggil sekali", deps.calls.exec === 1, String(deps.calls.exec));
     ok("ada source", a.sources.length >= 1);
+  }
+
+  section("Intent dibangun sebelum periode dan diteruskan bersama preferred source");
+  {
+    const order = [];
+    let routed;
+    const deps = baseDeps({
+      async resolveEvidenceScope() {
+        return { allowedDashboardIds: ["44", "65"], preferredDashboardIds: ["44"],
+          deniedPreferredDashboardIds: [], mode: "user_acl", denied: false, errorCode: null };
+      },
+      buildIntentFrame(input) {
+        order.push("intent");
+        return { question: input.question.toLowerCase(), concepts: ["downtime"], entities: [], operations: [],
+          sourceConstraints: [], continuity: "new_topic", preferredDashboardIds: ["44"], periodKinds: ["named_month"] };
+      },
+      resolvePeriods() {
+        order.push("period");
+        return [{ label: "Juni", from: "2026-06-01", to: "2026-06-30" }];
+      },
+      async routeEvidence(input) {
+        routed = input;
+        return { status: "ready", candidates: [candidate("b1", "44")], periods: input.periods, warnings: [] };
+      },
+    });
+    await answerWithEvidence(envelope({
+      question: "masalah Evergreen bulan Juni", preferredDashboardIds: ["44"],
+    }), deps);
+    ok("intent dibangun sebelum periode", JSON.stringify(order.slice(0, 2)) === JSON.stringify(["intent", "period"]),
+      JSON.stringify(order));
+    ok("router menerima intent frame dan preferred source hasil scope",
+      routed?.intentFrame?.concepts?.includes("downtime")
+        && JSON.stringify(routed?.scope?.preferredDashboardIds) === JSON.stringify(["44"]),
+      JSON.stringify(routed));
+  }
+
+  section("Intent produksi memuat vocabulary KPI ACL sebelum routing");
+  {
+    let vocabularyScope;
+    let routedIntent;
+    const deps = baseDeps({
+      async getIntentVocabulary(allowedDashboardIds) {
+        vocabularyScope = allowedDashboardIds;
+        return { concepts: [{ value: "filler issue", phrases: ["filler aseptik"] }] };
+      },
+      async routeEvidence(input) {
+        routedIntent = input.intentFrame;
+        return { status: "ready", candidates: [candidate("b1", "10", {
+          anchorMatches: ["filler issue"],
+        })], periods: input.periods, warnings: [] };
+      },
+    });
+    await answerWithEvidence(envelope({ question: "jelaskan masalah filler aseptik" }), deps);
+    ok("vocabulary dimuat hanya untuk dashboard ACL",
+      JSON.stringify(vocabularyScope) === JSON.stringify(["10", "20", "30"]),
+      JSON.stringify(vocabularyScope));
+    ok("konsep KPI non-default tersedia bagi router produksi",
+      routedIntent?.concepts?.includes("filler issue"), JSON.stringify(routedIntent));
+  }
+
+  section("Satu sanitizer request dipakai di seluruh boundary tanpa mengubah routing raw");
+  {
+    const sanitizer = {
+      sanitizeText: (value) => String(value).replaceAll("AJI", "MITRA_1"),
+      sanitizeSnapshot: (value) => value,
+      restore: (value) => value,
+    };
+    const seen = {};
+    const deps = baseDeps({
+      sanitizer,
+      buildIntentFrame(input, injected) {
+        seen.intentQuestion = input.question;
+        seen.intentSanitizer = injected?.sanitizer;
+        return { concepts: ["overtime"], entities: [], operations: [], sourceConstraints: [],
+          contextSources: [], contextPeriods: [], periodKinds: [] };
+      },
+      async routeEvidence(input) {
+        seen.routeQuestion = input.question;
+        seen.routeModelQuestion = input.modelQuestion;
+        return { status: "ready", candidates: [candidate("b1", "10")], periods: input.periods, warnings: [] };
+      },
+      async planEvidence(input, injected) {
+        seen.plannerQuestion = input.question;
+        seen.plannerSanitizer = injected?.sanitizer;
+        return { goals: [{ kpiBindingId: "b1", dimensions: [], periodIndex: 0, purpose: "primary" }], warnings: [] };
+      },
+      async synthesizeEvidence(input, injected) {
+        seen.synthesisQuestion = input.question;
+        seen.synthesisSanitizer = injected?.sanitizer;
+        return { answer: "MITRA_1 128", confidence: "high", retrievalMethod: "live_dax",
+          sources: [{ dashboardName: "Dashboard 10", period: "2026-08" }], warnings: [], usage: null };
+      },
+    });
+    await answerWithEvidence(envelope({ question: "lembur Supplier AJI" }), deps);
+    ok("routing dan DAX tetap menerima pertanyaan raw",
+      seen.intentQuestion.includes("AJI") && seen.routeQuestion.includes("AJI")
+        && seen.plannerQuestion.includes("AJI") && seen.synthesisQuestion.includes("AJI"),
+      JSON.stringify(seen));
+    ok("model-facing route menerima pertanyaan tersanitasi",
+      seen.routeModelQuestion?.includes("MITRA_1") && !seen.routeModelQuestion?.includes("AJI"),
+      seen.routeModelQuestion);
+    ok("instance sanitizer yang sama diinjeksi ke intent, planner, dan synthesis",
+      seen.intentSanitizer === sanitizer && seen.plannerSanitizer === sanitizer
+        && seen.synthesisSanitizer === sanitizer,
+      JSON.stringify(seen));
+  }
+
+  section("Current-view report dan context filters mencapai planner/builder");
+  {
+    let plannerInput;
+    let builderInput;
+    const deps = baseDeps({
+      buildIntentFrame() {
+        return {
+          concepts: ["overtime"], entities: [], operations: [], sourceConstraints: [],
+          contextSources: [], contextPeriods: [],
+          context: { sources: [], entities: [], periods: [], goals: [{
+            kpiBindingId: "b1", filters: [{ dimension: "Departemen", value: "Produksi" }],
+          }] },
+        };
+      },
+      async planEvidence(input) {
+        plannerInput = input;
+        return { goals: [{ kpiBindingId: "b1", dimensions: ["Departemen"], periodIndex: 0,
+          purpose: "primary", filters: [] }], warnings: [] };
+      },
+      buildDaxPlan(input) {
+        builderInput = input;
+        return { semanticModel: input.binding.semanticModel, dashboardId: input.binding.dashboardId,
+          dashboardName: input.binding.dashboardName, dax: "EVALUATE 1",
+          selectedKpis: [{ bindingId: input.binding.bindingId }], period: input.period, maxRows: 500 };
+      },
+    });
+    await answerWithEvidence(envelope({
+      question: "jelaskan data yang sedang tampil",
+      snapshotFallback: { text: "snapshot", reportFilters: [{ dimension: "Departemen", value: "QA" }] },
+    }), deps);
+    ok("planner menerima report filter terstruktur",
+      plannerInput?.reportFilters?.[0]?.value === "QA", JSON.stringify(plannerInput));
+    ok("builder menerima question, context, dan report filters",
+      builderInput?.question === "jelaskan data yang sedang tampil"
+        && builderInput?.contextFilters?.[0]?.value === "Produksi"
+        && builderInput?.reportFilters?.[0]?.value === "QA",
+      JSON.stringify(builderInput));
+  }
+
+  section("Filter entitas deterministik mengalahkan filter context planner");
+  {
+    let builderInput;
+    const deps = baseDeps({
+      async routeEvidence() {
+        return { status: "ready", candidates: [candidate("b1", "10", {
+          dimensions: [
+            { table: "Fact", column: "Departemen", humanName: "Departemen" },
+            { table: "Plant", column: "Gedung", humanName: "CMD / Gedung" },
+          ],
+        })], periods: [], warnings: [] };
+      },
+      async planEvidence() {
+        return { goals: [{ kpiBindingId: "b1", dimensions: ["Departemen", "CMD / Gedung"], periodIndex: 0,
+          purpose: "primary", filters: [{ dimension: "CMD / Gedung", value: "CMD1" }] }], warnings: [] };
+      },
+      buildDaxPlan(input) {
+        builderInput = input;
+        return { semanticModel: input.binding.semanticModel, dashboardId: input.binding.dashboardId,
+          dashboardName: input.binding.dashboardName, dax: "EVALUATE 1",
+          selectedKpis: [{ bindingId: input.binding.bindingId }], period: input.period, maxRows: 500 };
+      },
+    });
+    await answerWithEvidence(envelope({ question: "jelaskan masalah CMD2" }), deps);
+    ok("CMD2 dikirim melalui channel explicit sebelum filter goal CMD1",
+      builderInput?.explicitFilters?.[0]?.value === "CMD2"
+        && builderInput?.goal?.filters?.[0]?.value === "CMD1",
+      JSON.stringify(builderInput));
+  }
+
+  section("Multi-Chat mengisolasi report filters per dashboard");
+  {
+    const builderInputs = [];
+    const deps = baseDeps({
+      async routeEvidence() {
+        return { status: "ready", candidates: [candidate("b1", "10"), candidate("b2", "20")],
+          periods: [], warnings: [] };
+      },
+      async planEvidence() {
+        return { goals: ["b1", "b2"].map((kpiBindingId) => ({
+          kpiBindingId, dimensions: ["Departemen"], periodIndex: 0, purpose: "primary",
+        })), warnings: [] };
+      },
+      buildDaxPlan(input) {
+        builderInputs.push(input);
+        return { semanticModel: input.binding.semanticModel, dashboardId: input.binding.dashboardId,
+          dashboardName: input.binding.dashboardName, dax: "EVALUATE 1",
+          selectedKpis: [{ bindingId: input.binding.bindingId }], period: input.period, maxRows: 500 };
+      },
+    });
+    await answerWithEvidence(envelope({
+      surface: "multi_chat",
+      question: "jelaskan data yang sedang tampil",
+      snapshotFallback: { reportFilters: [
+        { dashboardId: "10", dimension: "Departemen", value: "QA" },
+        { dashboardId: "20", dimension: "Departemen", value: "Produksi" },
+      ], dashboards: [] },
+    }), deps);
+    ok("setiap builder hanya menerima filter dashboardnya",
+      builderInputs.length === 2
+        && builderInputs[0]?.reportFilters?.length === 1
+        && builderInputs[0]?.reportFilters?.[0]?.dashboardId === builderInputs[0]?.binding?.dashboardId
+        && builderInputs[1]?.reportFilters?.length === 1
+        && builderInputs[1]?.reportFilters?.[0]?.dashboardId === builderInputs[1]?.binding?.dashboardId,
+      JSON.stringify(builderInputs.map((input) => ({ dashboardId: input.binding?.dashboardId,
+        reportFilters: input.reportFilters }))));
+  }
+
+  section("Goal berbeda entity filter tidak dideduplikasi");
+  {
+    const deps = baseDeps({
+      async planEvidence() {
+        return { goals: ["Evergreen", "TetraPak"].map((value) => ({
+          kpiBindingId: "b1", dimensions: ["Departemen"], periodIndex: 0, purpose: "primary",
+          filters: [{ dimension: "Departemen", value }],
+        })), warnings: [] };
+      },
+    });
+    await answerWithEvidence(envelope(), deps);
+    ok("dua entity filter menghasilkan dua query plan", deps.calls.build === 2 && deps.calls.exec === 2,
+      `${deps.calls.build}/${deps.calls.exec}`);
+  }
+
+  section("Contract follow-up memengaruhi routing dan planning sebelum preferred source");
+  {
+    let routed;
+    let resolvedPeriods = 0;
+    const deps = baseDeps({
+      async resolveEvidenceScope() {
+        return { allowedDashboardIds: ["44", "52"], preferredDashboardIds: ["52"],
+          deniedPreferredDashboardIds: [], mode: "user_acl", denied: false, errorCode: null };
+      },
+      resolvePeriods() {
+        resolvedPeriods += 1;
+        return [{ label: "Default", from: "2026-08-01", to: "2026-08-29", grain: "day" }];
+      },
+      async routeEvidence(input) {
+        routed = input;
+        return { status: "ready", candidates: [candidate("b1", "44")], periods: input.periods, warnings: [] };
+      },
+    });
+    const answer = await answerWithEvidence(envelope({
+      question: "berapa persentasenya terhadap used time?",
+      preferredDashboardIds: ["52"],
+      conversation: [{ role: "assistant", text: "Downtime Evergreen 42 menit.", evidenceContract: {
+        concepts: ["downtime"],
+        entities: [{ type: "machine", value: "evergreen" }],
+        periods: [{ label: "Juni", from: "2026-06-01", to: "2026-06-30", grain: "day" }],
+        sources: [{ dashboardId: "44", dashboardName: "Maintenance" }],
+        goals: [],
+      } }],
+    }), deps);
+    ok("router menerima context source nyata, bukan preferred dashboard palsu",
+      routed?.intentFrame?.contextSources?.[0]?.dashboardId === "44"
+        && routed?.scope?.preferredDashboardIds?.includes("52"), JSON.stringify(routed));
+    ok("planner memakai periode contract bila follow-up tidak menyebut periode",
+      resolvedPeriods === 0 && routed?.periods?.[0]?.from === "2026-06-01", JSON.stringify(routed?.periods));
+    ok("jawaban membawa contract baru tanpa row mentah atau DAX",
+      answer.evidenceContract?.sources?.[0]?.dashboardId === "44"
+        && !JSON.stringify(answer.evidenceContract).includes("rows")
+        && !JSON.stringify(answer.evidenceContract).includes("EVALUATE"),
+      JSON.stringify(answer.evidenceContract));
+  }
+
+  section("Konsep vocabulary injeksi memutus binding follow-up topic lama");
+  {
+    let routed;
+    const deps = baseDeps({
+      intentFrameDeps: {
+        vocabulary: { concepts: [{ value: "quality reject", phrases: ["quality reject"] }] },
+      },
+      async resolveEvidenceScope() {
+        return { allowedDashboardIds: ["44", "88"], preferredDashboardIds: ["88"],
+          deniedPreferredDashboardIds: [], mode: "user_acl", denied: false, errorCode: null };
+      },
+      async routeEvidence(input) {
+        routed = input;
+        return { status: "ready", candidates: [candidate("b-quality", "88")], periods: input.periods, warnings: [] };
+      },
+    });
+    await answerWithEvidence(envelope({
+      question: "sekarang rekap quality reject bulan juli",
+      preferredDashboardIds: ["88"],
+      conversation: [{ role: "assistant", text: "Downtime Evergreen 42 menit.", evidenceContract: {
+        concepts: ["downtime"],
+        entities: [{ type: "machine", value: "evergreen" }],
+        periods: [{ label: "Juni", from: "2026-06-01", to: "2026-06-30", grain: "day" }],
+        sources: [{ dashboardId: "44", dashboardName: "Maintenance" }], goals: [],
+      } }],
+    }), deps);
+    ok("router tidak menerima source/entity downtime sebagai priority 200 context",
+      routed?.intentFrame?.concepts?.includes("quality reject")
+        && routed?.intentFrame?.contextSources?.length === 0
+        && !routed?.intentFrame?.entities?.some((item) => item.value === "evergreen"),
+      JSON.stringify(routed?.intentFrame));
+  }
+
+  section("Fallback deterministic menghormati source priority sebelum score");
+  {
+    let executedDashboard;
+    const deps = baseDeps({
+      async routeEvidence() {
+        return { status: "ready", candidates: [
+          candidate("b-maint", "44", { score: 50, sourcePriority: 100 }),
+          candidate("b-ors", "65", { score: 90, sourcePriority: 0 }),
+        ], periods: [], warnings: [] };
+      },
+      async planEvidence() { return { goals: [], warnings: [] }; },
+      async executeEvidencePlan(plan) {
+        executedDashboard = plan.dashboardId;
+        return { status: "success", errorCode: null, attempts: 1, rows: [{ value: 1 }], columns: [],
+          rowCount: 1, durationMs: 1, period: plan.period,
+          source: { dashboardId: plan.dashboardId, dashboardName: plan.dashboardName } };
+      },
+    });
+    await answerWithEvidence(envelope({ question: "masalah evergreen bulan juni" }), deps);
+    ok("preferred source dieksekusi meski kandidat ACL lain punya score lebih tinggi",
+      executedDashboard === "44", String(executedDashboard));
   }
 
   section("Korelasi lintas dua dashboard (dua ronde)");
@@ -169,7 +494,7 @@ try {
 
   section("Entitas CMD pada pertanyaan diteruskan sebagai filter DAX");
   {
-    let receivedGoal;
+    let receivedInput;
     const deps = baseDeps({
       async routeEvidence() {
         return { status: "ready", candidates: [candidate("b1", "10", {
@@ -182,8 +507,9 @@ try {
       async planEvidence() {
         return { goals: [{ kpiBindingId: "b1", dimensions: ["Mesin", "CMD / Gedung"], periodIndex: 0, purpose: "primary" }], warnings: [] };
       },
-      buildDaxPlan({ goal, binding, period }) {
-        receivedGoal = goal;
+      buildDaxPlan(input) {
+        receivedInput = input;
+        const { binding, period } = input;
         return { semanticModel: binding.semanticModel, dashboardId: binding.dashboardId,
           dashboardName: binding.dashboardName, dax: "EVALUATE 1",
           selectedKpis: [{ bindingId: binding.bindingId, humanName: binding.humanName }], period, maxRows: 500 };
@@ -193,8 +519,8 @@ try {
       question: "top 3 mesin downtime tertinggi pada CMD1 bulan Juni",
     }), deps);
     ok("CMD1 menjadi structured filter, bukan instruksi bebas",
-      receivedGoal?.filters?.[0]?.dimension === "CMD / Gedung"
-        && receivedGoal?.filters?.[0]?.value === "CMD1", JSON.stringify(receivedGoal));
+      receivedInput?.explicitFilters?.[0]?.dimension === "CMD / Gedung"
+        && receivedInput?.explicitFilters?.[0]?.value === "CMD1", JSON.stringify(receivedInput));
   }
 
   section("Planner tidak boleh menambah KPI sibling pada pertanyaan ranking");
@@ -203,7 +529,7 @@ try {
       async routeEvidence() {
         return { status: "ready", candidates: [
           candidate("b-high", "10", { score: 60, humanName: "Top downtime tertinggi" }),
-          candidate("b-low", "20", { score: 20, humanName: "Top downtime terendah" }),
+          candidate("b-low", "10", { score: 20, humanName: "Top downtime terendah" }),
         ], periods: [], warnings: [] };
       },
       async planEvidence() {
@@ -216,6 +542,35 @@ try {
     await answerWithEvidence(envelope({ question: "top 3 downtime tertinggi bulan Juni" }), deps);
     ok("hanya kandidat ranking dengan skor tertinggi dieksekusi", deps.calls.exec === 1,
       String(deps.calls.exec));
+  }
+
+  section("Ranking mempertahankan sumber tambahan valid setelah preferred primary");
+  {
+    const executedDashboards = [];
+    const deps = baseDeps({
+      async routeEvidence() {
+        return { status: "ready", candidates: [
+          candidate("b-preferred", "44", { score: 50, sourcePriority: 100 }),
+          candidate("b-additional", "65", { score: 80, sourcePriority: 0 }),
+        ], periods: [], warnings: [] };
+      },
+      async planEvidence() {
+        return { goals: [
+          { kpiBindingId: "b-additional", dimensions: ["Departemen"], periodIndex: 0, purpose: "correlation" },
+          { kpiBindingId: "b-preferred", dimensions: ["Departemen"], periodIndex: 0, purpose: "primary" },
+        ], warnings: [] };
+      },
+      async executeEvidencePlan(plan) {
+        executedDashboards.push(plan.dashboardId);
+        return { status: "success", errorCode: null, attempts: 1, rows: [{ value: 1 }], columns: [],
+          rowCount: 1, durationMs: 1, period: plan.period,
+          source: { dashboardId: plan.dashboardId, dashboardName: plan.dashboardName } };
+      },
+    });
+    await answerWithEvidence(envelope({ question: "top 3 downtime tertinggi bulan Juni" }), deps);
+    ok("preferred dieksekusi dulu dan sumber planner valid tetap diambil",
+      JSON.stringify(executedDashboards) === JSON.stringify(["44", "65"]),
+      JSON.stringify(executedDashboards));
   }
 
   section("Fallback deterministic mengambil semua comparison period");

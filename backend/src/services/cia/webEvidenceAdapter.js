@@ -1,4 +1,5 @@
 import { answerWithEvidence as defaultAnswerWithEvidence } from "./evidenceOrchestrator.js";
+import { getSanitizer } from "../aiSanitizer.js";
 
 function uniqueIds(values) {
   return [...new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean))];
@@ -19,6 +20,7 @@ function dashboardPayload(answer) {
     period: answer.sources?.find((source) => source.period)?.period ?? null,
     sources: answer.sources || [],
     warnings: answer.warnings || [],
+    evidenceContract: answer.evidenceContract || null,
     meta: {
       confidence: answer.confidence,
       retrievalMethod: answer.retrievalMethod,
@@ -56,7 +58,19 @@ function multiChatPayload(answer) {
     rounds: answer.rounds,
     tokens: answer.usage,
     requestId: answer.requestId,
+    evidenceContract: answer.evidenceContract || null,
   };
+}
+
+function safeReportContext(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const dashboardId = String(value.dashboardId ?? "").trim() || null;
+  const dashboardIds = uniqueIds(Array.isArray(value.dashboardIds) ? value.dashboardIds : []).slice(0, 50);
+  const activePage = String(value.activePage ?? "").trim().slice(0, 150) || null;
+  const selectedPages = [...new Set((Array.isArray(value.selectedPages) ? value.selectedPages : [])
+    .map((page) => String(page ?? "").trim().slice(0, 150)).filter(Boolean))].slice(0, 50);
+  return dashboardId || dashboardIds.length || activePage || selectedPages.length
+    ? { dashboardId, dashboardIds, activePage, selectedPages } : null;
 }
 
 /**
@@ -67,6 +81,7 @@ export async function runWebEvidence(input = {}, injected = {}) {
   if (injected.enabled !== true) return null;
   const body = input.body || {};
   const answerWithEvidence = injected.answerWithEvidence || defaultAnswerWithEvidence;
+  const sanitizer = input.sanitizer || getSanitizer();
   try {
     const answer = await answerWithEvidence({
       requestId: input.requestId,
@@ -79,8 +94,12 @@ export async function runWebEvidence(input = {}, injected = {}) {
         body.dashboardId,
         ...(Array.isArray(body.preferredDashboardIds) ? body.preferredDashboardIds : []),
       ]),
+      reportContext: safeReportContext(body.reportContext),
       snapshotFallback: input.snapshotFallback || null,
-    }, input.tracker ? { tracker: input.tracker } : {});
+    }, {
+      ...(input.tracker ? { tracker: input.tracker } : {}),
+      sanitizer,
+    });
     if (!answer?.answer?.trim()) throw new Error("EMPTY_ORCHESTRATOR_ANSWER");
     return input.surface === "multi_chat" ? multiChatPayload(answer) : dashboardPayload(answer);
   } catch (error) {

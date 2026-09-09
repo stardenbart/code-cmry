@@ -15,16 +15,21 @@
 //  - telemetry tidak menyimpan prompt penuh, row mentah, token/credential, QR,
 //    Authorization header, atau objek Axios (event hanya membawa count/id/period).
 import { normalizeEnvelope, normalizeAnswer } from "./contracts.js";
+import { getSanitizer } from "../aiSanitizer.js";
 import { startCiaTelemetry, safeError } from "../ciaTelemetry.service.js";
 import { resolveEvidenceScope } from "./accessScope.js";
 import { resolvePeriods } from "./periodResolver.js";
+import { buildIntentFrame } from "./intentFrame.js";
+import { createEvidenceContract } from "./evidenceContract.js";
 import { routeEvidence } from "./evidenceRouter.js";
 import { planEvidence } from "./evidencePlanner.js";
 import { buildDaxPlan } from "./daxPlanBuilder.js";
+import { filtersForBindingAssociation } from "./visualBlueprint.js";
 import { executeEvidencePlan } from "./daxEvidenceExecutor.js";
 import { analyzeEvidenceGap } from "./evidenceGapAnalyzer.js";
 import { synthesizeEvidence } from "./evidenceSynthesizer.js";
 import { skemaModel } from "../powerbiMeta.service.js";
+import { getIntentVocabulary } from "../ciaKpiLibrary.service.js";
 
 const INTERNAL_SURFACES = new Set(["whatsapp", "schedule"]);
 
@@ -45,30 +50,172 @@ function dimLabel(item) {
   }
   return String(item ?? "").trim();
 }
-function goalKey(goal) {
+function goalShapeKey(goal) {
   const dims = [...new Set((goal?.dimensions || []).map((d) => dimLabel(d).toLowerCase()))].sort().join("|");
   const period = Number.isInteger(Number(goal?.periodIndex)) ? Number(goal.periodIndex) : 0;
   return `${String(goal?.kpiBindingId ?? "").trim()}::${period}::${dims}`;
 }
 
-function entityFilters(question, binding) {
-  const cmd = /\bcmd\s*[-_]?\s*(\d{1,3})\b/i.exec(String(question || ""));
-  if (!cmd) return [];
-  const dimension = (Array.isArray(binding?.dimensions) ? binding.dimensions : []).find((item) => {
-    const label = dimLabel(item).toLowerCase();
-    const column = String(item?.column ?? item?.kolom ?? "").toLowerCase();
-    return /gedung|cmd/.test(`${label} ${column}`);
+function normalizedText(value) {
+  return String(value ?? "").normalize("NFKD").toLocaleLowerCase("id-ID")
+    .replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function entityValueMatches(left, right) {
+  const tokens = (value) => normalizedText(value)
+    .replace(/([\p{L}])(\d)/gu, "$1 $2").replace(/(\d)([\p{L}])/gu, "$1 $2")
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(/\s+/).filter(Boolean);
+  const actual = tokens(left);
+  const wanted = tokens(right);
+  const contains = (values, subset) => subset.length > 0 && values.some((_, index) =>
+    subset.every((token, offset) => values[index + offset] === token));
+  return contains(actual, wanted) || contains(wanted, actual);
+}
+
+function compatiblePeriod(left, right) {
+  return Boolean(left?.from && left?.to && right?.from && right?.to
+    && left.from === right.from && left.to === right.to);
+}
+
+function sourceMatches(source, binding, constraints) {
+  const expectedDashboard = binding?.dashboardId == null ? "" : String(binding.dashboardId);
+  const actualDashboard = source?.dashboardId == null ? "" : String(source.dashboardId);
+  if (expectedDashboard && actualDashboard && expectedDashboard !== actualDashboard) return false;
+  const requested = Array.isArray(constraints) ? constraints : [];
+  if (!requested.length) return true;
+  const labels = [source?.dashboardId, source?.dashboardName, source?.reportId, source?.semanticModel]
+    .map(normalizedText).filter(Boolean);
+  return requested.some((constraint) => {
+    const value = normalizedText(constraint?.value);
+    return value && labels.some((label) => label === value || label.includes(value) || value.includes(label));
   });
-  return dimension ? [{ dimension: dimLabel(dimension), value: `CMD${cmd[1]}` }] : [];
+}
+
+const ENTITY_COLUMNS = {
+  machine: /machine|mesin/i,
+  cmd: /cmd|gedung/i,
+  product: /product|produk/i,
+  plant: /plant/i,
+};
+
+function entitiesMatch(entities, result, goal) {
+  const requested = Array.isArray(entities) ? entities : [];
+  if (!requested.length) return true;
+  const rows = Array.isArray(result?.rows) ? result.rows : [];
+  const filters = Array.isArray(goal?.filters) ? goal.filters : [];
+  return requested.every((entity) => {
+    const wanted = normalizedText(entity?.value);
+    if (!wanted) return true;
+    const columnPattern = ENTITY_COLUMNS[entity?.type];
+    if (!columnPattern) return true;
+    const rowValues = rows.flatMap((row) => Object.entries(row || {})
+      .filter(([label]) => columnPattern.test(label)).map(([, value]) => normalizedText(value)));
+    if (rowValues.length) return rowValues.some((value) => entityValueMatches(value, wanted));
+    return filters.some((filter) => entityValueMatches(filter?.value, wanted));
+  });
+}
+
+function intentMatch({ intentFrame, period, binding, goal, result, source }) {
+  const concepts = Array.isArray(intentFrame?.concepts) ? intentFrame.concepts.map(normalizedText) : [];
+  const anchors = Array.isArray(binding?.anchorMatches) ? binding.anchorMatches.map(normalizedText) : [];
+  return {
+    concepts: !concepts.length || !anchors.length || anchors.some((anchor) => concepts.includes(anchor)),
+    entities: entitiesMatch(intentFrame?.entities, result, goal),
+    period: compatiblePeriod(result?.period, period),
+    source: sourceMatches(source, binding, intentFrame?.sourceConstraints),
+  };
+}
+function goalKey(goal) {
+  const filters = (Array.isArray(goal?.filters) ? goal.filters : []).map((filter) =>
+    `${String(filter?.dimension ?? "").trim().toLowerCase()}=${String(filter?.value ?? "").trim().toLowerCase()}`)
+    .filter((value) => value !== "=").sort().join("|");
+  return `${goalShapeKey(goal)}::${filters}`;
+}
+
+function entityFilters(entities, binding) {
+  const dimensions = Array.isArray(binding?.dimensions) ? binding.dimensions : [];
+  return (Array.isArray(entities) ? entities : []).flatMap((entity) => {
+    const pattern = ENTITY_COLUMNS[entity?.type];
+    if (!pattern) return [];
+    const dimension = dimensions.find((item) => {
+      const label = dimLabel(item);
+      const column = String(item?.column ?? item?.kolom ?? "");
+      return pattern.test(`${label} ${column}`);
+    });
+    if (!dimension) return [];
+    const rawValue = String(entity?.value ?? "").trim();
+    if (!rawValue) return [];
+    const value = entity.type === "cmd"
+      ? rawValue.replace(/^cmd\s*[-_]?\s*/i, "CMD")
+      : rawValue;
+    return [{ dimension: dimLabel(dimension), value }];
+  });
+}
+
+function bestCandidates(candidates, limit = 3) {
+  const all = Array.isArray(candidates) ? candidates : [];
+  const bestPriority = Math.max(...all.map((candidate) => Number(candidate.sourcePriority) || 0), 0);
+  const prioritized = all.filter((candidate) => (Number(candidate.sourcePriority) || 0) === bestPriority);
+  const bestScore = Math.max(...prioritized.map((candidate) => Number(candidate.score) || 0), 0);
+  return prioritized.filter((candidate) => (Number(candidate.score) || 0) === bestScore).slice(0, limit);
+}
+
+function bestRankingCandidatesBySource(candidates) {
+  const all = Array.isArray(candidates) ? candidates : [];
+  const sourceKey = (candidate) => candidate.dashboardId != null ? `dashboard:${candidate.dashboardId}`
+    : candidate.reportId ? `report:${candidate.reportId}`
+      : candidate.semanticModel ? `model:${candidate.semanticModel}` : `binding:${candidate.bindingId}`;
+  const bestScores = new Map();
+  for (const candidate of all) {
+    const key = sourceKey(candidate);
+    bestScores.set(key, Math.max(bestScores.get(key) ?? 0, Number(candidate.score) || 0));
+  }
+  return all.filter((candidate) => (Number(candidate.score) || 0) === bestScores.get(sourceKey(candidate)));
 }
 
 // Fallback goals ketika planner AI kosong/gagal: pakai kandidat deterministic
 // teratas apa adanya, meminta seluruh dimensi binding (dibatasi builder).
-function deterministicGoals(candidates, periods, limit = 6) {
-  const goals = [];
+function inferredMetricRole(candidate, intentFrame, question) {
+  const explicit = String(candidate?.metricRole || candidate?.blueprint?.metricRole || "").toLowerCase();
+  if (["primary", "numerator", "denominator", "target"].includes(explicit)) return explicit;
+  const operations = new Set(intentFrame?.operations || []);
+  const composite = (intentFrame?.concepts || []).length > 1
+    && (operations.has("calculation") || operations.has("comparison"))
+    || /\b(?:persen|persentase|ratio|achievement|achivement|dibanding|terhadap|versus|vs)\b/i
+      .test(String(question || ""));
+  if (!composite) return "primary";
+  const label = [candidate?.slug, candidate?.humanName, candidate?.measureName,
+    candidate?.displayCaption, candidate?.visualTitle,
+    candidate?.blueprint?.labels?.displayCaption, candidate?.blueprint?.labels?.visualTitle]
+    .map(normalizedText).filter(Boolean).join(" ");
+  if (/\b(?:running hours?|used time|operating hours?|available hours?)\b/.test(label)) return "denominator";
+  if (/\b(?:target|purchase order|total po|planning|rencana|plan)\b/.test(label)) return "target";
+  if (/\b(?:downtime|loss|deviation|deviasi|reject|defect)\b/.test(label)) return "numerator";
+  return "primary";
+}
+
+function deterministicCandidates(candidates, intentFrame, question) {
+  const primary = bestCandidates(candidates);
+  const operations = new Set(intentFrame?.operations || []);
+  const wantsComposite = (intentFrame?.concepts || []).length > 1
+    && (operations.has("calculation") || operations.has("comparison"));
+  if (!wantsComposite) return primary;
   const all = Array.isArray(candidates) ? candidates : [];
-  const bestScore = Math.max(...all.map((candidate) => Number(candidate.score) || 0), 0);
-  const primary = all.filter((candidate) => (Number(candidate.score) || 0) === bestScore).slice(0, 3);
+  const bestPriority = Math.max(...all.map((candidate) => Number(candidate.sourcePriority) || 0), 0);
+  const byRole = new Map();
+  for (const candidate of all.filter((item) => (Number(item.sourcePriority) || 0) === bestPriority)) {
+    const role = inferredMetricRole(candidate, intentFrame, question);
+    const current = byRole.get(role);
+    if (!current || (Number(candidate.score) || 0) > (Number(current.score) || 0)) byRole.set(role, candidate);
+  }
+  const combined = new Map(primary.map((candidate) => [String(candidate.bindingId), candidate]));
+  for (const candidate of byRole.values()) combined.set(String(candidate.bindingId), candidate);
+  return [...combined.values()].slice(0, 3);
+}
+
+function deterministicGoals(candidates, periods, intentFrame, question, limit = 6) {
+  const goals = [];
+  const primary = deterministicCandidates(candidates, intentFrame, question);
   for (const candidate of primary) {
     const count = Math.max(1, Math.min(Array.isArray(periods) ? periods.length : 1, 6));
     for (let periodIndex = 0; periodIndex < count && goals.length < limit; periodIndex += 1) {
@@ -78,6 +225,7 @@ function deterministicGoals(candidates, periods, limit = 6) {
           .map(dimLabel).filter(Boolean).slice(0, 6),
         periodIndex,
         purpose: "primary",
+        metricRole: inferredMetricRole(candidate, intentFrame, question),
       });
     }
   }
@@ -101,7 +249,7 @@ function statusFor(answer) {
 
 const DEFAULTS = {
   normalizeEnvelope, normalizeAnswer, startCiaTelemetry, safeError,
-  resolveEvidenceScope, resolvePeriods, routeEvidence, planEvidence,
+  resolveEvidenceScope, buildIntentFrame, getIntentVocabulary, resolvePeriods, routeEvidence, planEvidence,
   buildDaxPlan, executeEvidencePlan, analyzeEvidenceGap, synthesizeEvidence,
   getSchema: (semanticModel) => skemaModel(semanticModel),
   now: () => new Date(),
@@ -112,6 +260,8 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
   const d = { ...DEFAULTS, ...deps };
   const allowCentralized = INTERNAL_SURFACES.has(rawEnvelope?.surface);
   const env = d.normalizeEnvelope(rawEnvelope, { allowCentralized });
+  const sanitizer = deps.sanitizer || deps.synthDeps?.sanitizer
+    || deps.plannerDeps?.sanitizer || getSanitizer();
 
   const tracker = deps.tracker || await d.startCiaTelemetry({
     requestId: env.requestId, surface: env.surface, user: env.actor,
@@ -164,19 +314,44 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
       }, "error");
     }
 
-    // 2. Periode dari pertanyaan (bukan filter report).
-    const periods = d.resolvePeriods(env.question, d.now(), d.timezone);
+    // 2. Intent bisnis dibangun sekali dan dipakai bersama oleh seluruh routing.
+    let vocabulary = deps.intentFrameDeps?.vocabulary;
+    if (!vocabulary && (d.buildIntentFrame === buildIntentFrame || deps.getIntentVocabulary)) {
+      try {
+        vocabulary = await d.getIntentVocabulary(scope.allowedDashboardIds);
+      } catch {
+        vocabulary = null;
+      }
+    }
+    const intentFrame = d.buildIntentFrame({
+      question: env.question,
+      conversation: env.conversation,
+      preferredDashboardIds: scope.preferredDashboardIds,
+    }, { ...deps.intentFrameDeps, vocabulary, sanitizer });
+    const allowedDashboards = new Set((scope.allowedDashboardIds || []).map(String));
+    const contextSources = (intentFrame.contextSources || intentFrame.context?.sources || [])
+      .filter((source) => source?.dashboardId != null && allowedDashboards.has(String(source.dashboardId)));
+    intentFrame.contextSources = contextSources;
+    intentFrame.context = { ...(intentFrame.context || {}), sources: contextSources };
+
+    // 3. Periode dari pertanyaan (bukan filter report).
+    const inheritedPeriods = Array.isArray(intentFrame.contextPeriods) ? intentFrame.contextPeriods : [];
+    const periods = !intentFrame.periodKinds?.length && inheritedPeriods.length
+      ? inheritedPeriods
+      : d.resolvePeriods(env.question, d.now(), d.timezone);
     for (const p of periods) if (Array.isArray(p.warnings)) warnings.push(...p.warnings);
 
-    // 3. Router deterministic (planner AI opsional; tidak boleh membuang kandidat).
+    // 4. Router deterministic (planner AI opsional; tidak boleh membuang kandidat).
     const route = await d.routeEvidence(
-      { question: env.question, periods, scope, aiPlanner: deps.routerAiPlanner },
+      { question: env.question, modelQuestion: sanitizer.sanitizeText(env.question),
+        intentFrame, periods, scope, aiPlanner: deps.routerAiPlanner },
       { ...deps.routerDeps, tracker },
     );
     if (Array.isArray(route.warnings)) warnings.push(...route.warnings);
 
     const bindingIndex = new Map((route.candidates || []).map((c) => [String(c.bindingId), c]));
     const evidence = [];
+    const executedGoals = [];
     const seenGoals = new Set();
 
     if (route.status !== "ready" || !route.candidates?.length) {
@@ -191,10 +366,13 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
     } else {
       // 4. Structured planner -> goals (fallback deterministic bila kosong).
       let plan = { goals: [], warnings: [] };
+      const reportFilters = Array.isArray(env.snapshotFallback?.reportFilters)
+        ? env.snapshotFallback.reportFilters : [];
       try {
         plan = await d.planEvidence(
-          { question: env.question, periods, candidateBindings: route.candidates, conversation: env.conversation },
-          deps.plannerDeps,
+          { question: env.question, periods, candidateBindings: route.candidates,
+            conversation: env.conversation, reportFilters },
+          { ...deps.plannerDeps, sanitizer },
         ) || plan;
       } catch (err) {
         warnings.push("PLANNER_FAILED");
@@ -209,20 +387,21 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
         metadata: { goals: (plan.goals || []).length },
       });
 
-      const fallbackGoals = deterministicGoals(route.candidates, periods);
-      let plannedGoals = Array.isArray(plan.goals) ? plan.goals : [];
+      const fallbackGoals = deterministicGoals(route.candidates, periods, intentFrame, env.question);
+      let plannedGoals = Array.isArray(plan.goals) ? [...plan.goals] : [];
       const rankingQuestion = /\b(top\s+\d+|tertinggi|terendah|paling\s+(?:tinggi|rendah)|terbesar|terkecil)\b/i
         .test(env.question);
       if (rankingQuestion && route.candidates.length) {
-        const maxScore = Math.max(...route.candidates.map((candidate) => Number(candidate.score) || 0));
-        const rankingIds = new Set(route.candidates
-          .filter((candidate) => (Number(candidate.score) || 0) === maxScore)
+        const rankingIds = new Set(bestRankingCandidatesBySource(route.candidates)
           .map((candidate) => String(candidate.bindingId)));
         plannedGoals = plannedGoals.filter((goal) => rankingIds.has(String(goal.kpiBindingId)));
       }
+      plannedGoals.sort((left, right) =>
+        (Number(bindingIndex.get(String(right.kpiBindingId))?.sourcePriority) || 0)
+        - (Number(bindingIndex.get(String(left.kpiBindingId))?.sourcePriority) || 0));
       let goals = fallbackGoals;
       if (plannedGoals.length) {
-        const plannedKeys = new Set(plannedGoals.map(goalKey));
+        const plannedKeys = new Set(plannedGoals.map(goalShapeKey));
         const bestIds = new Set(fallbackGoals.map((goal) => String(goal.kpiBindingId)));
         const selectedBestIds = new Set(plannedGoals
           .map((goal) => String(goal.kpiBindingId)).filter((id) => bestIds.has(id)));
@@ -230,8 +409,8 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
           ? selectedBestIds
           : new Set(fallbackGoals.length ? [String(fallbackGoals[0].kpiBindingId)] : []);
         const recoveryGoals = fallbackGoals.filter((goal) => recoveryBinding.has(String(goal.kpiBindingId))
-          && !plannedKeys.has(goalKey(goal)));
-        goals = [...plannedGoals, ...recoveryGoals];
+          && !plannedKeys.has(goalShapeKey(goal)));
+        goals = [...plannedGoals, ...recoveryGoals].slice(0, 6);
       }
 
       // 5-10. Bounded retrieval loop.
@@ -245,15 +424,30 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
           const binding = bindingIndex.get(String(goal.kpiBindingId));
           if (!binding) { warnings.push("GOAL_BINDING_UNKNOWN"); continue; }
           const period = periods[goal.periodIndex] || periods[0] || {};
-          const effectiveGoal = { ...goal, filters: [
-            ...(Array.isArray(goal.filters) ? goal.filters : []),
-            ...entityFilters(env.question, binding),
-          ] };
+          const explicitFilters = entityFilters(intentFrame.entities, binding);
+          let effectiveGoal = goal;
 
           let daxPlan;
           try {
             const schema = await d.getSchema(binding.semanticModel, binding);
-            daxPlan = d.buildDaxPlan({ goal: effectiveGoal, binding, period, schema });
+            const contextFilters = (intentFrame.context?.goals || [])
+              .filter((item) => String(item?.kpiBindingId) === String(goal.kpiBindingId))
+              .flatMap((item) => item?.filters || []);
+            daxPlan = d.buildDaxPlan({
+              question: env.question, goal, binding, period, schema, explicitFilters,
+              contextFilters: filtersForBindingAssociation(contextFilters, binding),
+              reportFilters: filtersForBindingAssociation(reportFilters, binding),
+            });
+            effectiveGoal = {
+              ...goal,
+              filters: Array.isArray(daxPlan.selectedFilters)
+                ? daxPlan.selectedFilters.map((filter) => ({
+                    dimension: filter.humanName || filter.column,
+                    value: filter.value,
+                  }))
+                : [...explicitFilters, ...(Array.isArray(goal.filters) ? goal.filters : [])],
+            };
+            executedGoals.push(effectiveGoal);
           } catch (err) {
             // Typed planning failure (mis. DATE_COLUMN_NOT_ALLOWED / schema
             // unavailable): jangan mengarang, catat & lanjut → fallback transparan.
@@ -263,13 +457,21 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
 
           const result = await d.executeEvidencePlan(daxPlan, { ...deps.executorDeps, tracker });
           addUsage(result?.usage);
-          roundResults.push({ ...result, goal: effectiveGoal, source: result?.source || sourceFrom(daxPlan) });
+          const source = result?.source || sourceFrom(daxPlan);
+          const match = intentMatch({ intentFrame, period, binding, goal: effectiveGoal, result, source });
+          if (Object.values(match).some((matched) => matched === false)) seenGoals.delete(gk);
+          roundResults.push({
+            ...result,
+            goal: effectiveGoal,
+            source,
+            intentMatch: match,
+          });
         }
         evidence.push(...roundResults);
 
         const gap = await d.analyzeEvidenceGap({
           question: env.question,
-          plan: { goals, periods, candidates: route.candidates },
+          plan: { goals, periods, candidates: route.candidates, operations: intentFrame.operations },
           evidence, round: rounds, library: { candidates: route.candidates },
         });
         if (Array.isArray(gap.warnings)) warnings.push(...gap.warnings);
@@ -287,8 +489,8 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
     let synth;
     try {
       synth = await d.synthesizeEvidence(
-        { question: env.question, evidence, warnings, snapshotFallback: env.snapshotFallback },
-        deps.synthDeps,
+        { question: env.question, intentFrame, evidence, warnings, snapshotFallback: env.snapshotFallback },
+        { ...deps.synthDeps, sanitizer },
       );
     } catch (err) {
       warnings.push("SYNTHESIS_FAILED");
@@ -316,6 +518,9 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
       answer: synth.answer, requestId: env.requestId, confidence: synth.confidence,
       retrievalMethod: synth.retrievalMethod, sources: synth.sources,
       warnings, usage, rounds,
+      evidenceContract: createEvidenceContract({
+        intentFrame, periods, goals: executedGoals, evidence, sources: synth.sources,
+      }),
     });
     return await settle(answer, statusFor(answer));
   } catch (err) {
