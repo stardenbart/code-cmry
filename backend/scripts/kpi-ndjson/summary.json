@@ -1,0 +1,51 @@
+{
+  "dashboards_processed": 29,
+  "models_seen": 23,
+  "unique_measures_bound": 332,
+  "total_kpis": 270,
+  "kpis_from_catalog": 31,
+  "kpis_inferred": 239,
+  "total_bindings": 1346,
+  "query_ready_bindings": 480,
+  "bindings_needing_date_review": 622,
+  "review_flag_counts": {
+    "DATE_MAPPING_UNKNOWN": 622
+  },
+  "domains": {
+    "cost": {
+      "kpis": 25,
+      "bindings": 228,
+      "query_ready": 4
+    },
+    "planning": {
+      "kpis": 37,
+      "bindings": 130,
+      "query_ready": 37
+    },
+    "maintenance": {
+      "kpis": 12,
+      "bindings": 98,
+      "query_ready": 51
+    },
+    "energy": {
+      "kpis": 70,
+      "bindings": 128,
+      "query_ready": 0
+    },
+    "inventory": {
+      "kpis": 45,
+      "bindings": 106,
+      "query_ready": 0
+    },
+    "quality": {
+      "kpis": 73,
+      "bindings": 201,
+      "query_ready": 41
+    },
+    "production": {
+      "kpis": 8,
+      "bindings": 455,
+      "query_ready": 347
+    }
+  }
+}

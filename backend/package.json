@@ -8,6 +8,7 @@
     "test": "node tests/run-all.mjs",
     "cia:backfill-telemetry": "node scripts/backfill-cia-telemetry.mjs",
     "cia:import-kpis": "node scripts/import-cia-kpi-catalog.mjs",
+  "cia:import-kpi-json": "node scripts/import-kpi-from-json.mjs --dir scripts/kpi-ndjson",
     "plant:backfill": "node scripts/backfill-plant-department.mjs",
     "wa:groups": "node scripts/wa-groups.mjs"
   },
