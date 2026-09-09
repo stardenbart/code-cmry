@@ -309,7 +309,10 @@ melewati orchestrator dan melanjutkan handler legacy, sedangkan pertanyaan
 WhatsApp memakai agen DAX legacy lalu snapshot existing bila agen itu tidak
 menghasilkan jawaban. Saat flag ini `true`, flag tunggal ini mengaktifkan shared
 intent/context/visual-blueprint pipeline di seluruh surface tanpa membuat
-orchestrator kedua. `CIA_ORCHESTRATOR_WEB_ENABLED` tidak menjadi prasyarat.
+orchestrator kedua. Ini SATU-SATUNYA flag rollout untuk pipeline hybrid: tidak
+ada flag terpisah untuk "orchestrator web" karena dashboard dan Multi-Chat
+memakai Orchestrator yang sama persis dengan yang dipakai WhatsApp — tidak ada
+mode "orchestrator jalan, hybrid mati" di web.
 
 Aktifkan hanya setelah regression dan smoke read-only pada koneksi staging/
 Power BI yang sebenarnya lulus. Rehearsal dengan fake executor tidak memenuhi

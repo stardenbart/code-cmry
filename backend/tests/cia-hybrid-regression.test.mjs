@@ -233,15 +233,19 @@ section("Safe rollout flag defaults to legacy and requires explicit true");
 {
   ok("helper hybrid tersedia", typeof featureFlags.ciaHybridQueryEnabled === "function");
   ok("helper web hybrid tersedia", typeof featureFlags.ciaHybridWebEnabled === "function");
+  ok("helper effective KPI-library gate tersedia",
+    typeof featureFlags.ciaKpiLibraryReadEnabled === "function");
   if (typeof featureFlags.ciaHybridQueryEnabled === "function"
-      && typeof featureFlags.ciaHybridWebEnabled === "function") {
+      && typeof featureFlags.ciaHybridWebEnabled === "function"
+      && typeof featureFlags.ciaKpiLibraryReadEnabled === "function") {
     const previousHybrid = process.env.CIA_HYBRID_QUERY_ENABLED;
-    const previousWeb = process.env.CIA_ORCHESTRATOR_WEB_ENABLED;
+    const previousLibrary = process.env.CIA_KPI_LIBRARY_ENABLED;
     try {
-      process.env.CIA_ORCHESTRATOR_WEB_ENABLED = "false";
       delete process.env.CIA_HYBRID_QUERY_ENABLED;
+      delete process.env.CIA_KPI_LIBRARY_ENABLED;
       ok("default aman tetap legacy", featureFlags.ciaHybridQueryEnabled() === false);
       ok("web tidak masuk pipeline hybrid tanpa opt-in", featureFlags.ciaHybridWebEnabled() === false);
+      ok("KPI library read juga default mati", featureFlags.ciaKpiLibraryReadEnabled() === false);
 
       let calls = 0;
       const legacy = await runWebEvidence({ body: { question: "downtime" } }, {
@@ -251,6 +255,8 @@ section("Safe rollout flag defaults to legacy and requires explicit true");
       ok("flag false mempertahankan surface legacy", legacy === null && calls === 0, JSON.stringify({ legacy, calls }));
 
       process.env.CIA_HYBRID_QUERY_ENABLED = "true";
+      ok("hybrid flag sendiri mengaktifkan KPI-library read",
+        featureFlags.ciaKpiLibraryReadEnabled() === true);
       const hybrid = await runWebEvidence({ body: { question: "downtime" } }, {
         enabled: featureFlags.ciaHybridWebEnabled(),
         answerWithEvidence: async () => ({
@@ -262,8 +268,8 @@ section("Safe rollout flag defaults to legacy and requires explicit true");
     } finally {
       if (previousHybrid == null) delete process.env.CIA_HYBRID_QUERY_ENABLED;
       else process.env.CIA_HYBRID_QUERY_ENABLED = previousHybrid;
-      if (previousWeb == null) delete process.env.CIA_ORCHESTRATOR_WEB_ENABLED;
-      else process.env.CIA_ORCHESTRATOR_WEB_ENABLED = previousWeb;
+      if (previousLibrary == null) delete process.env.CIA_KPI_LIBRARY_ENABLED;
+      else process.env.CIA_KPI_LIBRARY_ENABLED = previousLibrary;
     }
   }
 }
