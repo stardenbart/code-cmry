@@ -65,5 +65,12 @@ check("aside desktop menyusut mulus saat collapsed", /transition-\[width,opacity
 check("ada tombol collapse & expand (ikon modern)", /ChevronsLeft/.test(sidebar) && /ChevronsRight/.test(sidebar));
 check("App menyimpan state collapse", /sidebarCollapsed/.test(app) && /localStorage/.test(app));
 
+console.log("\n=== Plant scoping & default department (bugfix) ===");
+check("konten difilter ke plant user (hindari bocor lintas-plant)", /inUserPlants/.test(app) && /cross_plant_access/.test(app));
+check("default department = departemen user (bukan selalu Plant)", /user\?\.departemen/.test(app));
+check("Notifications sidebar juga dapat plants + dashboardsFlat",
+  (app.match(/dashboardsFlat=\{dashboardsFlat\}/g) || []).length >= 2 &&
+  (app.match(/plants=\{plants\}/g) || []).length >= 2);
+
 console.log(failed === 0 ? "\nSemua lulus" : `\n${failed} gagal`);
 process.exit(failed === 0 ? 0 : 1);

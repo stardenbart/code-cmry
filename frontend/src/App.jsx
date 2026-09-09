@@ -420,11 +420,24 @@ function Dashboard({ user, onLogout }) {
     navigate("/App", { replace: true });
   }, [navigate, user?.role]);
 
+  // Dashboard hanya boleh muncul untuk plant milik user (kecuali lintas-plant /
+  // admin). Tanpa ini, konten dikelompokkan per NAMA department saja sehingga
+  // department bernama sama di plant lain (mis. "Plant" milik Sentul) bocor ke
+  // user plant lain. Dashboard tanpa plant (neutral) tetap tampil untuk semua.
+  const inUserPlants = (dash) => {
+    if (Boolean(user?.cross_plant_access) || user?.role === "admin") return true;
+    const userPlantIds = new Set((user?.plants || []).map((p) => Number(p.id)));
+    const pids = (Array.isArray(dash.plantIds) && dash.plantIds.length)
+      ? dash.plantIds
+      : (dash.plant_id != null ? [dash.plant_id] : []);
+    return pids.length === 0 || pids.some((id) => userPlantIds.has(Number(id)));
+  };
+
   const fetchDashboards = async () => {
     try {
       const res = await API.get("/api/dashboards");
       setDashboardsFlat(res.data || []);
-      const grouped = res.data.reduce((acc, dash) => {
+      const grouped = (res.data || []).filter(inUserPlants).reduce((acc, dash) => {
         const dept = dash.department || "Others";
         if (!acc[dept]) acc[dept] = [];
         acc[dept].push({ id: dash.id, title: dash.title, url: dash.url, report_id: dash.report_id, description: dash.description, department: dept });
@@ -464,13 +477,11 @@ function Dashboard({ user, onLogout }) {
     fetchPlants();
   }, []);
 
+  // Halaman awal user = department-nya sendiri, bukan selalu "Plant". Field yang
+  // benar `departemen` (bukan `dept`, yang tak ada) — dulu selalu jatuh ke "Plant".
   useEffect(() => {
-    if (user?.dept) {
-      const dept = user.dept.trim();
-      setActiveMenu(Object.keys(dashboards).includes(dept) ? dept : "Plant");
-    } else {
-      setActiveMenu("Plant");
-    }
+    const dept = (user?.departemen || "").trim();
+    setActiveMenu(dept && Object.keys(dashboards).includes(dept) ? dept : "Plant");
   }, [user, dashboards]);
 
   const canView = (dept, dashTitle) => {
@@ -697,6 +708,14 @@ function NotificationsLayout({ user, onLogout }) {
   const navigate = useNavigate();
   const [activeMenu]           = useState("Notifications");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Sidebar butuh plants + dashboardsFlat untuk membangun pohon Plant ▸ Dept.
+  // Tanpa ini, halaman Notifications menampilkan "Belum ada plant untuk akun ini".
+  const [plants, setPlants] = useState([]);
+  const [dashboardsFlat, setDashboardsFlat] = useState([]);
+  useEffect(() => {
+    API.get("/api/plants").then((r) => setPlants(r.data || [])).catch(() => setPlants([]));
+    API.get("/api/dashboards").then((r) => setDashboardsFlat(r.data || [])).catch(() => setDashboardsFlat([]));
+  }, []);
   const [showAddUser, setShowAddUser] = useState(false);
   const [showManageUser, setShowManageUser] = useState(false);
   const [showReportSetting, setShowReportSetting] = useState(false);
@@ -730,6 +749,9 @@ function NotificationsLayout({ user, onLogout }) {
             onChange={() => navigate("/App")}
             user={user}
             canView={() => true}
+            plants={plants}
+            dashboardsFlat={dashboardsFlat}
+            onDashboardSelect={() => navigate("/App")}
             isOpen={sidebarOpen}
             onClose={() => setSidebarOpen(false)}
           />
