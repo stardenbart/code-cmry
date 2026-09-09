@@ -20,10 +20,19 @@ function sanitizeLiveRows(rows, sanitizer) {
   const visual = sanitizer.sanitizeSnapshot({
     visuals: [{ columns, rows: rows.map((row) => columns.map((column) => row?.[column])) }],
   })?.visuals?.[0];
+  // Money columns in "relative" mode are rewritten by sanitizeSnapshot into a
+  // share-of-total percentage (e.g. "23.4%") — a deliberately different value,
+  // not a formatting change. Restoring the raw numeric original for those
+  // cells would silently undo that relativization, so they are excluded from
+  // the numeric-preserve below and always take the sanitized cell.
+  const relativizedMoney = sanitizer.moneyMode === "relative";
   return (visual?.rows || []).map((cells, rowIndex) => Object.fromEntries(
     (visual.columns || []).map((column, outputIndex) => {
-      const original = rows[rowIndex]?.[keptIndexes[outputIndex]?.column];
-      const preserve = typeof original === "number" || typeof original === "boolean" || original == null;
+      const kept = keptIndexes[outputIndex];
+      const original = rows[rowIndex]?.[kept?.column];
+      const isRelativizedMoney = relativizedMoney && kept?.kind === "money";
+      const preserve = !isRelativizedMoney
+        && (typeof original === "number" || typeof original === "boolean" || original == null);
       return [column, preserve ? original : cells[outputIndex]];
     }),
   ));
