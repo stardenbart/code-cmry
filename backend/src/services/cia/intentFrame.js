@@ -107,9 +107,21 @@ function uniqueEntities(values) {
   });
 }
 
+function combinedVocabulary(injected) {
+  if (!injected) return DEFAULT_VOCABULARY;
+  const dynamic = Array.isArray(injected?.concepts)
+    ? injected.concepts
+    : Array.isArray(injected)
+      ? injected
+      : Object.entries(injected?.concepts || injected || {}).map(([value, phrases]) => ({
+          value, phrases: Array.isArray(phrases) ? phrases : [phrases],
+        }));
+  return { concepts: [...DEFAULT_VOCABULARY.concepts, ...dynamic] };
+}
+
 export function buildIntentFrame(input = {}, injected = {}) {
   const question = normalize(input.question);
-  const vocabulary = injected.vocabulary || DEFAULT_VOCABULARY;
+  const vocabulary = combinedVocabulary(injected.vocabulary);
   const currentConcepts = matchConcepts(question, vocabulary);
   const currentEntities = extractEntities(question);
   const context = resolveFollowUpContext({

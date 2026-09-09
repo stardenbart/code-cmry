@@ -6,7 +6,7 @@ import { jawabPertanyaanUmum } from "../src/services/whatsappListener.service.js
 import { resolveFollowUpContext } from "../src/services/cia/evidenceContract.js";
 
 function fixture({ evidence, snapshot, attempts, failSendAt = 0 }) {
-  const calls = { envelope: null, evidenceEnvelopes: [], events: [], finishes: [], failures: [], messages: [] };
+  const calls = { envelope: null, evidenceEnvelopes: [], evidenceDeps: [], events: [], finishes: [], failures: [], messages: [] };
   const tracker = {
     requestId: "wa-test-request",
     event: async (stage, data = {}) => calls.events.push({ stage, ...data }),
@@ -25,6 +25,7 @@ function fixture({ evidence, snapshot, attempts, failSendAt = 0 }) {
       jawabDenganDax: async () => { calls.legacyDaxCalls = (calls.legacyDaxCalls || 0) + 1; },
       answerWithEvidence: async (envelope, injected = {}) => {
         calls.evidenceEnvelopes.push(envelope);
+        calls.evidenceDeps.push(injected);
         const answer = typeof evidence === "function" ? evidence(envelope) : evidence;
         for (const attempt of attempts || [{
           semanticModel: "Model A", rowsReturned: answer?.sources?.[0]?.rowCount || 0,
@@ -56,6 +57,8 @@ section("WA DAX live tercatat end-to-end");
     },
     snapshot: null,
   });
+  const requestSanitizer = { sanitizeText: (value) => value, sanitizeSnapshot: (value) => value };
+  f.deps.sanitizer = requestSanitizer;
   await jawabPertanyaanUmum(f.sock, "120@g.us", {}, "lembur harian", f.deps);
   ok("surface whatsapp", f.calls.envelope?.surface === "whatsapp");
   ok("JID menjadi conversation ref", f.calls.envelope?.conversationId === "120@g.us");
@@ -67,6 +70,8 @@ section("WA DAX live tercatat end-to-end");
     JSON.stringify(f.calls.evidenceEnvelopes[0]));
   ok("WA tidak lagi memanggil jawabDenganDax legacy", !f.calls.legacyDaxCalls,
     String(f.calls.legacyDaxCalls || 0));
+  ok("WA meneruskan satu sanitizer repository per request",
+    f.calls.evidenceDeps[0]?.sanitizer === requestSanitizer);
   ok("request_received tercatat", f.calls.events.some((e) => e.stage === "request_received"));
   ok("execute_dax mencatat semantic model", f.calls.events.some((e) => e.stage === "dax_attempt" && e.semanticModel === "Model A"));
   ok("nama event telemetry WA legacy tetap tersedia",

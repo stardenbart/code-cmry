@@ -34,6 +34,7 @@ function baseDeps(overrides = {}) {
       calls.scope += 1;
       return { allowedDashboardIds: ["10", "20", "30"], preferredDashboardIds: [], deniedPreferredDashboardIds: [], mode: "user_acl", denied: false, errorCode: null };
     },
+    async getIntentVocabulary() { return {}; },
     resolvePeriods() {
       return [{ label: "Aktual", from: "2026-08-01", to: "2026-08-31", grain: "day", comparisonKey: "current" }];
     },
@@ -121,6 +122,77 @@ try {
       routed?.intentFrame?.concepts?.includes("downtime")
         && JSON.stringify(routed?.scope?.preferredDashboardIds) === JSON.stringify(["44"]),
       JSON.stringify(routed));
+  }
+
+  section("Intent produksi memuat vocabulary KPI ACL sebelum routing");
+  {
+    let vocabularyScope;
+    let routedIntent;
+    const deps = baseDeps({
+      async getIntentVocabulary(allowedDashboardIds) {
+        vocabularyScope = allowedDashboardIds;
+        return { concepts: [{ value: "filler issue", phrases: ["filler aseptik"] }] };
+      },
+      async routeEvidence(input) {
+        routedIntent = input.intentFrame;
+        return { status: "ready", candidates: [candidate("b1", "10", {
+          anchorMatches: ["filler issue"],
+        })], periods: input.periods, warnings: [] };
+      },
+    });
+    await answerWithEvidence(envelope({ question: "jelaskan masalah filler aseptik" }), deps);
+    ok("vocabulary dimuat hanya untuk dashboard ACL",
+      JSON.stringify(vocabularyScope) === JSON.stringify(["10", "20", "30"]),
+      JSON.stringify(vocabularyScope));
+    ok("konsep KPI non-default tersedia bagi router produksi",
+      routedIntent?.concepts?.includes("filler issue"), JSON.stringify(routedIntent));
+  }
+
+  section("Satu sanitizer request dipakai di seluruh boundary tanpa mengubah routing raw");
+  {
+    const sanitizer = {
+      sanitizeText: (value) => String(value).replaceAll("AJI", "MITRA_1"),
+      sanitizeSnapshot: (value) => value,
+      restore: (value) => value,
+    };
+    const seen = {};
+    const deps = baseDeps({
+      sanitizer,
+      buildIntentFrame(input, injected) {
+        seen.intentQuestion = input.question;
+        seen.intentSanitizer = injected?.sanitizer;
+        return { concepts: ["overtime"], entities: [], operations: [], sourceConstraints: [],
+          contextSources: [], contextPeriods: [], periodKinds: [] };
+      },
+      async routeEvidence(input) {
+        seen.routeQuestion = input.question;
+        seen.routeModelQuestion = input.modelQuestion;
+        return { status: "ready", candidates: [candidate("b1", "10")], periods: input.periods, warnings: [] };
+      },
+      async planEvidence(input, injected) {
+        seen.plannerQuestion = input.question;
+        seen.plannerSanitizer = injected?.sanitizer;
+        return { goals: [{ kpiBindingId: "b1", dimensions: [], periodIndex: 0, purpose: "primary" }], warnings: [] };
+      },
+      async synthesizeEvidence(input, injected) {
+        seen.synthesisQuestion = input.question;
+        seen.synthesisSanitizer = injected?.sanitizer;
+        return { answer: "MITRA_1 128", confidence: "high", retrievalMethod: "live_dax",
+          sources: [{ dashboardName: "Dashboard 10", period: "2026-08" }], warnings: [], usage: null };
+      },
+    });
+    await answerWithEvidence(envelope({ question: "lembur Supplier AJI" }), deps);
+    ok("routing dan DAX tetap menerima pertanyaan raw",
+      seen.intentQuestion.includes("AJI") && seen.routeQuestion.includes("AJI")
+        && seen.plannerQuestion.includes("AJI") && seen.synthesisQuestion.includes("AJI"),
+      JSON.stringify(seen));
+    ok("model-facing route menerima pertanyaan tersanitasi",
+      seen.routeModelQuestion?.includes("MITRA_1") && !seen.routeModelQuestion?.includes("AJI"),
+      seen.routeModelQuestion);
+    ok("instance sanitizer yang sama diinjeksi ke intent, planner, dan synthesis",
+      seen.intentSanitizer === sanitizer && seen.plannerSanitizer === sanitizer
+        && seen.synthesisSanitizer === sanitizer,
+      JSON.stringify(seen));
   }
 
   section("Current-view report dan context filters mencapai planner/builder");

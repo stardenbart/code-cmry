@@ -98,7 +98,7 @@ export async function runWebEvidence(input = {}, injected = {}) {
       snapshotFallback: input.snapshotFallback || null,
     }, {
       ...(input.tracker ? { tracker: input.tracker } : {}),
-      synthDeps: { sanitizer },
+      sanitizer,
     });
     if (!answer?.answer?.trim()) throw new Error("EMPTY_ORCHESTRATOR_ANSWER");
     return input.surface === "multi_chat" ? multiChatPayload(answer) : dashboardPayload(answer);

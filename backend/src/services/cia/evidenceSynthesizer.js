@@ -1,5 +1,5 @@
 import { tanyaModelTerstruktur } from "../modelRouter.js";
-import { getSanitizer } from "../aiSanitizer.js";
+import { classifyColumn, getSanitizer } from "../aiSanitizer.js";
 import { humanizeIdentifier, humanizeTechnicalText } from "../ciaHumanLabels.service.js";
 
 const MAX_ROWS_PER_SOURCE = 20;
@@ -12,7 +12,63 @@ function periodText(period) {
   return clean(period.label, 120) || "periode tidak diketahui";
 }
 
-function liveSources(evidence, question = "") {
+function sanitizeLiveRows(rows, sanitizer) {
+  const columns = [...new Set(rows.flatMap((row) => Object.keys(row || {})))];
+  if (!columns.length) return [];
+  const keptIndexes = columns.map((column, index) => ({ column, index, kind: classifyColumn(column) }))
+    .filter((item) => item.kind !== "drop");
+  const visual = sanitizer.sanitizeSnapshot({
+    visuals: [{ columns, rows: rows.map((row) => columns.map((column) => row?.[column])) }],
+  })?.visuals?.[0];
+  return (visual?.rows || []).map((cells, rowIndex) => Object.fromEntries(
+    (visual.columns || []).map((column, outputIndex) => {
+      const original = rows[rowIndex]?.[keptIndexes[outputIndex]?.column];
+      const preserve = typeof original === "number" || typeof original === "boolean" || original == null;
+      return [column, preserve ? original : cells[outputIndex]];
+    }),
+  ));
+}
+
+const ENTITY_COLUMNS = {
+  machine: /machine|mesin/i,
+  cmd: /cmd|gedung/i,
+  product: /product|produk/i,
+  plant: /plant/i,
+};
+
+function entityTokens(value) {
+  return String(value ?? "").normalize("NFKD").toLocaleLowerCase("id-ID")
+    .replace(/([\p{L}])(\d)/gu, "$1 $2").replace(/(\d)([\p{L}])/gu, "$1 $2")
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(/\s+/).filter(Boolean);
+}
+
+function entityValueMatches(left, right) {
+  const actual = entityTokens(left);
+  const wanted = entityTokens(right);
+  const contains = (values, subset) => subset.length > 0 && values.some((_, index) =>
+    subset.every((token, offset) => values[index + offset] === token));
+  return contains(actual, wanted) || contains(wanted, actual);
+}
+
+function rowsForEntities(rows, entities) {
+  const groups = new Map();
+  for (const entity of Array.isArray(entities) ? entities : []) {
+    if (!ENTITY_COLUMNS[entity?.type] || !String(entity?.value ?? "").trim()) continue;
+    if (!groups.has(entity.type)) groups.set(entity.type, []);
+    groups.get(entity.type).push(entity.value);
+  }
+  let filtered = rows;
+  for (const [type, values] of groups) {
+    const pattern = ENTITY_COLUMNS[type];
+    const hasDimension = rows.some((row) => Object.keys(row || {}).some((label) => pattern.test(label)));
+    if (!hasDimension) continue;
+    filtered = filtered.filter((row) => Object.entries(row || {}).some(([label, value]) =>
+      pattern.test(label) && values.some((wanted) => entityValueMatches(value, wanted))));
+  }
+  return filtered;
+}
+
+function liveSources(evidence, question = "", sanitizer = getSanitizer(), entities = []) {
   const ranking = /\b(top\s+\d+|tertinggi|terendah|terbesar|terkecil)\b/i.test(String(question));
   const sources = (Array.isArray(evidence) ? evidence : []).filter((item) => item?.status === "success"
     && Array.isArray(item.rows) && item.rows.length).map((item) => {
@@ -22,6 +78,7 @@ function liveSources(evidence, question = "") {
     const rows = item.rows.map((row) => Object.fromEntries(Object.entries(row || {})
       .map(([label, value]) => [configuredLabels.get(label) || humanLabel(label),
         typeof value === "string" ? decodeText(value) : value])));
+    const safeRows = sanitizeLiveRows(rowsForEntities(rows, entities), sanitizer);
     return {
     kind: "live_dax",
     dashboardId: item.source?.dashboardId ?? null,
@@ -29,9 +86,9 @@ function liveSources(evidence, question = "") {
     semanticModel: clean(item.source?.semanticModel, 150) || null,
     period: periodText(item.period),
     kpis: Array.isArray(item.source?.kpis) ? item.source.kpis.map((value) => clean(value, 100)).filter(Boolean) : [],
-    rows: (ranking ? distinctRows(rows, requestedRowLimit(question), question) : rows)
+    rows: (ranking ? distinctRows(safeRows, requestedRowLimit(question), question) : safeRows)
       .slice(0, MAX_ROWS_PER_SOURCE),
-    rowCount: Number(item.rowCount) || item.rows.length,
+    rowCount: safeRows.length,
   };
   });
   const unique = new Map();
@@ -266,7 +323,7 @@ export async function synthesizeEvidence(input = {}, injected = {}) {
     && !evidence.some((item) => item?.status === "success" && Array.isArray(item.rows) && item.rows.length)) {
     return relevanceFailure(mismatched, warnings);
   }
-  const live = liveSources(evidence, input.question);
+  const live = liveSources(evidence, input.question, sanitizer, input.intentFrame?.entities);
   const unresolved = warnings.some((warning) => ["EVIDENCE_GAP_UNRESOLVED", "MAX_RETRIEVAL_ROUNDS_REACHED"].includes(warning));
   const liveIncomplete = !live.length || evidence.some((item) => item?.status !== "success") || unresolved;
   const snapshots = liveIncomplete ? snapshotSources(input.snapshotFallback, sanitizer) : [];

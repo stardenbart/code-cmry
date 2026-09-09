@@ -1,4 +1,5 @@
 import { tanyaModelTerstruktur } from "../modelRouter.js";
+import { getSanitizer } from "../aiSanitizer.js";
 import { resolveFollowUpContext } from "./evidenceContract.js";
 import {
   buildVisualBlueprint, filtersForBindingAssociation, resolveFilterPolicy,
@@ -143,8 +144,8 @@ function safeResult(warning, metadata = {}) {
   };
 }
 
-function planningPrompt({ question, periods, candidateBindings, conversation }) {
-  return JSON.stringify({
+function planningPrompt({ question, periods, candidateBindings, conversation }, sanitizer) {
+  const packet = {
     question: cleanText(question, 1_000),
     periods: (Array.isArray(periods) ? periods : []).slice(0, 6),
     candidates: (Array.isArray(candidateBindings) ? candidateBindings : []).slice(0, 30).map((item) => ({
@@ -163,11 +164,13 @@ function planningPrompt({ question, periods, candidateBindings, conversation }) 
       role: turn?.role === "assistant" ? "assistant" : "user",
       text: cleanText(turn?.text, 500),
     })),
-  });
+  };
+  return sanitizer.sanitizeText(JSON.stringify(packet));
 }
 
 export async function planEvidence(input = {}, injected = {}) {
   const callModel = injected.callModel || tanyaModelTerstruktur;
+  const sanitizer = injected.sanitizer || getSanitizer();
   const candidates = allowedBindings(input.candidateBindings);
   const periods = Array.isArray(input.periods) && input.periods.length ? input.periods : [{}];
   const followUp = resolveFollowUpContext({ question: input.question, conversation: input.conversation });
@@ -176,7 +179,7 @@ export async function planEvidence(input = {}, injected = {}) {
     response = await callModel({
       ...(input.modelOptions || {}),
       systemInstruction: "Kembalikan JSON saja: {goals:[{kpiBindingId,dimensions,filters:[{dimension,value}],periodIndex,purpose,metricRole}],followUpSignals:[{concept,reason}]}. metricRole hanya primary, numerator, denominator, target, detail, atau correlation. Gunakan hanya bindingId dan dimensi dari blueprint kandidat.",
-      question: planningPrompt({ ...input, periods, candidateBindings: [...candidates.values()] }),
+      question: planningPrompt({ ...input, periods, candidateBindings: [...candidates.values()] }, sanitizer),
       maxOutputTokens: 1_000,
     });
   } catch (error) {

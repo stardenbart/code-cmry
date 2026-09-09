@@ -3,6 +3,7 @@ import { ok, section, summary } from "./harness.mjs";
 import { planEvidence } from "../src/services/cia/evidencePlanner.js";
 import { buildDaxPlan } from "../src/services/cia/daxPlanBuilder.js";
 import { tanyaModelTerstruktur } from "../src/services/modelRouter.js";
+import { createSanitizer } from "../src/services/aiSanitizer.js";
 
 const bindings = [
   { bindingId: "b-ot", humanName: "Jam lembur", dashboardId: "dash-ot",
@@ -270,6 +271,37 @@ const filterCapped = await planEvidence({
 ok("maksimum enam dimensi filter tetap dipertahankan",
   filterCapped.goals[0]?.filterPolicy?.explicitFilters?.length === 6,
   JSON.stringify(filterCapped.goals[0]));
+
+section("Planner menyanitasi question dan history dengan sanitizer request yang sama");
+const plannerSanitizer = createSanitizer({ secret: "planner-boundary-test" });
+plannerSanitizer.sanitizeSnapshot({
+  visuals: [{ columns: ["Supplier.Name"], rows: [["AJI"]] }],
+});
+let sanitizedPlannerPacket;
+await planEvidence({
+  question: "bandingkan Supplier AJI dengan PO 120",
+  periods,
+  candidateBindings: bindings,
+  conversation: [
+    { role: "user", text: "Supplier AJI kemarin 100" },
+    { role: "assistant", text: "Supplier AJI naik menjadi 120" },
+  ],
+}, {
+  sanitizer: plannerSanitizer,
+  callModel: async (args) => {
+    sanitizedPlannerPacket = JSON.parse(args.question);
+    return callReturning(JSON.stringify({ goals: [], followUpSignals: [] }))();
+  },
+});
+const serializedPlannerPacket = JSON.stringify(sanitizedPlannerPacket);
+ok("raw entity tidak melewati planner boundary",
+  !/AJI/.test(serializedPlannerPacket) && /MITRA_/.test(serializedPlannerPacket),
+  serializedPlannerPacket);
+ok("angka dan role history tetap utuh",
+  sanitizedPlannerPacket?.question?.includes("120")
+    && sanitizedPlannerPacket?.conversation?.[0]?.role === "user"
+    && sanitizedPlannerPacket?.conversation?.[1]?.role === "assistant",
+  serializedPlannerPacket);
 
 section("Malformed, empty, timeout tidak membatalkan deterministic route");
 for (const [label, callModel, warning] of [

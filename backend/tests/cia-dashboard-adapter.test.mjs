@@ -46,13 +46,13 @@ section("Flag mati mempertahankan jalur legacy");
 section("Flag aktif membentuk envelope dashboard yang kompatibel");
 {
   let envelope;
-  let synthSanitizer;
+  let requestSanitizer;
   const sanitizer = { sanitizeText: (value) => value };
   const result = await runWebEvidence({ ...request(), sanitizer }, {
     enabled: true,
     answerWithEvidence: async (value, deps) => {
       envelope = value;
-      synthSanitizer = deps?.synthDeps?.sanitizer;
+      requestSanitizer = deps?.sanitizer;
       return {
         answer: "Lembur naik dan berkorelasi dengan PO.", requestId: value.requestId,
         confidence: "high", retrievalMethod: "live_dax", rounds: 2,
@@ -75,8 +75,8 @@ section("Flag aktif membentuk envelope dashboard yang kompatibel");
       && envelope.reportContext?.filters === undefined,
     JSON.stringify(envelope.reportContext));
   ok("snapshot hanya fallback", envelope.snapshotFallback?.text === "Total lembur 7 jam");
-  ok("sanitizer snapshot yang sama diteruskan ke synthesis tanpa masuk envelope",
-    synthSanitizer === sanitizer && envelope.sanitizer === undefined);
+  ok("sanitizer snapshot yang sama diteruskan sebagai dependency request tanpa masuk envelope",
+    requestSanitizer === sanitizer && envelope.sanitizer === undefined);
   ok("actor berasal dari server", envelope.actor.id === 7 && envelope.actor.department === "Produksi");
   ok("field lama answer tetap ada", result.answer.includes("Lembur naik"));
   ok("field lama period tetap ada", result.period === "2026-07-01 sampai 2026-07-31", result.period);
@@ -163,6 +163,92 @@ section("Controller endpoint menghormati flag sebelum jawaban lokal");
   }
 }
 
+section("Dashboard hybrid melewati key, rate limit, quota, dan accounting");
+{
+  const events = [];
+  const logged = [];
+  let quotaReads = 0;
+  const result = await aiController.runControlledDashboardEvidence({
+    req: { ciaRequestId: "req-controlled", body: {} },
+    user: { id: 7 },
+    dashboard: { id: 10, title: "Lembur" },
+    snapshot: { visuals: [] },
+    localAnswer: { answered: false, intent: "ANALYTICAL" },
+    question: "kenapa lembur naik?",
+    model: "gemini-test",
+  }, {
+    hybridEnabled: () => true,
+    resolveKey: async () => { events.push("key"); return { source: "user", apiKey: "secret" }; },
+    rateLimitHit: () => { events.push("rate"); return { allowed: true }; },
+    quotaSummary: async () => {
+      quotaReads += 1;
+      events.push(quotaReads === 1 ? "quota" : "quotaAfter");
+      return { used: quotaReads, resetAt: "2026-09-02T00:00:00.000Z" };
+    },
+    breakerState: () => { events.push("breaker"); return { level: "ok" }; },
+    routeDashboardEvidence: async () => {
+      events.push("orchestrator");
+      return {
+        answer: "Lembur naik.",
+        sources: [{ rowCount: 4 }],
+        meta: {
+          model: "gemini-planner+synth",
+          usage: { inputTokens: 5, outputTokens: 7, totalTokens: 12 },
+        },
+      };
+    },
+    logChat: async (row) => { events.push("log"); logged.push(row); },
+  });
+  ok("kontrol terjadi sebelum orchestrator dan log sebelum quota akhir",
+    JSON.stringify(events) === JSON.stringify([
+      "key", "rate", "quota", "breaker", "orchestrator", "log", "quotaAfter",
+    ]), JSON.stringify(events));
+  ok("usage planner+synth dicatat ke ai_chat_logs",
+    logged[0]?.prompt_tokens === 5 && logged[0]?.output_tokens === 7
+      && logged[0]?.total_tokens === 12 && logged[0]?.key_source === "user",
+    JSON.stringify(logged[0]));
+  ok("response hybrid membawa quota sesudah pemakaian",
+    result.response?.meta?.quota?.used === 2 && result.response?.meta?.keySource === "user",
+    JSON.stringify(result));
+}
+
+section("Dashboard hybrid berhenti sebelum orchestrator ketika kontrol menolak");
+{
+  let calls = 0;
+  const base = {
+    req: { body: {} }, user: { id: 7 }, dashboard: { id: 10, title: "Lembur" },
+    snapshot: null, localAnswer: { answered: false }, question: "analisa", model: null,
+  };
+  const denied = await aiController.runControlledDashboardEvidence(base, {
+    hybridEnabled: () => true,
+    resolveKey: async () => ({ source: "server", apiKey: "secret" }),
+    rateLimitHit: () => ({ allowed: false, retryAfterSeconds: 9 }),
+    routeDashboardEvidence: async () => { calls += 1; },
+  });
+  ok("rate limit 429 tidak memanggil orchestrator",
+    denied.terminal?.status === 429 && denied.terminal?.retryAfterSeconds === 9 && calls === 0,
+    JSON.stringify(denied));
+
+  const open = await aiController.runControlledDashboardEvidence(base, {
+    hybridEnabled: () => true,
+    resolveKey: async () => ({ source: "server", apiKey: "secret" }),
+    rateLimitHit: () => ({ allowed: true }),
+    quotaSummary: async () => ({ resetAt: "2026-09-02T00:00:00.000Z" }),
+    breakerState: () => ({ level: "open", message: "Kuota habis." }),
+    routeDashboardEvidence: async () => { calls += 1; },
+  });
+  ok("circuit breaker 429 tidak memanggil orchestrator",
+    open.terminal?.status === 429 && calls === 0, JSON.stringify(open));
+
+  const noKey = await aiController.runControlledDashboardEvidence(base, {
+    hybridEnabled: () => true,
+    resolveKey: async () => null,
+    routeDashboardEvidence: async () => { calls += 1; },
+  });
+  ok("API key wajib sebelum orchestrator", noKey.terminal?.status === 503 && calls === 0,
+    JSON.stringify(noKey));
+}
+
 section("Controller memisahkan teks model tersanitasi dari filter DAX internal");
 {
   const snapshotResults = [
@@ -225,10 +311,14 @@ section("Controller memasang adapter sebelum syarat snapshot legacy");
 {
   const source = fs.readFileSync("src/controllers/aiController.js", "utf8");
   const askStart = source.indexOf("ask: withCiaTelemetry");
-  const adapter = source.indexOf("routeDashboardEvidence({", askStart);
+  const adapter = source.indexOf("runControlledDashboardEvidence({", askStart);
   const legacySnapshot = source.indexOf("if (!hasVisualData)", adapter);
-  ok("adapter terpasang di endpoint ask", adapter > 0);
-  ok("live evidence dicoba sebelum snapshot diwajibkan", legacySnapshot > adapter,
+  const directUncontrolled = source.indexOf("routeDashboardEvidence({", askStart);
+  ok("controlled adapter terpasang di endpoint ask", adapter > 0);
+  ok("endpoint tidak memanggil orchestrator tanpa kontrol",
+    directUncontrolled < 0 || directUncontrolled > source.indexOf("});", adapter),
+    String(directUncontrolled));
+  ok("controlled live evidence dicoba sebelum snapshot diwajibkan", legacySnapshot > adapter,
     `${adapter} < ${legacySnapshot}`);
 }
 

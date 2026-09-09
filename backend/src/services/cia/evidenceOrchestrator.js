@@ -15,6 +15,7 @@
 //  - telemetry tidak menyimpan prompt penuh, row mentah, token/credential, QR,
 //    Authorization header, atau objek Axios (event hanya membawa count/id/period).
 import { normalizeEnvelope, normalizeAnswer } from "./contracts.js";
+import { getSanitizer } from "../aiSanitizer.js";
 import { startCiaTelemetry, safeError } from "../ciaTelemetry.service.js";
 import { resolveEvidenceScope } from "./accessScope.js";
 import { resolvePeriods } from "./periodResolver.js";
@@ -28,6 +29,7 @@ import { executeEvidencePlan } from "./daxEvidenceExecutor.js";
 import { analyzeEvidenceGap } from "./evidenceGapAnalyzer.js";
 import { synthesizeEvidence } from "./evidenceSynthesizer.js";
 import { skemaModel } from "../powerbiMeta.service.js";
+import { getIntentVocabulary } from "../ciaKpiLibrary.service.js";
 
 const INTERNAL_SURFACES = new Set(["whatsapp", "schedule"]);
 
@@ -130,15 +132,24 @@ function goalKey(goal) {
   return `${goalShapeKey(goal)}::${filters}`;
 }
 
-function entityFilters(question, binding) {
-  const cmd = /\bcmd\s*[-_]?\s*(\d{1,3})\b/i.exec(String(question || ""));
-  if (!cmd) return [];
-  const dimension = (Array.isArray(binding?.dimensions) ? binding.dimensions : []).find((item) => {
-    const label = dimLabel(item).toLowerCase();
-    const column = String(item?.column ?? item?.kolom ?? "").toLowerCase();
-    return /gedung|cmd/.test(`${label} ${column}`);
+function entityFilters(entities, binding) {
+  const dimensions = Array.isArray(binding?.dimensions) ? binding.dimensions : [];
+  return (Array.isArray(entities) ? entities : []).flatMap((entity) => {
+    const pattern = ENTITY_COLUMNS[entity?.type];
+    if (!pattern) return [];
+    const dimension = dimensions.find((item) => {
+      const label = dimLabel(item);
+      const column = String(item?.column ?? item?.kolom ?? "");
+      return pattern.test(`${label} ${column}`);
+    });
+    if (!dimension) return [];
+    const rawValue = String(entity?.value ?? "").trim();
+    if (!rawValue) return [];
+    const value = entity.type === "cmd"
+      ? rawValue.replace(/^cmd\s*[-_]?\s*/i, "CMD")
+      : rawValue;
+    return [{ dimension: dimLabel(dimension), value }];
   });
-  return dimension ? [{ dimension: dimLabel(dimension), value: `CMD${cmd[1]}` }] : [];
 }
 
 function bestCandidates(candidates, limit = 3) {
@@ -164,9 +175,47 @@ function bestRankingCandidatesBySource(candidates) {
 
 // Fallback goals ketika planner AI kosong/gagal: pakai kandidat deterministic
 // teratas apa adanya, meminta seluruh dimensi binding (dibatasi builder).
-function deterministicGoals(candidates, periods, limit = 6) {
-  const goals = [];
+function inferredMetricRole(candidate, intentFrame, question) {
+  const explicit = String(candidate?.metricRole || candidate?.blueprint?.metricRole || "").toLowerCase();
+  if (["primary", "numerator", "denominator", "target"].includes(explicit)) return explicit;
+  const operations = new Set(intentFrame?.operations || []);
+  const composite = (intentFrame?.concepts || []).length > 1
+    && (operations.has("calculation") || operations.has("comparison"))
+    || /\b(?:persen|persentase|ratio|achievement|achivement|dibanding|terhadap|versus|vs)\b/i
+      .test(String(question || ""));
+  if (!composite) return "primary";
+  const label = [candidate?.slug, candidate?.humanName, candidate?.measureName,
+    candidate?.displayCaption, candidate?.visualTitle,
+    candidate?.blueprint?.labels?.displayCaption, candidate?.blueprint?.labels?.visualTitle]
+    .map(normalizedText).filter(Boolean).join(" ");
+  if (/\b(?:running hours?|used time|operating hours?|available hours?)\b/.test(label)) return "denominator";
+  if (/\b(?:target|purchase order|total po|planning|rencana|plan)\b/.test(label)) return "target";
+  if (/\b(?:downtime|loss|deviation|deviasi|reject|defect)\b/.test(label)) return "numerator";
+  return "primary";
+}
+
+function deterministicCandidates(candidates, intentFrame, question) {
   const primary = bestCandidates(candidates);
+  const operations = new Set(intentFrame?.operations || []);
+  const wantsComposite = (intentFrame?.concepts || []).length > 1
+    && (operations.has("calculation") || operations.has("comparison"));
+  if (!wantsComposite) return primary;
+  const all = Array.isArray(candidates) ? candidates : [];
+  const bestPriority = Math.max(...all.map((candidate) => Number(candidate.sourcePriority) || 0), 0);
+  const byRole = new Map();
+  for (const candidate of all.filter((item) => (Number(item.sourcePriority) || 0) === bestPriority)) {
+    const role = inferredMetricRole(candidate, intentFrame, question);
+    const current = byRole.get(role);
+    if (!current || (Number(candidate.score) || 0) > (Number(current.score) || 0)) byRole.set(role, candidate);
+  }
+  const combined = new Map(primary.map((candidate) => [String(candidate.bindingId), candidate]));
+  for (const candidate of byRole.values()) combined.set(String(candidate.bindingId), candidate);
+  return [...combined.values()].slice(0, 3);
+}
+
+function deterministicGoals(candidates, periods, intentFrame, question, limit = 6) {
+  const goals = [];
+  const primary = deterministicCandidates(candidates, intentFrame, question);
   for (const candidate of primary) {
     const count = Math.max(1, Math.min(Array.isArray(periods) ? periods.length : 1, 6));
     for (let periodIndex = 0; periodIndex < count && goals.length < limit; periodIndex += 1) {
@@ -176,7 +225,7 @@ function deterministicGoals(candidates, periods, limit = 6) {
           .map(dimLabel).filter(Boolean).slice(0, 6),
         periodIndex,
         purpose: "primary",
-        metricRole: "primary",
+        metricRole: inferredMetricRole(candidate, intentFrame, question),
       });
     }
   }
@@ -200,7 +249,7 @@ function statusFor(answer) {
 
 const DEFAULTS = {
   normalizeEnvelope, normalizeAnswer, startCiaTelemetry, safeError,
-  resolveEvidenceScope, buildIntentFrame, resolvePeriods, routeEvidence, planEvidence,
+  resolveEvidenceScope, buildIntentFrame, getIntentVocabulary, resolvePeriods, routeEvidence, planEvidence,
   buildDaxPlan, executeEvidencePlan, analyzeEvidenceGap, synthesizeEvidence,
   getSchema: (semanticModel) => skemaModel(semanticModel),
   now: () => new Date(),
@@ -211,6 +260,8 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
   const d = { ...DEFAULTS, ...deps };
   const allowCentralized = INTERNAL_SURFACES.has(rawEnvelope?.surface);
   const env = d.normalizeEnvelope(rawEnvelope, { allowCentralized });
+  const sanitizer = deps.sanitizer || deps.synthDeps?.sanitizer
+    || deps.plannerDeps?.sanitizer || getSanitizer();
 
   const tracker = deps.tracker || await d.startCiaTelemetry({
     requestId: env.requestId, surface: env.surface, user: env.actor,
@@ -264,11 +315,19 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
     }
 
     // 2. Intent bisnis dibangun sekali dan dipakai bersama oleh seluruh routing.
+    let vocabulary = deps.intentFrameDeps?.vocabulary;
+    if (!vocabulary && (d.buildIntentFrame === buildIntentFrame || deps.getIntentVocabulary)) {
+      try {
+        vocabulary = await d.getIntentVocabulary(scope.allowedDashboardIds);
+      } catch {
+        vocabulary = null;
+      }
+    }
     const intentFrame = d.buildIntentFrame({
       question: env.question,
       conversation: env.conversation,
       preferredDashboardIds: scope.preferredDashboardIds,
-    }, deps.intentFrameDeps);
+    }, { ...deps.intentFrameDeps, vocabulary, sanitizer });
     const allowedDashboards = new Set((scope.allowedDashboardIds || []).map(String));
     const contextSources = (intentFrame.contextSources || intentFrame.context?.sources || [])
       .filter((source) => source?.dashboardId != null && allowedDashboards.has(String(source.dashboardId)));
@@ -284,7 +343,8 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
 
     // 4. Router deterministic (planner AI opsional; tidak boleh membuang kandidat).
     const route = await d.routeEvidence(
-      { question: env.question, intentFrame, periods, scope, aiPlanner: deps.routerAiPlanner },
+      { question: env.question, modelQuestion: sanitizer.sanitizeText(env.question),
+        intentFrame, periods, scope, aiPlanner: deps.routerAiPlanner },
       { ...deps.routerDeps, tracker },
     );
     if (Array.isArray(route.warnings)) warnings.push(...route.warnings);
@@ -312,7 +372,7 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
         plan = await d.planEvidence(
           { question: env.question, periods, candidateBindings: route.candidates,
             conversation: env.conversation, reportFilters },
-          deps.plannerDeps,
+          { ...deps.plannerDeps, sanitizer },
         ) || plan;
       } catch (err) {
         warnings.push("PLANNER_FAILED");
@@ -327,7 +387,7 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
         metadata: { goals: (plan.goals || []).length },
       });
 
-      const fallbackGoals = deterministicGoals(route.candidates, periods);
+      const fallbackGoals = deterministicGoals(route.candidates, periods, intentFrame, env.question);
       let plannedGoals = Array.isArray(plan.goals) ? [...plan.goals] : [];
       const rankingQuestion = /\b(top\s+\d+|tertinggi|terendah|paling\s+(?:tinggi|rendah)|terbesar|terkecil)\b/i
         .test(env.question);
@@ -364,7 +424,7 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
           const binding = bindingIndex.get(String(goal.kpiBindingId));
           if (!binding) { warnings.push("GOAL_BINDING_UNKNOWN"); continue; }
           const period = periods[goal.periodIndex] || periods[0] || {};
-          const explicitFilters = entityFilters(env.question, binding);
+          const explicitFilters = entityFilters(intentFrame.entities, binding);
           let effectiveGoal = goal;
 
           let daxPlan;
@@ -429,8 +489,8 @@ export async function answerWithEvidence(rawEnvelope = {}, deps = {}) {
     let synth;
     try {
       synth = await d.synthesizeEvidence(
-        { question: env.question, evidence, warnings, snapshotFallback: env.snapshotFallback },
-        deps.synthDeps,
+        { question: env.question, intentFrame, evidence, warnings, snapshotFallback: env.snapshotFallback },
+        { ...deps.synthDeps, sanitizer },
       );
     } catch (err) {
       warnings.push("SYNTHESIS_FAILED");

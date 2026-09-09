@@ -265,6 +265,122 @@ export async function routeDashboardEvidence({ req, user, dashboard, snapshot, l
   return (deps.tryDashboardEvidence || tryDashboardEvidence)(req, user, dashboard, snapshot);
 }
 
+/**
+ * Apply the same key/rate/quota controls and accounting used by the legacy
+ * dashboard model path before the hybrid planner or synthesizer can run.
+ * Returning controls on a transparent fallback lets the endpoint continue the
+ * legacy path without charging the rate limiter twice.
+ */
+export async function runControlledDashboardEvidence(input = {}, deps = {}) {
+  const enabled = (deps.hybridEnabled || ciaHybridWebEnabled)();
+  if (!enabled) return { response: null, controls: null };
+
+  const keyResolver = deps.resolveKey || resolveKey;
+  const resolved = await keyResolver(input.user?.id, input.model);
+  if (!resolved) {
+    return {
+      response: null,
+      controls: null,
+      terminal: {
+        status: 503,
+        payload: {
+          message:
+            "Fitur AI belum aktif: belum ada Gemini API key. Simpan API key pribadi di menu AI Assistant Settings, atau minta admin mengisi GEMINI_API_KEY di server.",
+        },
+      },
+    };
+  }
+
+  const limiter = (deps.rateLimitHit || rateLimit.hit)(
+    input.user.id,
+    RATE_MAX_REQUESTS,
+    RATE_WINDOW_SECONDS
+  );
+  if (!limiter.allowed) {
+    return {
+      response: null,
+      controls: { resolved, rateLimited: true },
+      terminal: {
+        status: 429,
+        retryAfterSeconds: limiter.retryAfterSeconds,
+        payload: {
+          message: `Terlalu banyak pertanyaan. Maksimal ${RATE_MAX_REQUESTS} per ${RATE_WINDOW_SECONDS} detik — coba lagi dalam ${limiter.retryAfterSeconds} detik.`,
+        },
+      },
+    };
+  }
+
+  const quotaReader = deps.quotaSummary || aiQuota.summary;
+  let quota = null;
+  try {
+    quota = await quotaReader(input.user.id, resolved.source);
+  } catch {
+    quota = null;
+  }
+  const breaker = (deps.breakerState || aiQuota.breakerState)(quota);
+  const controls = { resolved, quota, breaker, rateLimited: true };
+  if (breaker.level === "open") {
+    const reset = quota?.resetAt
+      ? ` Kuota reset ${new Date(quota.resetAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB.`
+      : "";
+    return {
+      response: null,
+      controls,
+      terminal: {
+        status: 429,
+        payload: { message: `${breaker.message || "Kuota AI habis."}${reset}`, quota },
+      },
+    };
+  }
+
+  const evidenceResponse = await (deps.routeDashboardEvidence || routeDashboardEvidence)(input);
+  if (!evidenceResponse) return { response: null, controls };
+
+  const usage = evidenceResponse.meta?.usage || evidenceResponse.usage || {};
+  const inputTokens = usage.inputTokens ?? usage.promptTokenCount ?? null;
+  const outputTokens = usage.outputTokens ?? usage.candidatesTokenCount ?? null;
+  const totalTokens = usage.totalTokens ?? usage.totalTokenCount
+    ?? (Number.isFinite(inputTokens) && Number.isFinite(outputTokens)
+      ? inputTokens + outputTokens
+      : null);
+  const rowsUsed = (evidenceResponse.sources || [])
+    .reduce((total, source) => total + (Number(source?.rowCount) || 0), 0);
+
+  await (deps.logChat || AiModel.logChat)({
+    user_id: input.user.id,
+    dashboard_id: input.dashboard?.id ?? null,
+    dashboard_title: input.dashboard?.title ?? null,
+    question: input.question || input.req?.body?.question || "",
+    answer: evidenceResponse.answer,
+    intent: input.localAnswer?.intent || null,
+    answered_locally: 0,
+    model: evidenceResponse.meta?.model || "hybrid",
+    key_source: resolved.source,
+    visuals_used: evidenceResponse.sources?.length || 0,
+    rows_used: rowsUsed,
+    prompt_chars: String(input.question || input.req?.body?.question || "").length,
+    tier: "evidence",
+    from_cache: 0,
+    prompt_tokens: inputTokens,
+    output_tokens: outputTokens,
+    total_tokens: totalTokens,
+  });
+
+  let quotaAfter = quota;
+  try {
+    quotaAfter = await quotaReader(input.user.id, resolved.source);
+  } catch {
+    quotaAfter = quota;
+  }
+  evidenceResponse.meta = {
+    ...(evidenceResponse.meta || {}),
+    keySource: resolved.source,
+    quota: quotaAfter,
+    breaker: breaker.level === "ok" ? undefined : breaker,
+  };
+  return { response: evidenceResponse, controls: { ...controls, quota: quotaAfter } };
+}
+
 export function withCiaTelemetry(surface, handler, deps = {}) {
   const starter = deps.startCiaTelemetry || startCiaTelemetry;
   return async (req, res) => {
@@ -943,6 +1059,9 @@ export const AiController = {
 
     let dashboard = null;
     let resolved = null;
+    let quota = null;
+    let breaker = null;
+    let hybridControlsApplied = false;
     // Dideklarasikan DI LUAR try, dan ini perbaikan bug, bukan soal gaya.
     // Blok catch di bawah mencatat `lokal?.intent`, dan `const lokal` di dalam
     // try TIDAK ada di scope catch. Setiap error Gemini, termasuk kuota habis,
@@ -976,12 +1095,26 @@ export const AiController = {
       // Jalur live evidence tidak bergantung pada filter/snapshot browser.
       // Dashboard yang sedang dibuka hanya hint; router tetap boleh memilih
       // dashboard ACL lain yang lebih relevan dengan pertanyaan/periode.
-      const evidenceResponse = await routeDashboardEvidence({
-        req, user, dashboard, snapshot, localAnswer: lokal,
+      const controlledEvidence = await runControlledDashboardEvidence({
+        req, user, dashboard, snapshot, localAnswer: lokal, question: q, model,
       });
-      if (evidenceResponse) {
+      if (controlledEvidence.terminal) {
+        if (controlledEvidence.terminal.retryAfterSeconds) {
+          res.set("Retry-After", String(controlledEvidence.terminal.retryAfterSeconds));
+        }
+        return res
+          .status(controlledEvidence.terminal.status)
+          .json(controlledEvidence.terminal.payload);
+      }
+      if (controlledEvidence.controls) {
+        resolved = controlledEvidence.controls.resolved;
+        quota = controlledEvidence.controls.quota;
+        breaker = controlledEvidence.controls.breaker;
+        hybridControlsApplied = Boolean(controlledEvidence.controls.rateLimited);
+      }
+      if (controlledEvidence.response) {
         req.ciaTelemetrySettled = true;
-        return res.json(evidenceResponse);
+        return res.json(controlledEvidence.response);
       }
 
       // Request validity is checked before service availability, so a malformed
@@ -1058,7 +1191,7 @@ export const AiController = {
         return res.json(payload);
       }
 
-      resolved = await resolveKey(user.id, model);
+      resolved ||= await resolveKey(user.id, model);
       if (!resolved) {
         return res.status(503).json({
           message:
@@ -1068,19 +1201,21 @@ export const AiController = {
 
       // Rate limit — protects the shared free-tier quota. Counted only once a
       // request is actually about to consume Gemini quota.
-      const limit = rateLimit.hit(user.id, RATE_MAX_REQUESTS, RATE_WINDOW_SECONDS);
-      if (!limit.allowed) {
-        res.set("Retry-After", String(limit.retryAfterSeconds));
-        return res.status(429).json({
-          message: `Terlalu banyak pertanyaan. Maksimal ${RATE_MAX_REQUESTS} per ${RATE_WINDOW_SECONDS} detik — coba lagi dalam ${limit.retryAfterSeconds} detik.`,
-        });
+      if (!hybridControlsApplied) {
+        const limit = rateLimit.hit(user.id, RATE_MAX_REQUESTS, RATE_WINDOW_SECONDS);
+        if (!limit.allowed) {
+          res.set("Retry-After", String(limit.retryAfterSeconds));
+          return res.status(429).json({
+            message: `Terlalu banyak pertanyaan. Maksimal ${RATE_MAX_REQUESTS} per ${RATE_WINDOW_SECONDS} detik — coba lagi dalam ${limit.retryAfterSeconds} detik.`,
+          });
+        }
       }
 
       // ── Tier routing (Fase 2) ───────────────────────────────────────────────
       // Quota is scoped to the key that will actually be charged: a personal key
       // has a private allowance, the universal key is one shared pool.
-      const quota = await aiQuota.summary(user.id, resolved.source).catch(() => null);
-      const breaker = aiQuota.breakerState(quota);
+      quota ??= await aiQuota.summary(user.id, resolved.source).catch(() => null);
+      breaker ||= aiQuota.breakerState(quota);
 
       const pastTurns = useHistory
         ? await AiModel.getHistory(user.id, dashboard.id, HISTORY_TURNS)

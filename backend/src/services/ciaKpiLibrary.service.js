@@ -14,6 +14,7 @@
 // ACL dibuang; binding model-level (dashboard_id NULL) tidak membocorkan
 // dashboard sehingga tetap boleh. Bila null, tidak ada filter (mode centralized).
 import db from "../config/db.js";
+import { ciaKpiLibraryReadEnabled } from "../config/featureFlags.js";
 import { KATALOG_KPI } from "./kpiCatalog.js";
 import { buildIntentFrame } from "./cia/intentFrame.js";
 import { buildVisualBlueprint } from "./cia/visualBlueprint.js";
@@ -48,6 +49,8 @@ const GENERIC = new Set([
 ]);
 
 let warnedFallback = false;
+const candidatePoolCache = new Map();
+const CANDIDATE_CACHE_MS = 60_000;
 function warnFallbackOnce(reason) {
   if (warnedFallback) return;
   warnedFallback = true;
@@ -55,7 +58,7 @@ function warnFallbackOnce(reason) {
 }
 
 function libraryEnabled() {
-  return process.env.CIA_KPI_LIBRARY_ENABLED === "true";
+  return ciaKpiLibraryReadEnabled();
 }
 
 // ── Tokenisasi ──────────────────────────────────────────────────────────────
@@ -291,24 +294,63 @@ function catalogCandidates() {
 }
 
 async function resolveCandidatePool(allowedDashboardIds) {
+  const enabled = libraryEnabled();
+  const scopeKey = Array.isArray(allowedDashboardIds)
+    ? [...new Set(allowedDashboardIds.map(Number).filter(Number.isInteger))].sort((a, b) => a - b).join(",")
+    : "centralized";
+  const cacheKey = `${enabled ? "enabled" : "disabled"}:${scopeKey}`;
+  const cached = candidatePoolCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const remember = (value) => {
+    candidatePoolCache.set(cacheKey, { value, expiresAt: Date.now() + CANDIDATE_CACHE_MS });
+    return value;
+  };
   // Catalog lama tidak punya dashboardId, jadi tidak bisa dibuktikan masuk ACL
   // user web. Hanya surface centralized yang boleh menggunakannya.
   const safeCatalog = () => Array.isArray(allowedDashboardIds) ? [] : catalogCandidates();
-  if (!libraryEnabled()) {
-    warnFallbackOnce("flag CIA_KPI_LIBRARY_ENABLED != true");
-    return { pool: safeCatalog(), source: "catalog" };
+  if (!enabled) {
+    warnFallbackOnce("CIA_KPI_LIBRARY_ENABLED dan CIA_HYBRID_QUERY_ENABLED sama-sama mati");
+    return remember({ pool: safeCatalog(), source: "catalog" });
   }
   try {
     const lib = await loadLibraryCandidates(allowedDashboardIds);
     if (!lib || lib.length === 0) {
       warnFallbackOnce("library kosong");
-      return { pool: safeCatalog(), source: "catalog" };
+      return remember({ pool: safeCatalog(), source: "catalog" });
     }
-    return { pool: lib, source: "library" };
+    return remember({ pool: lib, source: "library" });
   } catch (err) {
     warnFallbackOnce(`tabel library tidak tersedia (${err?.code || err?.message})`);
-    return { pool: safeCatalog(), source: "catalog" };
+    return remember({ pool: safeCatalog(), source: "catalog" });
   }
+}
+
+export function clearKpiLibraryCache() {
+  candidatePoolCache.clear();
+}
+
+export async function getIntentVocabulary(allowedDashboardIds = null) {
+  const { pool: candidates } = await resolveCandidatePool(allowedDashboardIds);
+  const concepts = new Map();
+  for (const candidate of candidates) {
+    const value = normalized(candidate.slug || candidate.humanName).replace(/[_-]+/g, " ");
+    if (!value) continue;
+    const phrases = [
+      candidate.humanName,
+      ...(candidate.synonyms || []),
+      ...(candidate.answerableQuestions || []),
+      value,
+      ...(candidate.bindings || []).flatMap((binding) => [
+        binding.displayCaption, binding.visualTitle, binding.measureName,
+      ]),
+    ].map(normalized).filter(Boolean);
+    const current = concepts.get(value) || new Set();
+    for (const phrase of phrases) current.add(phrase);
+    concepts.set(value, current);
+  }
+  return {
+    concepts: [...concepts.entries()].map(([value, phrases]) => ({ value, phrases: [...phrases] })),
+  };
 }
 
 // ── API publik ──────────────────────────────────────────────────────────────

@@ -91,6 +91,8 @@ function flattenCandidates(kpis) {
         dateLogic: binding.dateLogic || null,
         dimensions: preserveDimensions(binding.dimensions, 50),
         blueprint: binding.blueprint || null,
+        metricRole: binding.metricRole || binding.blueprint?.metricRole || null,
+        verificationStatus: binding.verificationStatus || null,
         periodDefaults: binding.periodDefaults || null,
         origin: "deterministic",
         purpose: "primary",
@@ -173,7 +175,7 @@ export async function routeEvidence(input = {}, injected = {}) {
   if (typeof input.aiPlanner === "function") {
     try {
       const result = await input.aiPlanner({
-        question: input.question,
+        question: input.modelQuestion ?? input.question,
         periods: input.periods || [],
         candidateBindings: deterministic,
       });

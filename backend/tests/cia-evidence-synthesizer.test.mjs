@@ -244,6 +244,45 @@ ok("question biasa tidak berubah dan packet live mempertahankan configured label
 ok("jawaban live biasa tidak over-sanitized", ordinaryLive.answer.includes("Jam lembur produksi 120"),
   ordinaryLive.answer);
 
+section("Live DAX rows dan jawaban memakai satu sanitizer request");
+const liveSanitizer = createSanitizer({ secret: "live-boundary-test" });
+let sanitizedLivePacket;
+let livePseudonym;
+const sanitizedLive = await synthesizeEvidence({
+  question: "berapa score Supplier AJI?",
+  evidence: [{
+    ...overtime,
+    rows: [{ "Supplier Name": "AJI", Score: 97.5 }],
+    columns: [
+      { key: "Supplier Name", label: "Supplier" },
+      { key: "Score", label: "Score" },
+    ],
+  }],
+}, {
+  sanitizer: liveSanitizer,
+  callModel: async (args) => {
+    sanitizedLivePacket = JSON.parse(args.question);
+    livePseudonym = sanitizedLivePacket.sources[0].rows[0].Supplier;
+    return modelReply({
+      answer: `${livePseudonym} memiliki Score 97.5; kontak supplier@example.com`,
+      citedSourceIndexes: [0],
+    })();
+  },
+});
+ok("raw live entity tidak melewati synthesis boundary dan pseudonym stabil",
+  !/AJI/.test(JSON.stringify(sanitizedLivePacket))
+    && /^MITRA_/.test(livePseudonym)
+    && sanitizedLivePacket.question.includes(livePseudonym),
+  JSON.stringify(sanitizedLivePacket));
+ok("angka live tetap number dan human label tetap utuh",
+  sanitizedLivePacket.sources[0].rows[0].Score === 97.5
+    && Object.hasOwn(sanitizedLivePacket.sources[0].rows[0], "Supplier"),
+  JSON.stringify(sanitizedLivePacket.sources[0].rows[0]));
+ok("jawaban model disanitasi dengan pseudonym yang sama",
+  sanitizedLive.answer.includes(livePseudonym)
+    && !/AJI|supplier@example\.com/i.test(sanitizedLive.answer),
+  sanitizedLive.answer);
+
 section("Tanpa bukti menghasilkan keterbatasan jujur tanpa memanggil AI");
 let calls = 0;
 const none = await synthesizeEvidence({ question: "jelaskan deviasi", evidence: [] }, {

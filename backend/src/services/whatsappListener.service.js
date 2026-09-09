@@ -25,6 +25,7 @@ import { getCiaIdentityText, isCiaIdentityQuestion } from "./ciaIdentity.js";
 import { sudahDisapa, tandaiSudahDisapa } from "../models/waGroupIntroModel.js";
 import { startCiaTelemetry } from "./ciaTelemetry.service.js";
 import { ciaHybridQueryEnabled } from "../config/featureFlags.js";
+import { getSanitizer } from "./aiSanitizer.js";
 
 // ── Topik terakhir per grup ───────────────────────────────────────────────────
 //
@@ -633,6 +634,7 @@ export async function jawabPertanyaanUmum(sock, jid, msg, teks, overrides = {}) 
   const jawabDenganDax = overrides.jawabDenganDax || defaultDax;
   const answerWithEvidence = overrides.answerWithEvidence || defaultEvidence;
   const hybridEnabled = overrides.hybridEnabled ?? ciaHybridQueryEnabled();
+  const sanitizer = overrides.sanitizer || getSanitizer();
   const starter = overrides.startCiaTelemetry || startCiaTelemetry;
   const mulai = Date.now();
   let telemetry = null;
@@ -743,7 +745,7 @@ export async function jawabPertanyaanUmum(sock, jid, msg, teks, overrides = {}) 
           ? overrides.preferredDashboardIds : [],
         reportContext: overrides.reportContext ?? null,
         accessMode: "centralized",
-      }, evidenceTracker ? { tracker: evidenceTracker } : {});
+      }, { ...(evidenceTracker ? { tracker: evidenceTracker } : {}), sanitizer });
     } catch (err) {
       deferredFailure = { error: err, data: { retrievalMethod: "none" } };
     }
