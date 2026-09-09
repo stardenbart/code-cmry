@@ -10,6 +10,7 @@
 // bertambah, tidak pernah dihapus atau ditimpa.
 import crypto from "crypto";
 import db from "../config/db.js";
+import { clearKpiLibraryCache } from "../services/ciaKpiLibrary.service.js";
 
 const pool = db.promise();
 
@@ -272,6 +273,7 @@ export async function createKpi(input = {}, actorId = null, reason = "Dibuat dar
     });
     return newId;
   });
+  clearKpiLibraryCache();
   return getKpi(id);
 }
 
@@ -303,7 +305,10 @@ async function mutateKpi(id, { action, apply, reason, actorId, expectedVersion }
       action, reason: safeReason, actorId,
     });
     return next.version;
-  }).then(() => getKpi(id));
+  }).then(() => {
+    clearKpiLibraryCache();
+    return getKpi(id);
+  });
 }
 
 export async function updateKpi(id, patch = {}, actorId = null, reason = "", opts = {}) {
