@@ -81,8 +81,23 @@ export function prepareSnapshotModelInput({ question, jendela, domains }, inject
   };
 }
 
+/**
+ * Menyiapkan jawaban model untuk ditampilkan ke grup WhatsApp.
+ *
+ * Input ke model DISAMARKAN (prepareSnapshotModelInput mengganti nama nyata
+ * dengan token MITRA_/ORANG_/DOK_ sebelum dikirim ke Gemini), jadi kalau model
+ * menyebut entitas itu di jawabannya, ia menyebut TOKENnya, bukan nama asli.
+ * `restore()` mengembalikan token itu ke nilai aslinya — desain pseudonymization
+ * dua arah yang sama seperti fitur lain: model bernalar dengan token, tapi
+ * manusia yang membaca grup tetap melihat nama nyata (AJI, bukan MITRA_1).
+ *
+ * Ini BUKAN sanitasi ulang: menyanitasi jawaban (sanitizeText) akan menutupi
+ * nama asli yang justru ingin dibaca manajemen di grup. Yang tetap jalan hanya
+ * humanizeTechnicalText, supaya label teknis (nama measure/kolom) tetap
+ * dirapikan tanpa menyembunyikan identitas.
+ */
 export function sanitizeSnapshotModelAnswer(text, sanitizer = getSanitizer()) {
-  return humanizeTechnicalText(sanitizer.sanitizeText(text));
+  return humanizeTechnicalText(sanitizer.restore(text));
 }
 
 async function kunci() {

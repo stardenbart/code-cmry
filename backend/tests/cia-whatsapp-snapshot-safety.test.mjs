@@ -6,7 +6,7 @@ import {
   sanitizeSnapshotModelAnswer,
 } from "../src/services/whatsappQA.service.js";
 
-section("WA snapshot menyanitasi entitas dan menghumanisasi identifier sebelum/sesudah model");
+section("WA snapshot menyanitasi entitas sebelum model, tapi menampilkan nama asli & label manusiawi di jawaban");
 const sanitizer = createSanitizer({ secret: "snapshot-safety-test" });
 const prepared = prepareSnapshotModelInput({
   question: "bagaimana Supplier AJI untuk OT_HOURS?",
@@ -26,12 +26,21 @@ ok("model packet tidak memuat entitas asli atau identifier teknis",
     && /MITRA_/.test(serialized) && /Ot hours/.test(serialized) && /Supplier name/.test(serialized),
   serialized);
 
+// Model hanya pernah melihat token (MITRA_xxxx), bukan "AJI" — muatan yang
+// dikirim ke model sudah menyamarkannya. Jawaban model karena itu memuat token
+// itu juga, dan sanitizeSnapshotModelAnswer harus mengembalikannya ke nama asli
+// supaya grup WhatsApp tetap membaca "AJI", bukan token.
+const [tokenAji] = [...sanitizer._reverse.entries()].find(([, original]) => original === "AJI") || [];
+ok("token untuk AJI benar-benar terdaftar di sanitizer setelah prepareSnapshotModelInput",
+  Boolean(tokenAji), tokenAji);
+
 const safeAnswer = sanitizeSnapshotModelAnswer(
-  "AJI punya OT_HOURS 7 pada Supplier.Name.", sanitizer,
+  `${tokenAji} punya OT_HOURS 7 pada Supplier.Name.`, sanitizer,
 );
-ok("jawaban model disanitasi lagi dan label teknis tidak sampai ke user",
-  !/AJI|OT_HOURS|Supplier\.Name/.test(safeAnswer)
-    && /MITRA_/.test(safeAnswer) && /Ot hours/.test(safeAnswer) && /Supplier name/.test(safeAnswer),
+ok("jawaban ke grup menampilkan nama asli (tidak disamarkan) dan tetap menghumanisasi label teknis",
+  /AJI/.test(safeAnswer) && !/MITRA_/.test(safeAnswer)
+    && !/OT_HOURS|Supplier\.Name/.test(safeAnswer)
+    && /Ot hours/.test(safeAnswer) && /Supplier name/.test(safeAnswer),
   safeAnswer);
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
