@@ -28,7 +28,9 @@ export default function Sidebar({
   onToggleCollapse,
 }) {
   const navigate = useNavigate();
-  const [expandedPlant, setExpandedPlant] = useState(null);
+  // Plant default TERBUKA semua (null = semua terbuka) dan tetap terbuka sampai
+  // user menutupnya sendiri. Dept tetap accordion biasa (klik untuk buka).
+  const [expandedPlants, setExpandedPlants] = useState(null);
   const [expandedDept, setExpandedDept] = useState(null);
   const [jumlahBaru, setJumlahBaru] = useState(0);
 
@@ -54,16 +56,33 @@ export default function Sidebar({
   const visiblePlants = (Array.isArray(plants) ? plants : [])
     .filter((p) => crossPlant || userPlantIds.has(Number(p.id)));
 
-  // Dashboard per (plant_id, department_id).
+  // Buka/tutup satu plant. null = semua terbuka; toggle pertama memmaterialisasi
+  // set dari plant yang terlihat lalu menutup yang diklik.
+  const togglePlant = (id) => setExpandedPlants((prev) => {
+    const base = prev === null ? new Set(visiblePlants.map((p) => p.id)) : new Set(prev);
+    if (base.has(id)) base.delete(id); else base.add(id);
+    return base;
+  });
+  const isPlantOpen = (id) => expandedPlants === null || expandedPlants.has(id);
+
+  // Dashboard per (plant, department-NAME). Satu dashboard bisa tampil di
+  // beberapa plant (d.plantIds); department dicocokkan lewat NAMA supaya
+  // department bernama sama di plant lain ikut memuatnya.
   const dashByKey = new Map();
   for (const d of Array.isArray(dashboardsFlat) ? dashboardsFlat : []) {
-    if (d.plant_id == null || d.department_id == null) continue;
-    const key = `${d.plant_id}:${d.department_id}`;
-    if (!dashByKey.has(key)) dashByKey.set(key, []);
-    dashByKey.get(key).push({
-      id: d.id, title: d.title, url: d.url, report_id: d.report_id,
-      description: d.description, department: d.department_name || d.department || "",
-    });
+    const deptName = d.department_name || d.department || "";
+    if (!deptName) continue;
+    const pids = (Array.isArray(d.plantIds) && d.plantIds.length)
+      ? d.plantIds
+      : (d.plant_id != null ? [d.plant_id] : []);
+    for (const pid of pids) {
+      const key = `${pid}:${deptName}`;
+      if (!dashByKey.has(key)) dashByKey.set(key, []);
+      dashByKey.get(key).push({
+        id: d.id, title: d.title, url: d.url, report_id: d.report_id,
+        description: d.description, department: deptName,
+      });
+    }
   }
 
   const handleDashClick = (dash) => {
@@ -128,15 +147,15 @@ export default function Sidebar({
           <li className="px-4 py-3 text-xs text-white/60">Belum ada plant untuk akun ini.</li>
         )}
         {visiblePlants.map((plant) => {
-          const plantOpen = expandedPlant === plant.id;
-          // Department yang punya dashboard saja.
+          const plantOpen = isPlantOpen(plant.id);
+          // Department yang punya dashboard saja (dicocokkan lewat nama).
           const depts = (plant.departments || []).filter(
-            (dep) => (dashByKey.get(`${plant.id}:${dep.id}`) || []).length > 0);
+            (dep) => (dashByKey.get(`${plant.id}:${dep.name}`) || []).length > 0);
           return (
             <li key={`plant-${plant.id}`}>
               <button
                 type="button"
-                onClick={() => setExpandedPlant((prev) => (prev === plant.id ? null : plant.id))}
+                onClick={() => togglePlant(plant.id)}
                 aria-expanded={plantOpen}
                 aria-controls={`plant-${varian}-${plant.id}`}
                 className="w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 select-none
@@ -162,7 +181,7 @@ export default function Sidebar({
                     <li className="px-3 py-2 text-[11px] text-white/50">Tidak ada dashboard.</li>
                   )}
                   {depts.map((dep) => {
-                    const deptKey = `${plant.id}:${dep.id}`;
+                    const deptKey = `${plant.id}:${dep.name}`;
                     const deptOpen = expandedDept === deptKey;
                     const items = dashByKey.get(deptKey) || [];
                     return (

@@ -106,7 +106,7 @@ const DashboardManager = () => {
   const confirm = useConfirm();
   const toast = useToast();
   const [dashboards, setDashboards]               = useState([]);
-  const [newDashboard, setNewDashboard]           = useState({ title: "", url: "", report_id: "", department: "", description: "", pic_emails: "" });
+  const [newDashboard, setNewDashboard]           = useState({ title: "", url: "", report_id: "", department: "", department_id: "", plantIds: [], description: "", pic_emails: "" });
   const [newEmails, setNewEmails]                 = useState([]);
   const [editingDashboard, setEditingDashboard]   = useState(null);
   const [editEmails, setEditEmails]               = useState([]);
@@ -126,36 +126,74 @@ const DashboardManager = () => {
       .catch((err) => console.error("Error fetching plants:", err));
   }, []);
 
-  // Dropdown Plant + Department dependen. Menyetel plant_id/department_id dan
-  // menyinkronkan `department` (nama) untuk kompatibilitas kolom lama.
+  // Nama plant dari daftar id (untuk tabel).
+  const plantNamesOf = (ids) =>
+    (Array.isArray(ids) ? ids : [])
+      .map((id) => plants.find((p) => Number(p.id) === Number(id))?.name)
+      .filter(Boolean)
+      .join(", ");
+
+  // Plant MULTI-PILIH + Department (satu nama) yang berlaku sama di tiap plant.
+  // Satu dashboard bisa ditautkan ke >1 plant; department dicocokkan lewat NAMA,
+  // jadi plant tujuan harus punya department bernama sama. `department` (nama)
+  // dipakai sidebar; `department_id` diisi id department bernama sama di plant
+  // pertama untuk kompatibilitas kolom lama.
   const plantDeptFields = (obj, setObj) => {
-    const selectedPlant = plants.find((p) => Number(p.id) === Number(obj.plant_id));
-    const depts = selectedPlant?.departments || [];
+    const selectedIds = (Array.isArray(obj.plantIds) ? obj.plantIds : []).map(Number);
+    const deptNames = [...new Set(
+      plants.filter((p) => selectedIds.includes(Number(p.id)))
+        .flatMap((p) => (p.departments || []).map((d) => d.name))
+    )].sort();
+
+    const togglePlant = (pid) => {
+      const id = Number(pid);
+      const next = selectedIds.includes(id)
+        ? selectedIds.filter((x) => x !== id)
+        : [...selectedIds, id];
+      // Kalau department terpilih tak lagi tersedia di plant manapun, reset.
+      const stillValid = next.some((p2) =>
+        (plants.find((p) => Number(p.id) === p2)?.departments || [])
+          .some((d) => d.name === obj.department));
+      setObj({ ...obj, plantIds: next, ...(stillValid ? {} : { department: "", department_id: "" }) });
+    };
+
+    const onDept = (name) => {
+      let depId = "";
+      for (const pid of selectedIds) {
+        const d = (plants.find((p) => Number(p.id) === pid)?.departments || [])
+          .find((x) => x.name === name);
+        if (d) { depId = d.id; break; }
+      }
+      setObj({ ...obj, department: name, department_id: depId });
+    };
+
     return (
       <>
-        <Field label="Plant">
-          <select
-            value={obj.plant_id || ""}
-            onChange={(e) => setObj({ ...obj, plant_id: e.target.value ? Number(e.target.value) : "", department_id: "", department: "" })}
-            className={inputCls}
-          >
-            <option value="">Pilih Plant</option>
-            {plants.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+        <Field label="Plant (bisa lebih dari satu)">
+          <div className="flex flex-wrap gap-2 border border-gray-300 rounded-lg p-2 min-h-[42px] items-center">
+            {plants.length === 0 && <span className="text-xs text-gray-400">Belum ada plant</span>}
+            {plants.map((p) => {
+              const on = selectedIds.includes(Number(p.id));
+              return (
+                <button type="button" key={p.id} onClick={() => togglePlant(p.id)}
+                  className={`text-xs font-medium px-2.5 py-1 rounded-full border transition ${
+                    on ? "bg-cimoryBlue text-white border-cimoryBlue"
+                       : "bg-white text-gray-600 border-gray-300 hover:border-cimoryBlue"}`}>
+                  {p.name}
+                </button>
+              );
+            })}
+          </div>
         </Field>
         <Field label="Department">
           <select
-            value={obj.department_id || ""}
-            disabled={!obj.plant_id}
-            onChange={(e) => {
-              const id = e.target.value ? Number(e.target.value) : "";
-              const d = depts.find((x) => Number(x.id) === id);
-              setObj({ ...obj, department_id: id, department: d?.name || "" });
-            }}
+            value={obj.department || ""}
+            disabled={selectedIds.length === 0}
+            onChange={(e) => onDept(e.target.value)}
             className={inputCls}
           >
-            <option value="">Pilih Department</option>
-            {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            <option value="">{selectedIds.length ? "Pilih Department" : "Pilih plant dulu"}</option>
+            {deptNames.map((name) => <option key={name} value={name}>{name}</option>)}
           </select>
         </Field>
       </>
@@ -188,7 +226,7 @@ const DashboardManager = () => {
       const payload = { ...newDashboard, pic_emails: toEmailString(newEmails) };
       const res = await API.post("/api/dashboards", payload);
       setDashboards((prev) => [...prev, { ...payload, id: res.data.id }]);
-      setNewDashboard({ title: "", url: "", department: "", description: "", pic_emails: "" });
+      setNewDashboard({ title: "", url: "", report_id: "", department: "", department_id: "", plantIds: [], description: "", pic_emails: "" });
       setNewEmails([]);
     } catch (err) { console.error("Error adding dashboard:", err); }
   };
@@ -348,6 +386,7 @@ const DashboardManager = () => {
                 <tr>
                   <th className="p-3 text-left font-medium text-sm">Title</th>
                   <th className="p-3 text-left font-medium text-sm">Department</th>
+                  <th className="p-3 text-left font-medium text-sm">Plant</th>
                   <th className="p-3 text-left font-medium text-sm">Public URL</th>
                   <th className="p-3 text-left font-medium text-sm">Report ID</th>
                   <th className="p-3 text-left font-medium text-sm">PIC Emails</th>
@@ -360,6 +399,10 @@ const DashboardManager = () => {
                     <tr key={d.id} className="border-b hover:bg-sky-50 transition-colors">
                       <td className="p-3 font-medium text-sm">{d.title}</td>
                       <td className="p-3 text-sm">{d.department}</td>
+                      <td className="p-3 text-sm">
+                        {plantNamesOf(d.plantIds)
+                          || <span className="text-gray-300 text-xs">Semua plant</span>}
+                      </td>
                       <td className="p-3 font-mono text-xs text-gray-500 truncate max-w-[150px]" title={d.url}>
 		         {d.url
                             ? <Link2 size={14} className="text-green-600" aria-label="URL terisi" />
@@ -402,7 +445,7 @@ const DashboardManager = () => {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="5" className="p-6 text-center text-gray-500 text-sm">No dashboards found</td>
+                    <td colSpan="7" className="p-6 text-center text-gray-500 text-sm">No dashboards found</td>
                   </tr>
                 )}
               </tbody>

@@ -14,14 +14,14 @@ export const DashboardController = {
 
   createDashboard: async (req, res) => {
     try {
-      const { title, description, url, report_id, department, pic_emails, plant_id, department_id } = req.body;
+      const { title, description, url, report_id, department, pic_emails, plant_id, department_id, plantIds } = req.body;
 
       if (!title || !url || !department) {
         return res.status(400).json({ message: "Title, Public Embed URL, and department are required" });
       }
 
       const id = await DashboardModel.create({
-        title, description, url, report_id, department, pic_emails, plant_id, department_id,
+        title, description, url, report_id, department, pic_emails, plant_id, department_id, plantIds,
       });
 
       res.status(201).json({ id, message: "✅ Dashboard created successfully" });

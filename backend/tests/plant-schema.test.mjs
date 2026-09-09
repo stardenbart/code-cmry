@@ -56,6 +56,13 @@ section("Kolom tambahan users & dashboards");
   ok("dashboards.department_id ada", d.has("department_id"));
 }
 
+section("Tabel dashboard_plants (dashboard M2M plant)");
+{
+  const c = await cols("dashboard_plants");
+  ok("dashboard_plants.dashboard_id ada", c.has("dashboard_id"));
+  ok("dashboard_plants.plant_id ada", c.has("plant_id"));
+}
+
 section("Seed Sentul(1001)");
 {
   const [rows] = await sql.query("SELECT id, code FROM plants WHERE name='Sentul' LIMIT 1");

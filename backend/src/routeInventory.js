@@ -49,6 +49,7 @@ export const ROUTE_CLASSIFICATION = new Map([
   ["GET /api/approve-user-via-email", "public"],
   ["GET /api/reject-user-via-email", "public"],
   ["GET /api/portal-links/", "public"],
+  ["GET /api/plants/public", "public"],
 
   // authenticated
   ["GET /api/dashboards/", "authenticated"],

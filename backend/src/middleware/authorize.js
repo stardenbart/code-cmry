@@ -24,6 +24,7 @@ export const PUBLIC_ROUTES = new Set([
   "GET /api/approve-user-via-email",
   "GET /api/reject-user-via-email",
   "GET /api/portal-links",             // landing page renders before login
+  "GET /api/plants/public",            // register form needs plant+dept list before login
 ]);
 
 export function isPublicRoute(method, path) {

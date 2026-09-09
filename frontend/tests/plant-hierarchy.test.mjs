@@ -20,14 +20,15 @@ console.log("\n=== Sidebar hierarchy ===");
 check("Sidebar terima plants & dashboardsFlat", /plants = \[\]/.test(sidebar) && /dashboardsFlat = \[\]/.test(sidebar));
 check("filter plant per akses user (cross_plant / user.plants)",
   /cross_plant_access/.test(sidebar) && /userPlantIds/.test(sidebar));
-check("group dashboard per plant_id:department_id", /plant_id.*department_id|`\$\{d\.plant_id\}:\$\{d\.department_id\}`/.test(sidebar));
-check("dua tingkat collapsible (plant & dept)", /expandedPlant/.test(sidebar) && /expandedDept/.test(sidebar));
+check("group dashboard per plant + nama department (multi-plant)", /d\.plantIds/.test(sidebar) && /\$\{pid\}:\$\{deptName\}/.test(sidebar));
+check("dua tingkat collapsible (plant & dept)", /expandedPlants/.test(sidebar) && /expandedDept/.test(sidebar));
+check("plant default terbuka (null = semua terbuka)", /isPlantOpen/.test(sidebar) && /expandedPlants === null/.test(sidebar));
 
 console.log("\n=== Dashboard Manager dropdowns ===");
 check("plantDeptFields ada", /plantDeptFields/.test(dashMgr));
 check("ambil plants", /API\.get\("\/api\/plants"\)/.test(dashMgr));
-check("dropdown plant & department dependen (department_id di-reset saat plant berubah)",
-  /department_id: ""/.test(dashMgr) && /Pilih Plant/.test(dashMgr) && /Pilih Department/.test(dashMgr));
+check("plant multi-pilih + department by nama",
+  /plantIds/.test(dashMgr) && /bisa lebih dari satu/.test(dashMgr) && /Pilih Department/.test(dashMgr));
 
 console.log("\n=== Manage Users plant + cross-plant ===");
 check("form punya plantIds & crossPlantAccess", /plantIds/.test(manageUsers) && /crossPlantAccess/.test(manageUsers));
@@ -50,7 +51,7 @@ check("AddUser ambil plants", /API\.get\("\/api\/plants"\)/.test(addUser));
 check("AddUser punya dropdown plant + department dependen",
   /key === "plant"/.test(addUser) && /plantDepartments/.test(addUser));
 check("AddUser kirim plantIds", /plantIds:/.test(addUser));
-check("Register ambil plants", /API\.get\("\/api\/plants"\)/.test(register));
+check("Register ambil plants (endpoint publik, hindari 401->logout)", /API\.get\("\/api\/plants\/public"\)/.test(register));
 check("Register punya plant select + departemen dependen",
   /name="plantId"/.test(register) && /selectedPlant/.test(register) && /disabled=\{!form\.plantId\}/.test(register));
 

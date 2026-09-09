@@ -3,11 +3,18 @@
 import express from "express";
 import { requireAdmin } from "../middleware/authorize.js";
 import {
-  listPlantsWithDepartments, createPlant, updatePlant, deletePlant,
+  listPlantsWithDepartments, listPublicPlants, createPlant, updatePlant, deletePlant,
   createDepartment, updateDepartment, deleteDepartment,
 } from "../models/plantModel.js";
 
 const router = express.Router();
+
+// Publik: dipakai form registrasi sebelum user punya token. Harus terdaftar di
+// PUBLIC_ROUTES (authorize.js). Hanya plant/department aktif, tanpa data sensitif.
+router.get("/public", async (_req, res) => {
+  try { res.json(await listPublicPlants()); }
+  catch (err) { fail(res, err); }
+});
 
 function fail(res, err) {
   if (err && err.code === "ER_DUP_ENTRY") {

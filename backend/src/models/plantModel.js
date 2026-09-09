@@ -1,8 +1,10 @@
 // Model Plant/Department + assignment plant user & helper akses ter-gate plant.
 //
 // allowedDashboardIdsForUser adalah SATU sumber kebenaran aturan akses berlapis:
-//   (All Access ATAU grant eksplisit) DAN (lintas-plant ATAU plant dashboard ∈
-//   plant user). Dipakai ulang oleh CIA accessScope agar batas plant konsisten.
+//   (All Access ATAU grant eksplisit) DAN (lintas-plant ATAU dashboard tanpa
+//   plant ATAU salah satu plant dashboard ∈ plant user). Satu dashboard bisa
+//   ditautkan ke banyak plant lewat dashboard_plants. Dipakai ulang oleh CIA
+//   accessScope agar batas plant konsisten.
 import db from "../config/db.js";
 
 const sql = db.promise();
@@ -21,6 +23,23 @@ export async function listPlantsWithDepartments() {
   return plants.map((p) => ({
     id: p.id, name: p.name, code: p.code, active: Boolean(p.active),
     departments: byPlant.get(p.id) || [],
+  }));
+}
+
+// Versi publik untuk form registrasi (sebelum login): hanya plant & department
+// aktif, kolom minimal. Dipakai endpoint GET /api/plants/public.
+export async function listPublicPlants() {
+  const [plants] = await sql.query(
+    "SELECT id, name, code FROM plants WHERE active = 1 ORDER BY name");
+  const [depts] = await sql.query(
+    "SELECT id, plant_id, name FROM departments WHERE active = 1 ORDER BY name");
+  const byPlant = new Map();
+  for (const d of depts) {
+    if (!byPlant.has(d.plant_id)) byPlant.set(d.plant_id, []);
+    byPlant.get(d.plant_id).push({ id: d.id, name: d.name });
+  }
+  return plants.map((p) => ({
+    id: p.id, name: p.name, code: p.code, departments: byPlant.get(p.id) || [],
   }));
 }
 
@@ -99,8 +118,10 @@ export async function allowedDashboardIdsForUser(userId) {
       WHERE d.active = 1
         AND (u.tipe_akses = 'All Access' OR uda.user_id IS NOT NULL)
         AND (u.cross_plant_access = 1
-             OR d.plant_id IS NULL
-             OR d.plant_id IN (SELECT plant_id FROM user_plants WHERE user_id = u.id))
+             OR NOT EXISTS (SELECT 1 FROM dashboard_plants dp WHERE dp.dashboard_id = d.id)
+             OR EXISTS (SELECT 1 FROM dashboard_plants dp
+                         WHERE dp.dashboard_id = d.id
+                           AND dp.plant_id IN (SELECT plant_id FROM user_plants WHERE user_id = u.id)))
       ORDER BY d.id`,
     [userId]);
   return rows.map((r) => String(r.id));

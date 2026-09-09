@@ -24,8 +24,10 @@ export async function loadUserDashboardIds(actor) {
       WHERE d.active = 1
         AND (u.tipe_akses = 'All Access' OR uda.user_id IS NOT NULL)
         AND (u.cross_plant_access = 1
-             OR d.plant_id IS NULL
-             OR d.plant_id IN (SELECT plant_id FROM user_plants WHERE user_id = u.id))
+             OR NOT EXISTS (SELECT 1 FROM dashboard_plants dp WHERE dp.dashboard_id = d.id)
+             OR EXISTS (SELECT 1 FROM dashboard_plants dp
+                         WHERE dp.dashboard_id = d.id
+                           AND dp.plant_id IN (SELECT plant_id FROM user_plants WHERE user_id = u.id)))
       ORDER BY d.id`,
     [userId],
   );

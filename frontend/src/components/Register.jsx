@@ -24,7 +24,10 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    API.get("/api/plants")
+    // Endpoint publik: form ini tampil sebelum login, jadi tak boleh memakai
+    // /api/plants (authenticated) yang akan memicu 401 -> refresh gagal ->
+    // force-logout dan menendang balik ke landing page.
+    API.get("/api/plants/public")
       .then((res) => setPlants(Array.isArray(res.data) ? res.data : []))
       .catch(() => setPlants([]));
   }, []);

@@ -19,6 +19,18 @@ const [dins] = await sql.query(
   [plantBId, deptBId]);
 const dashB = dins.insertId;
 cleanup.dashboards.push(dashB);
+// Placement plant: tanpa baris ini dashboard dianggap plant-neutral (terlihat
+// semua orang). Gate baru menilai keanggotaan lewat dashboard_plants.
+await sql.query("INSERT INTO dashboard_plants (dashboard_id, plant_id) VALUES (?, ?)", [dashB, plantBId]);
+
+// Dashboard multi-plant: ditautkan ke Sentul DAN plant B sekaligus.
+const [dins2] = await sql.query(
+  "INSERT INTO dashboards (title, url, department, active, plant_id, department_id) VALUES ('ZZ Dash AB','http://x','ZZ Dept',1,?,?)",
+  [plantBId, deptBId]);
+const dashAB = dins2.insertId;
+cleanup.dashboards.push(dashAB);
+await sql.query("INSERT INTO dashboard_plants (dashboard_id, plant_id) VALUES (?, ?), (?, ?)",
+  [dashAB, sentulId, dashAB, plantBId]);
 
 // User All Access, hanya di-assign Sentul, cross_plant_access=0.
 const [uins] = await sql.query(
@@ -34,6 +46,8 @@ try {
   ok("All Access melihat dashboard Sentul", own.length > 0, String(own.length));
   ok("TIDAK melihat dashboard plant lain", !own.includes(String(dashB)),
     `dashB=${dashB} bocor`);
+  ok("dashboard multi-plant (Sentul+B) terlihat via Sentul", own.includes(String(dashAB)),
+    `dashAB=${dashAB} tak muncul`);
 
   section("Assign plant kedua -> dashboard-nya muncul");
   await setUserPlants(userId, [sentulId, plantBId]);
