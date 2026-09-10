@@ -292,8 +292,26 @@ function distinctRows(rows, limit, question) {
 }
 
 function evidenceFallback(sources, retrievalMethod, warnings, metadata = {}, question = "") {
-  const usable = sources.filter((source) => Array.isArray(source.rows) && source.rows.length).slice(0, 3);
-  if (!usable.length) return emptyResult(warnings);
+  // Sumber snapshot menyimpan teks konteks internal ("=== DASHBOARD CONTEXT ===")
+  // pada satu field row. Itu untuk model, BUKAN untuk ditampilkan mentah ke user.
+  // Kalau synthesis gagal (mis. kuota AI 429), jangan membuang dump itu.
+  const usable = sources.filter((source) => source.kind !== "snapshot"
+    && Array.isArray(source.rows) && source.rows.length).slice(0, 3);
+  if (!usable.length) {
+    const adaSnapshot = sources.some((source) => source.kind === "snapshot");
+    return {
+      answer: adaSnapshot
+        ? "CIA sudah membaca data dashboard, tetapi layanan AI sedang sibuk/penuh kuota sehingga analisisnya belum bisa disusun. Coba lagi beberapa saat."
+        : emptyResult(warnings).answer,
+      confidence: "low",
+      retrievalMethod: adaSnapshot ? retrievalMethod : "none",
+      sources: [],
+      warnings: [...new Set(warnings)],
+      usage: metadata.usage || null,
+      provider: metadata.provider || null,
+      model: metadata.model || null,
+    };
+  }
   const limit = requestedRowLimit(question);
   const sections = usable.map((source) => {
     const rows = distinctRows(source.rows, limit, question).map((row, index) => {
@@ -355,9 +373,19 @@ export async function synthesizeEvidence(input = {}, injected = {}) {
   try {
     response = await callModel({
       ...(input.modelOptions || {}),
-      systemInstruction: "Jawab dalam JSON saja: {answer:string,citedSourceIndexes:number[]}. Gunakan hanya bukti pada packet. Jangan menyatakan sebab-akibat dari korelasi.",
+      systemInstruction: [
+        "Kamu CIA (Cimory Intelligence Assistant) — Principal Analytics Engineer untuk PT. Cisarua Mountain Dairy. Analisis bukti pada packet dan jawab dalam Bahasa Indonesia yang sama dengan pertanyaan.",
+        "Kembalikan JSON SAJA: {\"answer\": string berformat markdown, \"citedSourceIndexes\": number[]}.",
+        "ATURAN DATA: pakai HANYA angka/nilai yang ada pada packet.sources. Jangan mengarang angka, nama mesin/kategori, atau periode. Jangan menyimpulkan sebab-akibat hanya dari korelasi tanpa bukti mekanisme; kalau menyebut korelasi, tandai sebagai dugaan.",
+        "STRUKTUR answer (markdown, padat, jangan menampilkan ulang seluruh tabel — cukup angka relevan, **bold** angka penting):",
+        "1. **Ringkasan Temuan** — 1-2 kalimat jawaban utama.",
+        "2. **Data Pendukung** — bullet angka kunci dari sumber; sebutkan periode/filter yang berlaku.",
+        "3. Untuk pertanyaan investigatif (kenapa / root cause / naik-turun / bandingkan): tambah **Root Cause** (sertakan confidence High/Medium/Low + alasan satu baris) lalu **Rekomendasi** tindakan operasional yang konkret (mis. mesin/kategori mana yang diprioritaskan).",
+        "4. **Asumsi / Keterbatasan** — sebutkan bila data terbatas/terpotong, KPI belum terkonfirmasi, atau breakdown yang diminta tidak tersedia; sarankan langkah konkret (buka halaman lain / ubah slicer periode).",
+        "Untuk pertanyaan lookup sederhana cukup poin 1-2. Ringkas: target ~150-250 kata.",
+      ].join("\n"),
       question: JSON.stringify(packet),
-      maxOutputTokens: 3_000,
+      maxOutputTokens: 8_000,
     });
   } catch {
     return evidenceFallback(sources, retrievalMethod, [...warnings, "SYNTHESIS_FAILED"], {}, input.question);
