@@ -135,10 +135,12 @@ export async function tanyaModel({
 
   const keGemini = async (alasanCadangan) => {
     const hasil = await _askGemini({
-      // Jalur internal CIA (planner/synthesizer) memanggil tanpa key eksplisit;
-      // jatuh ke kunci universal server supaya tidak melempar NO_API_KEY. Jalur
-      // /api/ai tetap meneruskan key hasil resolve-nya sendiri, jadi tak terpengaruh.
-      apiKey: geminiApiKey || getServerKey(),
+      // Jalur internal CIA (planner/synthesizer) memanggil tanpa key eksplisit.
+      // Urutan fallback mengikuti resolveKey: kunci universal yang DIKELOLA ADMIN
+      // di database lebih dulu, baru kunci .env sebagai cadangan terakhir — jadi
+      // key Gemini tidak lagi hardcode dari .env. Jalur /api/ai tetap meneruskan
+      // key hasil resolve-nya sendiri (termasuk personal key user), tak terpengaruh.
+      apiKey: geminiApiKey || (await aiSettings.getUniversalKey()) || getServerKey(),
       model: geminiModel,
       systemInstruction,
       history,
