@@ -13,7 +13,7 @@
 // 3. Setiap kegagalan dan setiap peralihan dicatat, supaya seberapa sering GLM
 //    gagal bisa dilihat, bukan dikira-kira.
 import { askGlm, GlmError, hasGlmKey } from "../config/glm.js";
-import { askGemini } from "../config/gemini.js";
+import { askGemini, getServerKey } from "../config/gemini.js";
 import * as rateLimit from "./rateLimiter.js";
 import * as aiSettings from "./aiSettings.js";
 
@@ -135,7 +135,10 @@ export async function tanyaModel({
 
   const keGemini = async (alasanCadangan) => {
     const hasil = await _askGemini({
-      apiKey: geminiApiKey,
+      // Jalur internal CIA (planner/synthesizer) memanggil tanpa key eksplisit;
+      // jatuh ke kunci universal server supaya tidak melempar NO_API_KEY. Jalur
+      // /api/ai tetap meneruskan key hasil resolve-nya sendiri, jadi tak terpengaruh.
+      apiKey: geminiApiKey || getServerKey(),
       model: geminiModel,
       systemInstruction,
       history,
